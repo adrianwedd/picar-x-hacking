@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PX_STOP = Path(os.environ.get("PX_STOP_CMD", PROJECT_ROOT / "bin/px-stop"))
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+
+    if dry_mode:
+        payload = {
+            "status": "ok",
+            "dry": True,
+            "message": "stop skipped in dry-run",
+        }
+        update_session(fields={"last_action": "tool_stop"}, history_entry={"event": "stop", "dry": True})
+        log_event("stop", payload)
+        print(json.dumps(payload))
+        return 0
+
+    result = subprocess.run(
+        ["sudo", "-n", "-E", str(PX_STOP)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    payload = {
+        "status": "ok" if result.returncode == 0 else "error",
+        "returncode": result.returncode,
+        "dry": False,
+        "stdout": result.stdout[-2048:],
+        "stderr": result.stderr[-2048:],
+    }
+    update_session(
+        fields={"last_action": "tool_stop", "last_motion": None},
+        history_entry={"event": "stop", "dry": False, "rc": result.returncode},
+    )
+    log_event("stop", payload)
+    print(json.dumps(payload))
+    return 0 if result.returncode == 0 else result.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

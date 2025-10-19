@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import load_session, update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PX_STATUS = Path(os.environ.get("PX_STATUS_CMD", PROJECT_ROOT / "bin/px-status"))
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    threshold = int(os.environ.get("PX_BATTERY_THRESHOLD", "30"))
+
+    command = ["sudo", "-n", "-E", str(PX_STATUS)]
+    if dry_mode:
+        command.append("--dry-run")
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        payload = {
+            "status": "error",
+            "error": f"px-status command missing: {exc}",
+        }
+        log_event("status", payload)
+        print(json.dumps(payload))
+        return 1
+
+    stdout = result.stdout
+    stderr = result.stderr
+    rc = result.returncode
+
+    battery_pct = None
+    battery_ok = None
+    match = re.search(r"Battery estimate: .*?\(~(\d+)% full\)", stdout)
+    if match:
+        battery_pct = int(match.group(1))
+        battery_ok = battery_pct >= threshold
+    elif "Battery estimate unavailable" in stdout or "Battery read error" in stdout:
+        battery_ok = False
+
+    fields = {
+        "last_action": "tool_status",
+        "battery_pct": battery_pct,
+        "battery_ok": battery_ok,
+    }
+    if dry_mode:
+        fields["mode"] = "dry-run"
+
+    history_entry = {
+        "event": "status",
+        "rc": rc,
+        "dry": dry_mode,
+    }
+    if battery_pct is not None:
+        history_entry["battery_pct"] = battery_pct
+
+    update_session(fields=fields, history_entry=history_entry)
+
+    payload = {
+        "status": "ok" if rc == 0 else "error",
+        "returncode": rc,
+        "dry": dry_mode,
+        "battery_pct": battery_pct,
+        "battery_ok": battery_ok,
+        "stdout": stdout[-2048:],
+        "stderr": stderr[-2048:],
+    }
+    log_event("status", payload)
+    print(json.dumps(payload))
+    return 0 if rc == 0 else rc
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

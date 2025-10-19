@@ -4,7 +4,8 @@ Helper scripts and documentation for experimenting with the SunFounder PiCar-X w
 
 ## Safety Checklist
 - Wheels off the ground on secure blocks before any motion tests.
-- Verify an emergency stop option (Ctrl+C in the terminal or `sudo pkill -f picarx`) is within reach.
+- Verify an emergency stop option (Ctrl+C in the terminal, `sudo -E bin/tool-stop`, or a physical kill switch) is within reach.
+- Confirm `state/session.json` has `confirm_motion_allowed: true` only after a human inspection.
 - Run `--dry-run` first to confirm intent and parameters.
 - Keep the working area clear of people, pets, and loose cables.
 
@@ -13,9 +14,9 @@ Helper scripts and documentation for experimenting with the SunFounder PiCar-X w
    ```bash
    source ~/picar-x-hacking/.venv/bin/activate
    ```
-2. Install or update Python dependencies as needed (example: OpenAI CLI tooling):
+2. Install or update Python dependencies as needed (example: OpenAI/Codex CLI tooling):
    ```bash
-   PIP_BREAK_SYSTEM_PACKAGES=1 pip install --upgrade openai
+   PIP_BREAK_SYSTEM_PACKAGES=1 pip install --upgrade openai-codex
    ```
    The `PIP_BREAK_SYSTEM_PACKAGES` warning is expected on Raspberry Pi OS; it simply acknowledges that the venv can access system packages.
 3. When running helpers that touch hardware, prefix the command with `sudo -E` so the virtualenv and environment variables persist.
@@ -44,11 +45,44 @@ All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
   sudo -E bin/px-scan --dry-run --min-angle -50 --max-angle 50 --step 10
   sudo -E bin/px-scan --min-angle -60 --max-angle 60 --step 10
   ```
+- `px-stop` – emergency halt and servo reset:
+  ```bash
+  sudo -E bin/px-stop
+  ```
 
 Each helper logs actions with ISO timestamps and exits cleanly on Ctrl+C.
 
+## State Files
+- Runtime state lives in `state/session.json` (ignored by git). Copy the template before first use:
+  ```bash
+  cp state/session.template.json state/session.json
+  ```
+- The supervisor and tool wrappers update this file with battery data, last motions, and a watchdog heartbeat on every loop turn.
+
+## Codex Voice Assistant
+The Codex-driven loop keeps context in `state/session.json`, validates every tool call, and defaults to dry-run for safety.
+
+1. Configure the Codex CLI command (example assumes `codex chat` accepts stdin):
+   ```bash
+   export CODEX_CHAT_CMD="codex chat --model gpt-4.1-mini --input -"
+   ```
+2. (Optional) Select an audio player for spoken responses:
+   ```bash
+   export PX_VOICE_PLAYER="/usr/bin/say"
+   ```
+3. Run the loop in dry-run mode first:
+   ```bash
+   bin/codex-voice-loop --dry-run --auto-log
+   ```
+   Type a prompt at `You>` and the supervisor will call the Codex CLI, parse the JSON tool request, and execute the corresponding wrapper in dry-run mode.
+4. When moving beyond dry-run, manually flip `confirm_motion_allowed` to `true` in `state/session.json` *after* confirming the car is on blocks. The wrappers will refuse motion otherwise.
+5. Use `--exit-on-stop` if you want the loop to terminate after a successful `tool-stop` invocation.
+
+The system prompt consumed by Codex lives in `docs/prompts/codex-voice-system.md`; adjust it if you add tools or new safety rules.
+
 ## Logging Strategy
 - Logs live under `~/picar-x-hacking/logs`. Individual helpers use dedicated files such as `px-circle.log`, `px-figure8.log`, and `px-scan.log`.
+- Tool wrappers emit JSON lines to `logs/tool-*.log`; the voice supervisor writes to `logs/tool-voice-loop.log` when `--auto-log` is enabled.
 - Camera sweeps store captures in `logs/scans/<timestamp>/` alongside `px-scan.log` entries.
 - Keep the directory under version control via `logs/.gitkeep`.
 - Tail logs during testing:
@@ -57,4 +91,4 @@ Each helper logs actions with ISO timestamps and exits cleanly on Ctrl+C.
   ```
 
 ## Next Steps
-See `docs/ROADMAP.md` for upcoming automation goals, including REST control surfaces, tmux automation, OpenAI CLI integration, telemetry streaming, and regression testing infrastructure.
+See `docs/ROADMAP.md` for upcoming automation goals, including REST control surfaces, tmux automation, OpenAI/Codex CLI integration, telemetry streaming, and regression testing infrastructure.

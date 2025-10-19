@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import load_session, update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PX_CIRCLE = Path(os.environ.get("PX_CIRCLE_CMD", PROJECT_ROOT / "bin/px-circle"))
+
+MIN_SPEED = int(os.environ.get("PX_CIRCLE_MIN_SPEED", "0"))
+MAX_SPEED = int(os.environ.get("PX_CIRCLE_MAX_SPEED", "60"))
+MIN_DURATION = float(os.environ.get("PX_CIRCLE_MIN_DURATION", "1.0"))
+MAX_DURATION = float(os.environ.get("PX_CIRCLE_MAX_DURATION", "12.0"))
+
+
+def clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    session = load_session()
+    if not dry_mode and not session.get("confirm_motion_allowed", False):
+        payload = {
+            "status": "blocked",
+            "reason": "motion not confirmed safe",
+        }
+        log_event("circle", payload)
+        print(json.dumps(payload))
+        return 2
+
+    try:
+        speed = int(float(os.environ.get("PX_SPEED", "30")))
+        duration = float(os.environ.get("PX_DURATION", "6"))
+    except ValueError:
+        payload = {
+            "status": "error",
+            "error": "invalid numeric parameters",
+        }
+        log_event("circle", payload)
+        print(json.dumps(payload))
+        return 1
+
+    speed = int(clamp(speed, MIN_SPEED, MAX_SPEED))
+    duration = clamp(duration, MIN_DURATION, MAX_DURATION)
+
+    command = [
+        "sudo",
+        "-n",
+        "-E",
+        str(PX_CIRCLE),
+        "--speed",
+        str(speed),
+        "--duration",
+        f"{duration:.2f}",
+    ]
+    if dry_mode:
+        command.append("--dry-run")
+
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    rc = result.returncode
+    stdout = result.stdout
+    stderr = result.stderr
+
+    history_entry = {
+        "event": "circle",
+        "dry": dry_mode,
+        "speed": speed,
+        "duration": duration,
+        "rc": rc,
+    }
+
+    fields = {
+        "last_action": "tool_circle",
+    }
+    if not dry_mode and rc == 0:
+        fields["last_motion"] = "px-circle"
+    if dry_mode:
+        fields["mode"] = "dry-run"
+
+    update_session(fields=fields, history_entry=history_entry)
+
+    payload = {
+        "status": "ok" if rc == 0 else "error",
+        "returncode": rc,
+        "dry": dry_mode,
+        "speed": speed,
+        "duration": duration,
+        "stdout": stdout[-2048:],
+        "stderr": stderr[-2048:],
+    }
+    log_event("circle", payload)
+    print(json.dumps(payload))
+    return 0 if rc == 0 else rc
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

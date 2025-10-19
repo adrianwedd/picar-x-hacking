@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 logs/*
 !logs/.gitkeep
+state/session.json

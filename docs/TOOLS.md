@@ -9,5 +9,12 @@ All helper scripts live in `~/picar-x-hacking/bin`. Each script is designed to b
 | `px-figure8` | Runs two sequential circles (right then left) to trace a figure eight. Shares the same flags as `px-circle` plus an optional `--rest` pause between legs and logs to `logs/px-figure8.log`. |
 | `px-scan` | Sweeps the camera pan servo from -60° to +60° (configurable) and captures still images via `rpicam-still`, storing them under `logs/scans/<timestamp>/` with detailed logs in `logs/px-scan.log`. Supports `--dry-run` for planning. |
 | `px-status` | Collects a telemetry snapshot: servo offsets and motor calibration (from `/opt/picar-x/picar-x.conf`), live ultrasonic and grayscale readings, an ADC-based battery estimate, and config file metadata. |
+| `px-stop` | Emergency stop helper that double-calls `stop()`, centers steering and camera servos, and closes the Picar-X connection. |
+| `tool-status` | Wrapper that runs `px-status`, parses the output for battery data, updates `state/session.json`, and appends structured logs. Intended for Codex automation. |
+| `tool-circle` | Validates Codex parameters, enforces safety gates (`confirm_motion_allowed`), and runs `px-circle` with sanitized env vars while logging the outcome. |
+| `tool-figure8` | Same safety wrapper pattern for `px-figure8`, with clamped duration/rest values before execution. |
+| `tool-stop` | Safe halt wrapper that respects dry-run mode and resets the session state after invoking `px-stop`. |
+| `tool-voice` | Logs and optionally plays short spoken responses (configurable via `PX_VOICE_PLAYER`); defaults to dry-run no-op for safety. |
+| `codex-voice-loop` | Supervisor that pipes transcripts through the Codex CLI, parses JSON tool requests, enforces allowlists/ranges, executes wrappers, and records a watchdog heartbeat in `state/session.json`. |
 
-All motion-capable helpers include `--dry-run` so you can review planned actions before spinning the wheels. Always confirm the car is on blocks prior to running live motion. Use `sudo -E bin/<script>` to ensure the virtualenv and path configuration remain intact under sudo.
+All motion-capable helpers include `--dry-run` (or honour `PX_DRY`) so you can review planned actions before spinning the wheels. Always confirm the car is on blocks prior to running live motion. Use `sudo -E bin/<script>` to ensure the virtualenv and path configuration remain intact under sudo.

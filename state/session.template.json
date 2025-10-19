@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "mode": "dry-run",
+  "last_action": null,
+  "last_motion": null,
+  "battery_pct": null,
+  "battery_ok": null,
+  "wheels_on_blocks": false,
+  "confirm_motion_allowed": false,
+  "watchdog_heartbeat_ts": null,
+  "history": []
+}

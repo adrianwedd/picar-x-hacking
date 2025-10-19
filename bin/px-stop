@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - <<'PY'
+from __future__ import annotations
+
+import sys
+
+try:
+    from picarx import Picarx
+except Exception as exc:  # pragma: no cover
+    print(f"error: failed to import Picarx: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+px = Picarx()
+try:
+    px.stop()
+    px.stop()
+    px.set_dir_servo_angle(0)
+    px.set_cam_pan_angle(0)
+    px.set_cam_tilt_angle(0)
+finally:
+    try:
+        px.close()
+    except Exception:
+        pass
+PY

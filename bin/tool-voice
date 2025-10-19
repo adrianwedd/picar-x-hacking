@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+DEFAULT_PLAYER = os.environ.get("PX_VOICE_PLAYER")
+
+
+def main() -> int:
+    text = os.environ.get("PX_TEXT")
+    if not text:
+        payload = {"status": "error", "error": "PX_TEXT environment variable is required"}
+        log_event("voice", payload)
+        print(json.dumps(payload))
+        return 1
+
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    payload = {
+        "status": "ok",
+        "dry": dry_mode,
+        "text": text,
+    }
+
+    if dry_mode or not DEFAULT_PLAYER:
+        payload["note"] = "voice output suppressed"
+    else:
+        command = DEFAULT_PLAYER.split()
+        command.append(text)
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        payload["player"] = command[0]
+        payload["returncode"] = result.returncode
+        payload["stdout"] = result.stdout[-1024:]
+        payload["stderr"] = result.stderr[-1024:]
+
+    update_session(
+        fields={"last_action": "tool_voice"},
+        history_entry={"event": "voice", "text": text[:120], "dry": dry_mode},
+    )
+    log_event("voice", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
