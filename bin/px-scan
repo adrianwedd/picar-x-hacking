@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+import argparse
+import datetime as dt
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+LOG_DIR = Path(os.environ.get("LOG_DIR", Path.cwd() / "logs"))
+SCAN_ROOT = Path(os.environ.get("PX_SCAN_ROOT", LOG_DIR / "scans"))
+LOG_FILE = Path(os.environ.get("PX_LOG_FILE", LOG_DIR / "px-scan.log"))
+
+
+def log(message: str) -> None:
+    timestamp = dt.datetime.now().isoformat(timespec="seconds")
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    line = f"{timestamp} {message}"
+    with LOG_FILE.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+    print(line)
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description="Sweep the camera and capture still frames")
+    parser.add_argument(
+        "--min-angle", type=int, default=-60, help="Minimum pan angle in degrees"
+    )
+    parser.add_argument(
+        "--max-angle", type=int, default=60, help="Maximum pan angle in degrees"
+    )
+    parser.add_argument(
+        "--step", type=int, default=10, help="Step size for the sweep in degrees"
+    )
+    parser.add_argument(
+        "--settle", type=float, default=0.4, help="Delay after moving before capture"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Log the plan without actuating or capturing"
+    )
+    args = parser.parse_args(argv)
+
+    if args.step <= 0:
+        parser.error("--step must be positive")
+
+    run_id = dt.datetime.now().strftime("%Y%m%dT%H%M%S")
+    target_dir = SCAN_ROOT / run_id
+    angles = list(range(args.min_angle, args.max_angle + args.step, args.step))
+    if angles[-1] > args.max_angle:
+        angles.pop()
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    log(
+        "begin action=px-scan min=%s max=%s step=%s count=%s dry_run=%s directory=%s"
+        % (args.min_angle, args.max_angle, args.step, len(angles), args.dry_run, target_dir)
+    )
+
+    if args.dry_run:
+        for angle in angles:
+            log(f"dry_run angle={angle} path={target_dir / f'frame_{angle:+03d}.jpg'}")
+        log("complete dry_run=True")
+        return 0
+
+    try:
+        from picarx import Picarx
+    except Exception as exc:  # pragma: no cover
+        log(f"error importing picarx detail={exc}")
+        return 1
+
+    px = Picarx()
+    try:
+        for angle in angles:
+            log(f"capture_start angle={angle}")
+            px.set_cam_pan_angle(angle)
+            time.sleep(args.settle)
+            output_path = target_dir / f"frame_{angle:+03d}.jpg"
+            command = [
+                "rpicam-still",
+                "--nopreview",
+                "--timeout",
+                "500",
+                "-o",
+                str(output_path),
+            ]
+            try:
+                subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                log(f"capture_success angle={angle} file={output_path}")
+            except subprocess.CalledProcessError as exc:  # pragma: no cover
+                log(
+                    f"capture_error angle={angle} returncode={exc.returncode} stderr={exc.stderr.decode(errors='ignore').strip()}"
+                )
+                return 1
+        px.set_cam_pan_angle(0)
+        log("complete dry_run=False")
+    except KeyboardInterrupt:
+        log("aborted by user")
+        px.set_cam_pan_angle(0)
+        return 130
+    except Exception as exc:  # pragma: no cover
+        log(f"runtime_error detail={exc}")
+        px.set_cam_pan_angle(0)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+export PROJECT_ROOT
+export LOG_DIR="${LOG_DIR:-$PROJECT_ROOT/logs}"
+
+normalize_path_list() {
+    local path_list=":$1:"
+    local addition=":$2:"
+    [[ "$path_list" == *"$addition"* ]]
+}
+
+append_path() {
+    local current="${1:-}"
+    local addition="$2"
+    if normalize_path_list "$current" "$addition"; then
+        printf "%s" "$current"
+    else
+        if [[ -z "$current" ]]; then
+            printf "%s" "$addition"
+        else
+            printf "%s:%s" "$addition" "$current"
+        fi
+    fi
+}
+
+PYTHONPATH="$(append_path "${PYTHONPATH:-}" "$PROJECT_ROOT/src")"
+PYTHONPATH="$(append_path "$PYTHONPATH" "/home/pi/picar-x")"
+export PYTHONPATH
+
+if [[ -d "$PROJECT_ROOT/.venv" && -z "${VIRTUAL_ENV:-}" ]]; then
+    # shellcheck disable=SC1091
+    source "$PROJECT_ROOT/.venv/bin/activate"
+fi
+
+mkdir -p "$LOG_DIR"

@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+import argparse
+import datetime as dt
+import os
+import sys
+import time
+from pathlib import Path
+
+LOG_DIR = Path(os.environ.get("LOG_DIR", Path.cwd() / "logs"))
+LOG_FILE = Path(os.environ.get("PX_LOG_FILE", LOG_DIR / "px-figure8.log"))
+
+
+def log(message: str) -> None:
+    timestamp = dt.datetime.now().isoformat(timespec="seconds")
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    line = f"{timestamp} {message}"
+    with LOG_FILE.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+    print(line)
+
+
+def clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description="Drive a figure-eight pattern")
+    parser.add_argument("--speed", type=int, default=35, help="Wheel speed percentage (0-100)")
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=6.0,
+        help="Duration in seconds for each leg of the figure eight",
+    )
+    parser.add_argument(
+        "--rest",
+        type=float,
+        default=1.5,
+        help="Pause between the two circles in seconds",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Log the plan without moving")
+    args = parser.parse_args(argv)
+
+    speed = clamp(args.speed, 0, 100)
+    if speed != args.speed:
+        log(f"speed_clamped from={args.speed} to={speed}")
+    duration = max(args.duration, 0.1)
+    rest = max(args.rest, 0.0)
+
+    legs = [("right", 20), ("left", -20)]
+    pulses = 5
+    pulse_time = max(duration / pulses, 0.2)
+    coast_time = min(0.5, pulse_time / 2.0)
+
+    log(
+        "begin action=px-figure8 speed=%s duration=%.2fs rest=%.2fs dry_run=%s"
+        % (speed, duration, rest, args.dry_run)
+    )
+
+    if args.dry_run:
+        for idx, (label, angle) in enumerate(legs, start=1):
+            log(
+                f"dry_run leg={idx} heading={label} angle={angle} pulses={pulses} active={pulse_time:.2f}s"
+            )
+        log("complete dry_run=True")
+        return 0
+
+    try:
+        from picarx import Picarx
+    except Exception as exc:  # pragma: no cover
+        log(f"error importing picarx detail={exc}")
+        return 1
+
+    px = Picarx()
+    try:
+        for idx, (label, angle) in enumerate(legs, start=1):
+            log(
+                f"leg_start index={idx} heading={label} angle={angle} pulses={pulses} active={pulse_time:.2f}s"
+            )
+            px.set_dir_servo_angle(angle)
+            for pulse in range(1, pulses + 1):
+                log(
+                    f"leg={idx} pulse={pulse}/{pulses} angle={angle} speed={speed} active={pulse_time:.2f}s"
+                )
+                px.forward(speed)
+                time.sleep(pulse_time)
+                px.stop()
+                time.sleep(coast_time)
+            if idx < len(legs):
+                log(f"leg_rest index={idx} duration={rest:.2f}s")
+                time.sleep(rest)
+        log("stop_sequence initiating")
+        px.stop()
+        px.stop()
+        log("complete dry_run=False")
+    except KeyboardInterrupt:
+        log("aborted by user")
+        px.stop()
+        px.stop()
+        return 130
+    except Exception as exc:  # pragma: no cover
+        log(f"runtime_error detail={exc}")
+        px.stop()
+        px.stop()
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY

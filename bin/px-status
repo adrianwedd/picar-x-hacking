@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+import argparse
+import datetime as dt
+import os
+import sys
+from pathlib import Path
+
+DEFAULT_CONFIG = Path(os.environ.get("PX_CONFIG", "/opt/picar-x/picar-x.conf"))
+DEFAULT_BATTERY_CHANNEL = os.environ.get("PX_BATTERY_ADC", "A4")
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description="Display PiCar-X telemetry snapshot")
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="Config file to read")
+    parser.add_argument(
+        "--battery-channel",
+        default=DEFAULT_BATTERY_CHANNEL,
+        help="ADC channel used for battery monitoring",
+    )
+    parser.add_argument(
+        "--samples",
+        type=int,
+        default=5,
+        help="Number of samples to average for analog readings",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Skip hardware probing and only show configuration data",
+    )
+    return parser.parse_args(argv)
+
+
+def read_config(path: Path):
+    data = {}
+    try:
+        contents = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return data, f"config file not found: {path}"
+    except Exception as exc:
+        return data, f"failed to read config: {exc}"
+    for raw in contents.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = [part.strip() for part in line.split("=", 1)]
+        data[key] = value
+    return data, None
+
+
+def coerce_numbers(entry):
+    if entry is None:
+        return None
+    if entry.startswith("[") and entry.endswith("]"):
+        items = [item.strip() for item in entry.strip("[]").split(",") if item.strip()]
+        cast = []
+        for item in items:
+            try:
+                cast.append(float(item))
+            except ValueError:
+                cast.append(item)
+        return cast
+    try:
+        return float(entry)
+    except ValueError:
+        return entry
+
+
+def format_timestamp(path: Path):
+    try:
+        ts = dt.datetime.fromtimestamp(path.stat().st_mtime)
+    except (FileNotFoundError, PermissionError):
+        return "unknown"
+    return ts.isoformat(timespec="seconds")
+
+
+def read_battery(channel: str, samples: int):
+    try:
+        from robot_hat import ADC
+    except Exception as exc:  # pragma: no cover
+        return {
+            "status": "unsupported",
+            "detail": f"robot_hat import failed: {exc}",
+        }
+    try:
+        adc = ADC(channel)
+    except Exception as exc:  # pragma: no cover
+        return {
+            "status": "error",
+            "detail": f"ADC channel init failed: {exc}",
+        }
+    readings = []
+    for _ in range(max(samples, 1)):
+        try:
+            readings.append(adc.read())
+        except Exception as exc:  # pragma: no cover
+            return {
+                "status": "error",
+                "detail": f"ADC read failed: {exc}",
+            }
+    avg = sum(readings) / len(readings)
+    # Convert raw ADC to approximate voltage. Robot HAT divides by 2.
+    voltage = avg / 4095.0 * 3.3 * 2.0
+    percent = max(0.0, min(100.0, (voltage - 6.0) / (8.2 - 6.0) * 100.0))
+    return {
+        "status": "ok",
+        "channel": channel,
+        "samples": readings,
+        "voltage": round(voltage, 2),
+        "percent_est": int(percent),
+    }
+
+
+def probe_sensors(args):
+    if args.dry_run:
+        return {
+            "ultrasonic_cm": "skipped (dry-run)",
+            "grayscale": "skipped (dry-run)",
+            "battery": "skipped (dry-run)",
+        }
+    try:
+        from picarx import Picarx
+    except Exception as exc:  # pragma: no cover
+        return {
+            "error": f"picarx import failed: {exc}",
+        }
+    px = None
+    try:
+        px = Picarx()
+        distance = px.get_distance()
+        grayscale = px.get_grayscale_data()
+        battery = read_battery(args.battery_channel, args.samples)
+        px.stop()
+        summary = {
+            "ultrasonic_cm": round(distance, 1) if distance is not None else None,
+            "grayscale": [round(value, 1) for value in grayscale] if grayscale else None,
+            "battery": battery,
+        }
+    except Exception as exc:  # pragma: no cover
+        summary = {
+            "error": f"sensor probe failed: {exc}",
+        }
+    finally:
+        if px is not None:
+            try:
+                px.close()
+            except Exception:
+                pass
+    return summary
+
+
+def main(argv):
+    args = parse_args(argv)
+
+    config_data, config_error = read_config(args.config)
+    offsets = {
+        "steering": coerce_numbers(config_data.get("picarx_dir_servo")),
+        "camera_pan": coerce_numbers(config_data.get("picarx_cam_pan_servo")),
+        "camera_tilt": coerce_numbers(config_data.get("picarx_cam_tilt_servo")),
+    }
+    motor_direction = coerce_numbers(config_data.get("picarx_dir_motor"))
+
+    print("PiCar-X Telemetry Snapshot")
+    print(f"Generated: {dt.datetime.now().isoformat(timespec='seconds')}")
+    print(f"Config: {args.config} (mtime {format_timestamp(args.config)})")
+    if config_error:
+        print(f"Config load error: {config_error}")
+    print(
+        "Servo offsets (degrees): steering={steering} pan={camera_pan} tilt={camera_tilt}".format(
+            **offsets
+        )
+    )
+    print(f"Motor direction calibration: {motor_direction}")
+
+    sensors = probe_sensors(args)
+    if "error" in sensors:
+        print(f"Sensor probe error: {sensors['error']}")
+    else:
+        print(f"Ultrasonic distance: {sensors['ultrasonic_cm']} cm")
+        print(f"Grayscale readings: {sensors['grayscale']}")
+        battery = sensors.get("battery")
+        if isinstance(battery, dict):
+            if battery.get("status") == "ok":
+                print(
+                    "Battery estimate: {voltage} V (~{percent_est}% full) [channel {channel}]".format(
+                        **battery
+                    )
+                )
+            elif battery.get("status") == "unsupported":
+                print(
+                    "Battery estimate unavailable: {detail}. Please use a multimeter.".format(
+                        **battery
+                    )
+                )
+            else:
+                print(
+                    "Battery read error: {detail}. Please use a multimeter.".format(
+                        **battery
+                    )
+                )
+        else:
+            print("Battery estimate: unknown")
+
+    print("Config file reference: {path}".format(path=args.config))
+    print("Reminder: confirm wheels are lifted before running motion helpers.")
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY
