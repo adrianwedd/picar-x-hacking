@@ -76,6 +76,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     px = Picarx()
+    return_code = 0
     try:
         for angle in angles:
             log(f"capture_start angle={angle}")
@@ -97,18 +98,32 @@ def main(argv: list[str]) -> int:
                 log(
                     f"capture_error angle={angle} returncode={exc.returncode} stderr={exc.stderr.decode(errors='ignore').strip()}"
                 )
-                return 1
-        px.set_cam_pan_angle(0)
-        log("complete dry_run=False")
+                return_code = exc.returncode or 1
+                break
+        else:
+            log("complete dry_run=False")
+            return_code = 0
     except KeyboardInterrupt:
         log("aborted by user")
-        px.set_cam_pan_angle(0)
-        return 130
+        return_code = 130
     except Exception as exc:  # pragma: no cover
         log(f"runtime_error detail={exc}")
-        px.set_cam_pan_angle(0)
-        return 1
-    return 0
+        return_code = 1
+    finally:
+        try:
+            px.set_cam_pan_angle(0)
+            log("pan_reset angle=0")
+        except Exception as reset_exc:  # pragma: no cover
+            log(f"pan_reset_error detail={reset_exc}")
+        try:
+            px.stop()
+        except Exception as stop_exc:  # pragma: no cover
+            log(f"stop_error detail={stop_exc}")
+        try:
+            px.close()
+        except Exception:
+            pass
+    return return_code
 
 
 if __name__ == "__main__":
