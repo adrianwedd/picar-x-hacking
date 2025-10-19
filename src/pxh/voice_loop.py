@@ -22,6 +22,7 @@ ALLOWED_TOOLS = {
     "tool_figure8",
     "tool_stop",
     "tool_voice",
+    "tool_weather",
 }
 
 TOOL_COMMANDS = {
@@ -30,6 +31,7 @@ TOOL_COMMANDS = {
     "tool_figure8": BIN_DIR / "tool-figure8",
     "tool_stop": BIN_DIR / "tool-stop",
     "tool_voice": BIN_DIR / "tool-voice",
+    "tool_weather": BIN_DIR / "tool-weather",
 }
 
 

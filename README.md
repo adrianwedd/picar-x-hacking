@@ -49,6 +49,12 @@ All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
   ```bash
   sudo -E bin/px-stop
   ```
+- `tool-weather` – fetch the latest Bureau of Meteorology observation for Cygnet (respects `PX_DRY=1`):
+  ```bash
+  PX_DRY=1 bin/tool-weather
+  PX_DRY=0 bin/tool-weather
+  ```
+  On success the observation is logged to `logs/tool-weather.log` and cached in `state/session.json` under `last_weather`.
 
 Each helper logs actions with ISO timestamps and exits cleanly on Ctrl+C.
 
@@ -57,7 +63,7 @@ Each helper logs actions with ISO timestamps and exits cleanly on Ctrl+C.
   ```bash
   cp state/session.template.json state/session.json
   ```
-- The supervisor and tool wrappers update this file with battery data, last motions, and a watchdog heartbeat on every loop turn.
+- The supervisor and tool wrappers update this file with battery data, weather snapshots, last motions, and a watchdog heartbeat on every loop turn.
 
 ## Codex Voice Assistant
 The Codex-driven loop keeps context in `state/session.json`, validates every tool call, and defaults to dry-run for safety.

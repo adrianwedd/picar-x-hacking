@@ -15,6 +15,7 @@ All helper scripts live in `~/picar-x-hacking/bin`. Each script is designed to b
 | `tool-figure8` | Same safety wrapper pattern for `px-figure8`, with clamped duration/rest values before execution. |
 | `tool-stop` | Safe halt wrapper that respects dry-run mode and resets the session state after invoking `px-stop`. |
 | `tool-voice` | Logs and optionally plays short spoken responses (configurable via `PX_VOICE_PLAYER`); defaults to dry-run no-op for safety. |
+| `tool-weather` | Fetches the latest Bureau of Meteorology observation for Cygnet, records it in `state/session.json`, and emits structured logs while respecting dry-run mode. |
 | `codex-voice-loop` | Supervisor that pipes transcripts through the Codex CLI, parses JSON tool requests, enforces allowlists/ranges, executes wrappers, and records a watchdog heartbeat in `state/session.json`. |
 
 All motion-capable helpers include `--dry-run` (or honour `PX_DRY`) so you can review planned actions before spinning the wheels. Always confirm the car is on blocks prior to running live motion. Use `sudo -E bin/<script>` to ensure the virtualenv and path configuration remain intact under sudo.

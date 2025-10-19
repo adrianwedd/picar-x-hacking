@@ -8,5 +8,6 @@
   "wheels_on_blocks": false,
   "confirm_motion_allowed": false,
   "watchdog_heartbeat_ts": null,
+  "last_weather": null,
   "history": []
 }

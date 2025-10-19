@@ -24,6 +24,7 @@ def default_state() -> Dict[str, Any]:
         "wheels_on_blocks": False,
         "confirm_motion_allowed": False,
         "watchdog_heartbeat_ts": None,
+        "last_weather": None,
         "history": [],
     }
 

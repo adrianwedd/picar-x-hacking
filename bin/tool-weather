@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from typing import Any, Dict
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+DEFAULT_URL = "https://reg.bom.gov.au/fwo/IDT60801/IDT60801.95969.json"
+TIMEOUT = float(os.environ.get("PX_WEATHER_TIMEOUT", "10"))
+
+
+def fetch(url: str, timeout: float) -> Dict[str, Any]:
+    request = urllib.request.Request(url, headers={"User-Agent": "PiCarX-Helper/1.0"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        charset = response.headers.get_content_charset("utf-8")
+        data = response.read().decode(charset)
+    return json.loads(data)
+
+
+def main() -> int:
+    url = os.environ.get("PX_WEATHER_URL", DEFAULT_URL)
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+
+    payload: Dict[str, Any]
+
+    if dry_mode:
+        payload = {
+            "status": "dry-run",
+            "url": url,
+            "detail": "network request skipped",
+        }
+    else:
+        try:
+            raw = fetch(url, TIMEOUT)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
+            payload = {
+                "status": "error",
+                "url": url,
+                "detail": str(exc),
+            }
+        else:
+            obs = raw.get("observations", {}).get("data", [])
+            if not obs:
+                payload = {
+                    "status": "error",
+                    "url": url,
+                    "detail": "no observations",
+                }
+            else:
+                latest = obs[0]
+                payload = {
+                    "status": "ok",
+                    "url": url,
+                    "station": latest.get("name"),
+                    "lat": latest.get("lat"),
+                    "lon": latest.get("lon"),
+                    "temp_C": latest.get("air_temp"),
+                    "apparent_temp_C": latest.get("apparent_t"),
+                    "wind_dir": latest.get("wind_dir"),
+                    "wind_kmh": latest.get("wind_spd_kmh"),
+                    "gust_kmh": latest.get("gust_kmh"),
+                    "humidity_pct": latest.get("rel_hum"),
+                    "rain_24h_mm": latest.get("rain_trace"),
+                    "timestamp_utc": latest.get("aifstime_utc"),
+                    "fetched_utc": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                }
+
+    update_session(
+        fields={
+            "last_action": "tool_weather",
+            "last_weather": payload,
+        },
+        history_entry={
+            "event": "weather",
+            "status": payload["status"],
+        },
+    )
+
+    log_event("weather", payload)
+    print(json.dumps(payload, ensure_ascii=False))
+
+    if payload["status"] == "ok" or payload["status"] == "dry-run":
+        return 0
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
