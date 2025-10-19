@@ -28,6 +28,7 @@ All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
   sudo -E bin/px-status --dry-run
   sudo -E bin/px-status
   ```
+  After the live run, compare the reported voltage and percentage with a multimeter reading to validate the heuristic and note any correction factor for future tuning.
 - `px-circle` – gentle clockwise circle in five pulses:
   ```bash
   sudo -E bin/px-circle --dry-run --speed 30

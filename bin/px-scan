@@ -53,9 +53,8 @@ def main(argv: list[str]) -> int:
     run_id = dt.datetime.now().strftime("%Y%m%dT%H%M%S")
     target_dir = SCAN_ROOT / run_id
     angles = list(range(args.min_angle, args.max_angle + args.step, args.step))
-    if angles[-1] > args.max_angle:
+    if angles and angles[-1] > args.max_angle:
         angles.pop()
-    target_dir.mkdir(parents=True, exist_ok=True)
 
     log(
         "begin action=px-scan min=%s max=%s step=%s count=%s dry_run=%s directory=%s"
@@ -67,6 +66,8 @@ def main(argv: list[str]) -> int:
             log(f"dry_run angle={angle} path={target_dir / f'frame_{angle:+03d}.jpg'}")
         log("complete dry_run=True")
         return 0
+
+    target_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         from picarx import Picarx

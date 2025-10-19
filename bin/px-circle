@@ -65,8 +65,10 @@ def main(argv: list[str]) -> int:
         log(f"error importing picarx detail={exc}")
         return 1
 
-    px = Picarx()
+    px = None
+    return_code = 0
     try:
+        px = Picarx()
         px.set_dir_servo_angle(steer_angle)
         for pulse in range(1, pulses + 1):
             log(
@@ -77,20 +79,31 @@ def main(argv: list[str]) -> int:
             px.stop()
             time.sleep(coast_time)
         log("stop_sequence initiating")
-        px.stop()
-        px.stop()
         log("complete dry_run=False")
+        return_code = 0
     except KeyboardInterrupt:
         log("aborted by user")
-        px.stop()
-        px.stop()
-        return 130
+        return_code = 130
     except Exception as exc:  # pragma: no cover
         log(f"runtime_error detail={exc}")
-        px.stop()
-        px.stop()
-        return 1
-    return 0
+        return_code = 1
+    finally:
+        if px is not None:
+            try:
+                px.set_dir_servo_angle(0)
+                log("steering_reset angle=0")
+            except Exception as reset_exc:  # pragma: no cover
+                log(f"steering_reset_error detail={reset_exc}")
+            try:
+                px.stop()
+                px.stop()
+            except Exception as stop_exc:  # pragma: no cover
+                log(f"stop_error detail={stop_exc}")
+            try:
+                px.close()
+            except Exception:
+                pass
+    return return_code
 
 
 if __name__ == "__main__":
