@@ -49,6 +49,10 @@ def run_tool(command: List[str], extra_env: Dict[str, str] | None = None) -> Dic
     return payload
 
 
+def announce(message: str) -> None:
+    run_tool(["bin/tool-voice"], {"PX_TEXT": message, "PX_DRY": "0"})
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="PiCar-X diagnostics sweep")
     parser.add_argument("--no-motion", action="store_true", help="Skip motion tests even if not in dry-run")
@@ -62,7 +66,11 @@ def main() -> int:
         "checks": [],
     }
 
+    announce(f"Starting diagnostics {'dry run' if dry_mode else 'live'}")
+
+    announce("Running status check")
     status_info = run_tool(["bin/tool-status"], {"PX_DRY": "1" if dry_mode else "0"})
+    announce("Status check complete")
     results["checks"].append({"name": "status", **status_info})
     status_payload = status_info.get("data", {}) or {}
     battery_ok = status_payload.get("battery_ok")
@@ -90,24 +98,38 @@ def main() -> int:
         sensor_check["status"] = "warn"
     sensor_check["raw"] = stdout[-512:]
     results["checks"].append(sensor_check)
+    if distance is not None:
+        announce(f"Ultrasonic {distance:.0f} centimeters")
+    else:
+        announce("Ultrasonic sensor unavailable")
 
     if not args.short:
+        announce("Checking weather feed")
         weather_info = run_tool(["bin/tool-weather"], {"PX_DRY": "1"})
         weather_info["name"] = "weather"
         results["checks"].append(weather_info)
+        if weather_info.get("returncode") == 0:
+            announce("Weather check succeeded")
+        else:
+            announce("Weather check failed")
 
     do_motion = not (dry_mode or args.no_motion)
     motion_check = None
     if do_motion:
+        announce("Testing motors with circle routine")
         motion_env = {"PX_DRY": "1" if dry_mode else "0", "PX_SPEED": "25", "PX_DURATION": "2"}
         motion_check = run_tool(["bin/tool-circle"], motion_env)
         motion_check["name"] = "circle"
         results["checks"].append(motion_check)
         if motion_check["returncode"] != 0:
             results["status"] = "error"
+            announce("Motor test failed")
+        else:
+            announce("Motor test passed")
 
     camera_check = None
     if not dry_mode and not args.short:
+        announce("Capturing camera frame")
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             image_path = Path(tmp.name)
         camera_check = run_tool(["rpicam-still", "--nopreview", "-t", "200", "-o", str(image_path)])
@@ -115,10 +137,12 @@ def main() -> int:
         if camera_check["returncode"] == 0 and image_path.exists():
             camera_check["status"] = "ok"
             camera_check["file"] = str(image_path)
+            announce("Camera capture successful")
         else:
             camera_check["status"] = "error"
             results["status"] = "warn"
             results.setdefault("warnings", []).append("camera capture failed")
+            announce("Camera capture failed")
         results["checks"].append(camera_check)
         if image_path.exists():
             try:
