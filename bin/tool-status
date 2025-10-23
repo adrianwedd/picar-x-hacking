@@ -26,7 +26,10 @@ def main() -> int:
     dry_mode = os.environ.get("PX_DRY", "1") != "0"
     threshold = int(os.environ.get("PX_BATTERY_THRESHOLD", "30"))
 
-    command = ["sudo", "-n", "-E", str(PX_STATUS)]
+    command = []
+    if os.environ.get("PX_BYPASS_SUDO", "0") != "1":
+        command.extend(["sudo", "-n", "-E"])
+    command.append(str(PX_STATUS))
     if dry_mode:
         command.append("--dry-run")
 

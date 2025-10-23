@@ -6,9 +6,13 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+LOG_ROOT = PROJECT_ROOT / "logs_test"
+LOG_ROOT.mkdir(exist_ok=True)
 def run_tool(args, extra_env=None):
     env = os.environ.copy()
     env.setdefault("PROJECT_ROOT", str(PROJECT_ROOT))
+    env.setdefault("LOG_DIR", str(LOG_ROOT))
+    env.setdefault("PX_BYPASS_SUDO", "1")
     if extra_env:
         env.update(extra_env)
     result = subprocess.run(

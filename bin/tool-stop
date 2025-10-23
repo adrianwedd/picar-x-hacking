@@ -33,8 +33,13 @@ def main() -> int:
         print(json.dumps(payload))
         return 0
 
+    command = []
+    if os.environ.get("PX_BYPASS_SUDO", "0") != "1":
+        command.extend(["sudo", "-n", "-E"])
+    command.append(str(PX_STOP))
+
     result = subprocess.run(
-        ["sudo", "-n", "-E", str(PX_STOP)],
+        command,
         capture_output=True,
         text=True,
         check=False,

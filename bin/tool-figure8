@@ -60,10 +60,10 @@ def main() -> int:
     duration = clamp(duration, MIN_DURATION, MAX_DURATION)
     rest = clamp(rest, MIN_REST, MAX_REST)
 
-    command = [
-        "sudo",
-        "-n",
-        "-E",
+    command = []
+    if os.environ.get("PX_BYPASS_SUDO", "0") != "1":
+        command.extend(["sudo", "-n", "-E"])
+    command.extend([
         str(PX_FIGURE8),
         "--speed",
         str(speed),
@@ -71,7 +71,7 @@ def main() -> int:
         f"{duration:.2f}",
         "--rest",
         f"{rest:.2f}",
-    ]
+    ])
     if dry_mode:
         command.append("--dry-run")
 
