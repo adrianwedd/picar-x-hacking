@@ -11,7 +11,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any, Dict, List
 
 from pxh.logging import log_event
@@ -59,14 +62,37 @@ def main() -> int:
 
     status_info = run_tool(["bin/tool-status"], {"PX_DRY": "1" if dry_mode else "0"})
     results["checks"].append({"name": "status", **status_info})
-    battery_ok = status_info.get("data", {}).get("battery_ok")
+    status_payload = status_info.get("data", {}) or {}
+    battery_ok = status_payload.get("battery_ok")
     if battery_ok is False:
         results["status"] = "warn"
         results.setdefault("warnings", []).append("battery low")
 
+    sensor_check = {"name": "sensors", "status": "ok"}
+    stdout = status_info.get("stdout", "")
+    distance = None
+    match = re.search(r"Ultrasonic distance: ([\-\d.]+)", stdout)
+    if match:
+        try:
+            distance = float(match.group(1))
+        except ValueError:
+            distance = None
+    grayscale_match = re.search(r"Grayscale readings: \[(.*?)\]", stdout)
+    if grayscale_match:
+        try:
+            sensor_check["grayscale"] = [float(part.strip()) for part in grayscale_match.group(1).split(",")]
+        except ValueError:
+            sensor_check["grayscale"] = None
+    sensor_check["distance_cm"] = distance
+    if distance is None:
+        sensor_check["status"] = "warn"
+    sensor_check["raw"] = stdout[-512:]
+    results["checks"].append(sensor_check)
+
     if not args.short:
         weather_info = run_tool(["bin/tool-weather"], {"PX_DRY": "1"})
-        results["checks"].append({"name": "weather", **weather_info})
+        weather_info["name"] = "weather"
+        results["checks"].append(weather_info)
 
     do_motion = not (dry_mode or args.no_motion)
     motion_check = None
@@ -78,17 +104,46 @@ def main() -> int:
         if motion_check["returncode"] != 0:
             results["status"] = "error"
 
+    camera_check = None
+    if not dry_mode and not args.short:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            image_path = Path(tmp.name)
+        camera_check = run_tool(["rpicam-still", "--nopreview", "-t", "200", "-o", str(image_path)])
+        camera_check["name"] = "camera"
+        if camera_check["returncode"] == 0 and image_path.exists():
+            camera_check["status"] = "ok"
+            camera_check["file"] = str(image_path)
+        else:
+            camera_check["status"] = "error"
+            results["status"] = "warn"
+            results.setdefault("warnings", []).append("camera capture failed")
+        results["checks"].append(camera_check)
+        if image_path.exists():
+            try:
+                image_path.unlink()
+            except OSError:
+                pass
+
     voice_summary = "Diagnostics complete: "
     voice_bits = []
     if battery_ok is False:
         voice_bits.append("battery below threshold")
     elif battery_ok:
         voice_bits.append("battery is healthy")
+    if distance is not None:
+        voice_bits.append(f"range {distance:.0f} cm")
+    elif sensor_check["status"] != "ok":
+        voice_bits.append("ultrasonic unavailable")
     if motion_check is not None:
         if motion_check["returncode"] == 0:
             voice_bits.append("motors responsive")
         else:
             voice_bits.append("motor test failed")
+    if camera_check is not None:
+        if camera_check.get("returncode") == 0:
+            voice_bits.append("camera capture OK")
+        else:
+            voice_bits.append("camera capture failed")
     if not voice_bits:
         voice_bits.append("see logs")
     voice_summary += ", ".join(voice_bits)

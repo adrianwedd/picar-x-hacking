@@ -32,7 +32,9 @@ def test_px_diagnostics_dry_run(tmp_path):
     summary = run(["bin/px-diagnostics", "--no-motion", "--short"], env)
     assert summary["status"] == "ok"
     assert summary["dry"] is True
-    assert any(check["name"] == "status" for check in summary["checks"])
+    names = [check["name"] for check in summary["checks"]]
+    assert "status" in names
+    assert "sensors" in names
 
 def test_px_dance_dry_run(tmp_path):
     env = {
