@@ -49,10 +49,11 @@ All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
   ```bash
   sudo -E bin/px-stop
   ```
-- `tool-weather` – fetch the latest Bureau of Meteorology observation for Cygnet (respects `PX_DRY=1`):
+- `tool-weather` – fetch the latest Bureau of Meteorology observation for the configured station (defaults to Cygnet AWS). The helper automatically falls back from HTTPS to the public FTP catalogue when required:
   ```bash
-  PX_DRY=1 bin/tool-weather
-  PX_DRY=0 bin/tool-weather
+  PX_DRY=1 bin/tool-weather          # plan only
+  PX_DRY=0 bin/tool-weather          # live fetch
+  PX_WEATHER_STATION=95977 PX_DRY=0 bin/tool-weather  # override station (e.g., Grove)
   ```
   On success the observation is logged to `logs/tool-weather.log` and cached in `state/session.json` under `last_weather`.
 

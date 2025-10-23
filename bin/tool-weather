@@ -12,72 +12,135 @@ import datetime as dt
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
-from typing import Any, Dict
+from ftplib import FTP, all_errors as FTP_ERRORS
+from io import BytesIO
+from typing import Any, Dict, Iterable, List, Tuple
+from urllib import error as url_error
+from urllib import parse as url_parse
+from urllib import request as url_request
 
 from pxh.logging import log_event
 from pxh.state import update_session
 
-DEFAULT_URL = "https://reg.bom.gov.au/fwo/IDT60801/IDT60801.95969.json"
-TIMEOUT = float(os.environ.get("PX_WEATHER_TIMEOUT", "10"))
+DEFAULT_PRODUCT = os.environ.get("PX_WEATHER_PRODUCT", "IDT60801")
+DEFAULT_STATION = os.environ.get("PX_WEATHER_STATION", "95969")
+DEFAULT_TIMEOUT = float(os.environ.get("PX_WEATHER_TIMEOUT", "10"))
+DEFAULT_HTTPS = f"https://reg.bom.gov.au/fwo/{DEFAULT_PRODUCT}/{DEFAULT_PRODUCT}.{DEFAULT_STATION}.json"
+DEFAULT_FTP = f"ftp://ftp.bom.gov.au/anon/gen/fwo/{DEFAULT_PRODUCT}.{DEFAULT_STATION}.json"
+DEFAULT_ALT = f"https://www.bom.gov.au/fwo/{DEFAULT_PRODUCT}/{DEFAULT_PRODUCT}.{DEFAULT_STATION}.json"
+
+COMMON_ERRORS = (
+    url_error.URLError,
+    url_error.HTTPError,
+    TimeoutError,
+    json.JSONDecodeError,
+    ValueError,
+    OSError,
+) + FTP_ERRORS
 
 
-def fetch(url: str, timeout: float) -> Dict[str, Any]:
-    request = urllib.request.Request(url, headers={"User-Agent": "PiCarX-Helper/1.0"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+def candidate_urls() -> List[str]:
+    override = os.environ.get("PX_WEATHER_URL")
+    if override:
+        return [override.strip()]
+    urls = [DEFAULT_HTTPS, DEFAULT_FTP, DEFAULT_ALT]
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for url in urls:
+        if url and url not in seen:
+            ordered.append(url)
+            seen.add(url)
+    return ordered
+
+
+def fetch_http(url: str, timeout: float) -> Dict[str, Any]:
+    request = url_request.Request(url, headers={"User-Agent": "PiCarX-Helper/1.0"})
+    with url_request.urlopen(request, timeout=timeout) as response:
         charset = response.headers.get_content_charset("utf-8")
         data = response.read().decode(charset)
     return json.loads(data)
 
 
-def main() -> int:
-    url = os.environ.get("PX_WEATHER_URL", DEFAULT_URL)
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+def fetch_ftp(url: str, timeout: float) -> Dict[str, Any]:
+    parsed = url_parse.urlparse(url)
+    path = parsed.path.lstrip("/")
+    if not path:
+        raise ValueError("FTP URL missing path")
+    buffer = BytesIO()
+    with FTP(parsed.hostname, timeout=timeout) as ftp:
+        ftp.login()
+        ftp.cwd("anon/gen/fwo")
+        ftp.retrbinary(f"RETR {path}", buffer.write)
+    return json.loads(buffer.getvalue().decode("utf-8"))
 
-    payload: Dict[str, Any]
+
+def try_fetch(urls: Iterable[str], timeout: float) -> Tuple[Dict[str, Any] | None, str | None, List[Dict[str, str]]]:
+    errors: List[Dict[str, str]] = []
+    for url in urls:
+        if not url:
+            continue
+        parsed = url_parse.urlparse(url)
+        try:
+            if parsed.scheme in {"http", "https"}:
+                payload = fetch_http(url, timeout)
+            elif parsed.scheme == "ftp":
+                payload = fetch_ftp(url, timeout)
+            else:
+                raise ValueError(f"unsupported scheme: {parsed.scheme}")
+        except COMMON_ERRORS as exc:  # type: ignore[arg-type]
+            errors.append({"url": url, "detail": str(exc)})
+            continue
+        return payload, url, errors
+    return None, None, errors
+
+
+def build_success_payload(source_url: str, raw: Dict[str, Any]) -> Dict[str, Any]:
+    obs = raw.get("observations", {}).get("data", [])
+    if not obs:
+        return {
+            "status": "error",
+            "url": source_url,
+            "detail": "no observations",
+        }
+    latest = obs[0]
+    return {
+        "status": "ok",
+        "url": source_url,
+        "station": latest.get("name"),
+        "lat": latest.get("lat"),
+        "lon": latest.get("lon"),
+        "temp_C": latest.get("air_temp"),
+        "apparent_temp_C": latest.get("apparent_t"),
+        "wind_dir": latest.get("wind_dir"),
+        "wind_kmh": latest.get("wind_spd_kmh"),
+        "gust_kmh": latest.get("gust_kmh"),
+        "humidity_pct": latest.get("rel_hum"),
+        "rain_24h_mm": latest.get("rain_trace"),
+        "timestamp_utc": latest.get("aifstime_utc"),
+        "fetched_utc": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+    }
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    urls = candidate_urls()
 
     if dry_mode:
         payload = {
             "status": "dry-run",
-            "url": url,
+            "urls": urls,
             "detail": "network request skipped",
         }
     else:
-        try:
-            raw = fetch(url, TIMEOUT)
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError) as exc:
+        raw, used_url, errors = try_fetch(urls, DEFAULT_TIMEOUT)
+        if raw and used_url:
+            payload = build_success_payload(used_url, raw)
+        else:
             payload = {
                 "status": "error",
-                "url": url,
-                "detail": str(exc),
+                "urls": urls,
+                "errors": errors,
             }
-        else:
-            obs = raw.get("observations", {}).get("data", [])
-            if not obs:
-                payload = {
-                    "status": "error",
-                    "url": url,
-                    "detail": "no observations",
-                }
-            else:
-                latest = obs[0]
-                payload = {
-                    "status": "ok",
-                    "url": url,
-                    "station": latest.get("name"),
-                    "lat": latest.get("lat"),
-                    "lon": latest.get("lon"),
-                    "temp_C": latest.get("air_temp"),
-                    "apparent_temp_C": latest.get("apparent_t"),
-                    "wind_dir": latest.get("wind_dir"),
-                    "wind_kmh": latest.get("wind_spd_kmh"),
-                    "gust_kmh": latest.get("gust_kmh"),
-                    "humidity_pct": latest.get("rel_hum"),
-                    "rain_24h_mm": latest.get("rain_trace"),
-                    "timestamp_utc": latest.get("aifstime_utc"),
-                    "fetched_utc": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                }
 
     update_session(
         fields={
@@ -86,16 +149,14 @@ def main() -> int:
         },
         history_entry={
             "event": "weather",
-            "status": payload["status"],
+            "status": payload.get("status"),
         },
     )
 
     log_event("weather", payload)
     print(json.dumps(payload, ensure_ascii=False))
 
-    if payload["status"] == "ok" or payload["status"] == "dry-run":
-        return 0
-    return 1
+    return 0 if payload.get("status") in {"ok", "dry-run"} else 1
 
 
 if __name__ == "__main__":
