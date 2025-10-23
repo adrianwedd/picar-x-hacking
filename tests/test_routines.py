@@ -12,6 +12,7 @@ def run(cmd, extra_env=None):
     env.setdefault("PROJECT_ROOT", str(PROJECT_ROOT))
     env.setdefault("PX_BYPASS_SUDO", "1")
     env.setdefault("LOG_DIR", str(LOG_ROOT))
+    env.setdefault("PX_VOICE_DEVICE", "null")
     if extra_env:
         env.update(extra_env)
     result = subprocess.run(
