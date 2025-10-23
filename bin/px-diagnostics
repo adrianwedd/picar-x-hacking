@@ -14,6 +14,8 @@ import os
 import re
 import subprocess
 import tempfile
+import time
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -124,6 +126,42 @@ def main() -> int:
             except OSError:
                 pass
 
+    speaker_check = run_tool(["bin/tool-voice"], {"PX_TEXT": "Speaker diagnostic", "PX_DRY": "1" if dry_mode else "0"})
+    speaker_check["name"] = "speaker"
+    results["checks"].append(speaker_check)
+    if not dry_mode and speaker_check.get("returncode") != 0:
+        results.setdefault("warnings", []).append("speaker test failed")
+        results["status"] = "warn"
+
+    mic_check = {"name": "microphone", "status": "dry-run" if dry_mode else "skip"}
+    mic_path = None
+    if not dry_mode:
+        if shutil.which("arecord"):
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                mic_path = Path(tmp.name)
+            cmd = ["arecord", "-d", "2", "-f", "cd", str(mic_path)]
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            mic_check["cmd"] = " ".join(cmd)
+            mic_check["returncode"] = proc.returncode
+            if proc.returncode == 0 and mic_path.exists() and mic_path.stat().st_size > 0:
+                mic_check["status"] = "ok"
+                mic_check["file"] = str(mic_path)
+            else:
+                mic_check["status"] = "warn"
+                mic_check["stderr"] = proc.stderr[-512:]
+                results.setdefault("warnings", []).append("microphone test failed")
+                results["status"] = "warn"
+        else:
+            mic_check["status"] = "unavailable"
+            results.setdefault("warnings", []).append("arecord not found")
+            results["status"] = "warn"
+    results["checks"].append(mic_check)
+    if mic_path and mic_path.exists():
+        try:
+            mic_path.unlink()
+        except OSError:
+            pass
+
     voice_summary = "Diagnostics complete: "
     voice_bits = []
     if battery_ok is False:
@@ -144,6 +182,12 @@ def main() -> int:
             voice_bits.append("camera capture OK")
         else:
             voice_bits.append("camera capture failed")
+    if speaker_check.get("returncode") != 0:
+        voice_bits.append("speaker test failed")
+    if mic_check.get("status") == "ok":
+        voice_bits.append("microphone ok")
+    elif mic_check.get("status") not in {"dry-run", "skip"}:
+        voice_bits.append("microphone issue")
     if not voice_bits:
         voice_bits.append("see logs")
     voice_summary += ", ".join(voice_bits)

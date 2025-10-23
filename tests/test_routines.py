@@ -35,6 +35,8 @@ def test_px_diagnostics_dry_run(tmp_path):
     names = [check["name"] for check in summary["checks"]]
     assert "status" in names
     assert "sensors" in names
+    assert "speaker" in names
+    assert "microphone" in names
 
 def test_px_dance_dry_run(tmp_path):
     env = {

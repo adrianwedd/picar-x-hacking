@@ -56,12 +56,12 @@ All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
   bin/px-frigate-stream --host pi5-hailo.local --stream picar-x
   ```
   Streams via `rpicam-vid` + `ffmpeg` into `rtsp://HOST:PORT/api/stream?push=NAME`. Configure Frigate/go2rtc to pull the same name.
-- `px-diagnostics` – run a quick health check (status, optional motion, weather) and announce results:
+- `px-diagnostics` – run a quick health check (status, sensors, speaker/mic, optional motion, weather/camera) and announce results:
   ```bash
   PX_DRY=1 bin/px-diagnostics --no-motion --short
   bin/px-diagnostics --no-motion
   ```
-  Reports land in `logs/tool-diagnostics.log` and announce through `tool-voice`.
+  Reports land in `logs/tool-diagnostics.log` and voice a summary (speaker + microphone tests included when not in dry-run).
 - `px-dance` – choreographed demo (voice intro, circle, figure-eight, finale):
   ```bash
   PX_DRY=1 bin/px-dance --voice "Demo routine"
