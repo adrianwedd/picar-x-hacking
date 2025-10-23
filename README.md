@@ -49,13 +49,13 @@ All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
   ```bash
   sudo -E bin/px-stop
   ```
-- `tool-weather` – fetch the latest Bureau of Meteorology observation for the configured station (defaults to Cygnet AWS). The helper automatically falls back from HTTPS to the public FTP catalogue when required:
+- `tool-weather` – fetch the latest Bureau of Meteorology observation for the configured station (defaults to Grove AWS while Cygnet feed is offline). The helper automatically falls back from HTTPS to the public FTP catalogue when required and includes a human-ready summary for the voice agent:
   ```bash
   PX_DRY=1 bin/tool-weather          # plan only
   PX_DRY=0 bin/tool-weather          # live fetch
   PX_WEATHER_STATION=95977 PX_DRY=0 bin/tool-weather  # override station (e.g., Grove)
   ```
-  On success the observation is logged to `logs/tool-weather.log` and cached in `state/session.json` under `last_weather`.
+  On success the observation is logged to `logs/tool-weather.log`, cached in `state/session.json` under `last_weather`, and ready for speech output.
 
 Each helper logs actions with ISO timestamps and exits cleanly on Ctrl+C.
 
@@ -68,6 +68,8 @@ Each helper logs actions with ISO timestamps and exits cleanly on Ctrl+C.
 
 ## Codex Voice Assistant
 The Codex-driven loop keeps context in `state/session.json`, validates every tool call, and defaults to dry-run for safety.
+The loop automatically speaks weather summaries using `espeak` (or another player set via `PX_VOICE_PLAYER`) whenever `tool_weather` succeeds. Install an ALSA-compatible TTS engine if you want audible responses.
+
 
 1. Configure the Codex CLI command (example assumes `codex chat` accepts stdin):
    ```bash

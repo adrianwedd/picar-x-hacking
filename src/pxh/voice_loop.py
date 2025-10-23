@@ -148,6 +148,15 @@ def extract_action(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def parse_tool_payload(raw: str) -> Optional[Dict[str, Any]]:
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw.splitlines()[-1])
+    except json.JSONDecodeError:
+        return None
+
 def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
     tool = action.get("tool")
     if tool not in ALLOWED_TOOLS:
@@ -279,6 +288,28 @@ def supervisor_loop(args: argparse.Namespace) -> None:
             print(tool_stdout.strip())
         if tool_stderr.strip():
             print(tool_stderr.strip(), file=sys.stderr)
+
+        if tool == "tool_weather":
+            payload = parse_tool_payload(tool_stdout)
+            summary = payload.get("summary") if isinstance(payload, dict) else None
+            if summary:
+                try:
+                    rc_voice, voice_stdout, voice_stderr = execute_tool(
+                        "tool_voice",
+                        {"PX_TEXT": summary},
+                        args.dry_run,
+                    )
+                except VoiceLoopError as exc:
+                    print(f"[voice-loop] Voice execution error: {exc}")
+                else:
+                    log_event(
+                        "voice-loop",
+                        {"turn": turn, "tool": "tool_voice", "returncode": rc_voice, "dry": args.dry_run},
+                    )
+                    if voice_stdout.strip():
+                        print(voice_stdout.strip())
+                    if voice_stderr.strip():
+                        print(voice_stderr.strip(), file=sys.stderr)
 
         if args.exit_on_stop and tool == "tool_stop" and rc_tool == 0:
             print("[voice-loop] Stop command acknowledged. Exiting loop.")

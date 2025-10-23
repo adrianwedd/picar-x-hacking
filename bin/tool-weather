@@ -11,7 +11,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
-import sys
 from ftplib import FTP, all_errors as FTP_ERRORS
 from io import BytesIO
 from typing import Any, Dict, Iterable, List, Tuple
@@ -23,7 +22,7 @@ from pxh.logging import log_event
 from pxh.state import update_session
 
 DEFAULT_PRODUCT = os.environ.get("PX_WEATHER_PRODUCT", "IDT60801")
-DEFAULT_STATION = os.environ.get("PX_WEATHER_STATION", "95969")
+DEFAULT_STATION = os.environ.get("PX_WEATHER_STATION", "95977")
 DEFAULT_TIMEOUT = float(os.environ.get("PX_WEATHER_TIMEOUT", "10"))
 DEFAULT_HTTPS = f"https://reg.bom.gov.au/fwo/{DEFAULT_PRODUCT}/{DEFAULT_PRODUCT}.{DEFAULT_STATION}.json"
 DEFAULT_FTP = f"ftp://ftp.bom.gov.au/anon/gen/fwo/{DEFAULT_PRODUCT}.{DEFAULT_STATION}.json"
@@ -56,7 +55,7 @@ def candidate_urls() -> List[str]:
 def fetch_http(url: str, timeout: float) -> Dict[str, Any]:
     request = url_request.Request(url, headers={"User-Agent": "PiCarX-Helper/1.0"})
     with url_request.urlopen(request, timeout=timeout) as response:
-        charset = response.headers.get_content_charset("utf-8")
+        charset = response.headers.get_content_charset("utf-8") or "utf-8"
         data = response.read().decode(charset)
     return json.loads(data)
 
@@ -101,24 +100,68 @@ def build_success_payload(source_url: str, raw: Dict[str, Any]) -> Dict[str, Any
             "status": "error",
             "url": source_url,
             "detail": "no observations",
+            "summary": "Weather feed returned no observations.",
         }
     latest = obs[0]
+    station = latest.get("name") or "Unknown station"
+    temp = latest.get("air_temp")
+    feels = latest.get("apparent_t")
+    wind_dir = latest.get("wind_dir") or "calm"
+    wind = latest.get("wind_spd_kmh")
+    gust = latest.get("gust_kmh")
+    humidity = latest.get("rel_hum")
+    rain = latest.get("rain_trace")
+    timestamp = latest.get("aifstime_utc")
+
+    details: List[str] = []
+    if temp is not None:
+        details.append(f"{temp}°C")
+    if feels is not None:
+        details.append(f"feels like {feels}°C")
+    if wind is not None:
+        details.append(f"wind {wind_dir} {wind} km/h")
+    if gust:
+        details.append(f"gusting to {gust} km/h")
+    if humidity is not None:
+        details.append(f"humidity {humidity}%")
+    if rain is not None and rain not in ("0", "0.0", 0, 0.0):
+        details.append(f"rain last 24h {rain} mm")
+    if timestamp:
+        details.append(f"observed at {timestamp} UTC")
+    if details:
+        summary = f"Weather at {station}: " + ", ".join(details)
+    else:
+        summary = f"Weather at {station}."
+
     return {
         "status": "ok",
         "url": source_url,
-        "station": latest.get("name"),
+        "station": station,
         "lat": latest.get("lat"),
         "lon": latest.get("lon"),
-        "temp_C": latest.get("air_temp"),
-        "apparent_temp_C": latest.get("apparent_t"),
+        "temp_C": temp,
+        "apparent_temp_C": feels,
         "wind_dir": latest.get("wind_dir"),
-        "wind_kmh": latest.get("wind_spd_kmh"),
-        "gust_kmh": latest.get("gust_kmh"),
-        "humidity_pct": latest.get("rel_hum"),
-        "rain_24h_mm": latest.get("rain_trace"),
-        "timestamp_utc": latest.get("aifstime_utc"),
+        "wind_kmh": wind,
+        "gust_kmh": gust,
+        "humidity_pct": humidity,
+        "rain_24h_mm": rain,
+        "timestamp_utc": timestamp,
         "fetched_utc": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "summary": summary,
     }
+
+
+def error_summary(payload: Dict[str, Any]) -> str:
+    status = payload.get("status")
+    if status == "dry-run":
+        urls = payload.get("urls", [])
+        return "Dry-run: would fetch weather from " + ", ".join(urls)
+    errors = payload.get("errors")
+    if errors:
+        details = "; ".join(f"{e['url']}: {e['detail']}" for e in errors)
+        return f"Weather fetch failed: {details}"
+    return payload.get("detail", "Weather fetch failed")
 
 
 def main() -> int:
@@ -140,7 +183,11 @@ def main() -> int:
                 "status": "error",
                 "urls": urls,
                 "errors": errors,
+                "summary": error_summary({"errors": errors, "status": "error"}),
             }
+
+    if "summary" not in payload:
+        payload["summary"] = error_summary(payload)
 
     update_session(
         fields={

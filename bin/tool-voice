@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -17,7 +18,15 @@ from pxh.logging import log_event
 from pxh.state import update_session
 
 PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
-DEFAULT_PLAYER = os.environ.get("PX_VOICE_PLAYER")
+CONFIGURED_PLAYER = os.environ.get("PX_VOICE_PLAYER")
+DEFAULT_PLAYER = None
+if CONFIGURED_PLAYER:
+    DEFAULT_PLAYER = CONFIGURED_PLAYER
+else:
+    for candidate in ("espeak", "say"):
+        if shutil.which(candidate):
+            DEFAULT_PLAYER = candidate
+            break
 
 
 def main() -> int:
@@ -35,13 +44,17 @@ def main() -> int:
         "text": text,
     }
 
-    if dry_mode or not DEFAULT_PLAYER:
-        payload["note"] = "voice output suppressed"
+    if dry_mode:
+        payload["note"] = "voice output suppressed (dry-run)"
+    elif not DEFAULT_PLAYER:
+        payload["note"] = "no speech engine available"
     else:
-        command = DEFAULT_PLAYER.split()
+        command = [DEFAULT_PLAYER]
+        if DEFAULT_PLAYER == "espeak":
+            command.extend(["-s", os.environ.get("PX_VOICE_RATE", "150")])
         command.append(text)
         result = subprocess.run(command, capture_output=True, text=True, check=False)
-        payload["player"] = command[0]
+        payload["player"] = DEFAULT_PLAYER
         payload["returncode"] = result.returncode
         payload["stdout"] = result.stdout[-1024:]
         payload["stderr"] = result.stderr[-1024:]
@@ -52,7 +65,7 @@ def main() -> int:
     )
     log_event("voice", payload)
     print(json.dumps(payload))
-    return 0
+    return 0 if payload["status"] == "ok" else 1
 
 
 if __name__ == "__main__":
