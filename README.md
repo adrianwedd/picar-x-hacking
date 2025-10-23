@@ -73,7 +73,7 @@ The loop automatically speaks weather summaries using `espeak` (or another playe
 
 1. Configure the Codex CLI command (example assumes `codex chat` accepts stdin):
    ```bash
-   export CODEX_CHAT_CMD="codex chat --model gpt-4.1-mini --input -"
+   export CODEX_CHAT_CMD="codex exec --model gpt-5-codex -"
    ```
 2. (Optional) Select an audio player for spoken responses:
    ```bash
@@ -83,7 +83,7 @@ The loop automatically speaks weather summaries using `espeak` (or another playe
    ```bash
    bin/run-voice-loop --dry-run --auto-log
    ```
-   `bin/run-voice-loop` sets up `CODEX_CHAT_CMD` automatically (defaults to `codex chat --model gpt-4.1-mini --input -`). Override the variable before launch if you need a different Codex command.
+   `bin/run-voice-loop` sets up `CODEX_CHAT_CMD` automatically (defaults to `codex exec --model gpt-5-codex -`). Override the variable before launch if you need a different Codex command.
    Type a prompt at `You>` and the supervisor will call the Codex CLI, parse the JSON tool request, and execute the corresponding wrapper in dry-run mode.
 4. When moving beyond dry-run, manually flip `confirm_motion_allowed` to `true` in `state/session.json` *after* confirming the car is on blocks. The wrappers will refuse motion otherwise.
 5. Use `--exit-on-stop` if you want the loop to terminate after a successful `tool-stop` invocation. Turn-by-turn transcripts live in `logs/tool-voice-transcript.log`; they include the prompt excerpt, Codex action, tool results, and auto-generated speech status.
