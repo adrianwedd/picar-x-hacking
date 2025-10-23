@@ -101,6 +101,7 @@ The system prompt consumed by Codex lives in `docs/prompts/codex-voice-system.md
 ## Logging Strategy
 - Logs live under `~/picar-x-hacking/logs`. Individual helpers use dedicated files such as `px-circle.log`, `px-figure8.log`, and `px-scan.log`.
 - Tool wrappers emit JSON lines to `logs/tool-*.log`; the voice supervisor writes to `logs/tool-voice-loop.log` when `--auto-log` is enabled and to `logs/tool-voice-transcript.log` on every turn (prompt excerpt, Codex action, tool payload).
+- Generate quick summaries with `bin/px-voice-report --json` to inspect tool counts, voice success rate, and the latest weather narration.
 - Camera sweeps store captures in `logs/scans/<timestamp>/` alongside `px-scan.log` entries.
 - Keep the directory under version control via `logs/.gitkeep`.
 - Tail logs during testing:

@@ -18,6 +18,7 @@ All helper scripts live in `~/picar-x-hacking/bin`. Each script is designed to b
 | `px-wake` | Toggles the voice wake state (set/pulse/keyboard) and writes `listening` flags into `state/session.json` so the voice loop knows when to capture audio. |
 | `tool-weather` | Fetches the latest Bureau of Meteorology observation for the configured product/station (default Grove AWS), falling back from HTTPS to FTP when required and producing a conversational summary for Codex/voice playback. Override with `PX_WEATHER_PRODUCT`, `PX_WEATHER_STATION`, or `PX_WEATHER_URL`. |
 | `run-voice-loop` | Convenience launcher that exports `CODEX_CHAT_CMD` (default `codex exec --model gpt-5-codex --full-auto --search -`) and executes `codex-voice-loop` with supplied flags. |
+| `px-voice-report` | Summarises `logs/tool-voice-transcript.log` (tool counts, voice success/failure, battery warnings) in text or JSON form. |
 | `codex-voice-loop` | Supervisor that pipes transcripts through the Codex CLI, parses JSON tool requests, enforces allowlists/ranges, executes wrappers, and records a watchdog heartbeat in `state/session.json`. |
 
 All motion-capable helpers include `--dry-run` (or honour `PX_DRY`) so you can review planned actions before spinning the wheels. Always confirm the car is on blocks prior to running live motion. Use `sudo -E bin/<script>` to ensure the virtualenv and path configuration remain intact under sudo.

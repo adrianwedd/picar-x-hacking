@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+from __future__ import annotations
+
+import argparse
+import json
+from collections import Counter
+from pathlib import Path
+from typing import Any, Dict, Iterable
+
+
+def load_records(path: Path) -> Iterable[Dict[str, Any]]:
+    if not path.exists():
+        return []
+    records: list[Dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return records
+
+
+def summarise(records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+    records = list(records)
+    tool_counts = Counter()
+    voice_success = 0
+    voice_fail = 0
+    battery_warnings = 0
+    last_summary = None
+
+    for entry in records:
+        tool = entry.get("tool")
+        if tool:
+            tool_counts[tool] += 1
+        payload = entry.get("tool_payload")
+        if isinstance(payload, dict):
+            if payload.get("summary"):
+                last_summary = payload["summary"]
+            bp = payload.get("battery_pct")
+            if isinstance(bp, (int, float)) and bp < 30:
+                battery_warnings += 1
+        voice_result = entry.get("voice_result")
+        if isinstance(voice_result, dict):
+            if voice_result.get("returncode") == 0:
+                voice_success += 1
+            else:
+                voice_fail += 1
+
+    return {
+        "total_records": len(records),
+        "tool_counts": dict(tool_counts),
+        "voice_success": voice_success,
+        "voice_failures": voice_fail,
+        "battery_warnings": battery_warnings,
+        "last_summary": last_summary,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Summarize voice transcript log")
+    parser.add_argument("--log", default=str(Path("logs/tool-voice-transcript.log")), help="Path to transcript log")
+    parser.add_argument("--json", action="store_true", help="Emit JSON instead of text summary")
+    args = parser.parse_args()
+
+    records = load_records(Path(args.log))
+    summary = summarise(records)
+
+    if args.json:
+        print(json.dumps(summary, indent=2))
+        return 0
+
+    print(f"Entries: {summary['total_records']}")
+    print("Tools:")
+    for tool, count in sorted(summary["tool_counts"].items()):
+        print(f"  {tool}: {count}")
+    print(f"Voice successes: {summary['voice_success']}\nVoice failures: {summary['voice_failures']}\nBattery warnings: {summary['battery_warnings']}")
+    if summary["last_summary"]:
+        print(f"Last weather summary: {summary['last_summary']}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
