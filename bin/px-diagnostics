@@ -69,12 +69,14 @@ def main() -> int:
         results["checks"].append({"name": "weather", **weather_info})
 
     do_motion = not (dry_mode or args.no_motion)
-    motion_env = {"PX_DRY": "1" if dry_mode else "0", "PX_SPEED": "25", "PX_DURATION": "2"}
-    motion_check = run_tool(["bin/tool-circle"], motion_env)
-    motion_check["name"] = "circle"
-    results["checks"].append(motion_check)
-    if motion_check["returncode"] != 0:
-        results["status"] = "error"
+    motion_check = None
+    if do_motion:
+        motion_env = {"PX_DRY": "1" if dry_mode else "0", "PX_SPEED": "25", "PX_DURATION": "2"}
+        motion_check = run_tool(["bin/tool-circle"], motion_env)
+        motion_check["name"] = "circle"
+        results["checks"].append(motion_check)
+        if motion_check["returncode"] != 0:
+            results["status"] = "error"
 
     voice_summary = "Diagnostics complete: "
     voice_bits = []
@@ -82,10 +84,11 @@ def main() -> int:
         voice_bits.append("battery below threshold")
     elif battery_ok:
         voice_bits.append("battery is healthy")
-    if motion_check["returncode"] == 0:
-        voice_bits.append("motors responsive")
-    else:
-        voice_bits.append("motor test failed")
+    if motion_check is not None:
+        if motion_check["returncode"] == 0:
+            voice_bits.append("motors responsive")
+        else:
+            voice_bits.append("motor test failed")
     if not voice_bits:
         voice_bits.append("see logs")
     voice_summary += ", ".join(voice_bits)
