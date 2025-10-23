@@ -103,33 +103,68 @@ def build_success_payload(source_url: str, raw: Dict[str, Any]) -> Dict[str, Any
             "summary": "Weather feed returned no observations.",
         }
     latest = obs[0]
-    station = latest.get("name") or "Unknown station"
+    station = latest.get("name") or "the station"
     temp = latest.get("air_temp")
     feels = latest.get("apparent_t")
-    wind_dir = latest.get("wind_dir") or "calm"
+    wind_dir = latest.get("wind_dir")
     wind = latest.get("wind_spd_kmh")
     gust = latest.get("gust_kmh")
     humidity = latest.get("rel_hum")
     rain = latest.get("rain_trace")
     timestamp = latest.get("aifstime_utc")
 
-    details: List[str] = []
-    if temp is not None:
-        details.append(f"{temp}°C")
-    if feels is not None:
-        details.append(f"feels like {feels}°C")
+    def fmt_number(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, (int, float)):
+            num = float(value)
+        else:
+            try:
+                num = float(value)
+            except (TypeError, ValueError):
+                return str(value)
+        text = f"{num:.1f}"
+        if text.endswith(".0"):
+            text = text[:-2]
+        return text
+
+    sentences: List[str] = []
+    if temp is not None or feels is not None:
+        if temp is not None:
+            temp_text = fmt_number(temp)
+            first = f"At {station}, it's {temp_text} degrees Celsius"
+        else:
+            first = f"At {station}, the apparent temperature is {fmt_number(feels)} degrees Celsius"
+        if temp is not None and feels is not None:
+            feels_text = fmt_number(feels)
+            if feels_text != fmt_number(temp):
+                first += f" and it feels like {feels_text}"
+        sentences.append(first + ".")
+
     if wind is not None:
-        details.append(f"wind {wind_dir} {wind} km/h")
-    if gust:
-        details.append(f"gusting to {gust} km/h")
+        direction = wind_dir or "calm"
+        wind_sentence = f"Winds are {direction} at {fmt_number(wind)} kilometres per hour"
+        if gust:
+            wind_sentence += f", gusting to {fmt_number(gust)}"
+        sentences.append(wind_sentence + ".")
+
     if humidity is not None:
-        details.append(f"humidity {humidity}%")
+        sentences.append(f"Humidity is {fmt_number(humidity)} percent.")
+
     if rain is not None and rain not in ("0", "0.0", 0, 0.0):
-        details.append(f"rain last 24h {rain} mm")
+        sentences.append(f"Rain in the past twenty four hours totals {fmt_number(rain)} millimetres.")
+
     if timestamp:
-        details.append(f"observed at {timestamp} UTC")
-    if details:
-        summary = f"Weather at {station}: " + ", ".join(details)
+        spoken_time = timestamp
+        try:
+            dt_obj = dt.datetime.strptime(timestamp, "%Y%m%d%H%M%S")
+            spoken_time = dt_obj.strftime("%H:%M UTC on %d %B")
+        except (ValueError, TypeError):
+            spoken_time = f"{timestamp} UTC"
+        sentences.append(f"Observation time {spoken_time}.")
+
+    if sentences:
+        summary = " ".join(sentences)
     else:
         summary = f"Weather at {station}."
 
