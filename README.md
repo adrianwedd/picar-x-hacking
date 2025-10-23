@@ -95,6 +95,7 @@ The loop automatically speaks weather summaries using `espeak` (or another playe
    Type a prompt at `You>` and the supervisor will call the Codex CLI, parse the JSON tool request, and execute the corresponding wrapper in dry-run mode.
 5. When moving beyond dry-run, manually flip `confirm_motion_allowed` to `true` in `state/session.json` *after* confirming the car is on blocks. The wrappers will refuse motion otherwise.
 6. Use `--exit-on-stop` if you want the loop to terminate after a successful `tool-stop` invocation. Turn-by-turn transcripts live in `logs/tool-voice-transcript.log`; they include the prompt excerpt, Codex action, tool results, and auto-generated speech status.
+7. Use `bin/px-session` to launch a tmux workspace with the voice loop, wake controller, and transcript tail in separate panes. Run `bin/px-session --plan` to inspect the layout before attaching.
 
 The system prompt consumed by Codex lives in `docs/prompts/codex-voice-system.md`; adjust it if you add tools or new safety rules.
 

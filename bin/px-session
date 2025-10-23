@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+SESSION_NAME=${PX_TMUX_SESSION:-picar-x}
+VOICE_CMD=${PX_VOICE_CMD:-bin/run-voice-loop --auto-log}
+WAKE_CMD=${PX_WAKE_CMD:-bin/px-wake --keyboard}
+LOG_CMD=${PX_LOG_CMD:-tail -f logs/tool-voice-transcript.log}
+
+print_plan() {
+  cat <<PLAN
+# tmux session: $SESSION_NAME
+1. tmux new-session -d -s "$SESSION_NAME" -n voice "cd $PROJECT_ROOT && $VOICE_CMD"
+2. tmux split-window -h -t "$SESSION_NAME:voice" "cd $PROJECT_ROOT && $WAKE_CMD"
+3. tmux split-window -v -t "$SESSION_NAME:voice.0" "cd $PROJECT_ROOT && $LOG_CMD"
+4. tmux select-pane -t "$SESSION_NAME:voice.0"
+5. tmux new-window -t "$SESSION_NAME" -n shell "cd $PROJECT_ROOT"
+6. tmux select-window -t "$SESSION_NAME:voice"
+7. tmux attach -t "$SESSION_NAME"
+PLAN
+}
+
+usage() {
+  cat <<USAGE
+Usage: px-session [--plan]
+
+  --plan   Print the tmux setup steps without executing them.
+USAGE
+}
+
+if [[ ${1:-} == "--plan" ]]; then
+  print_plan
+  exit 0
+elif [[ ${1:-} == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "tmux is required to run px-session" >&2
+  exit 1
+fi
+
+if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+  echo "Attaching to existing session '$SESSION_NAME'"
+  exec tmux attach -t "$SESSION_NAME"
+fi
+
+tmux new-session -d -s "$SESSION_NAME" -n voice "cd $PROJECT_ROOT && $VOICE_CMD"
+tmux split-window -h -t "$SESSION_NAME:voice" "cd $PROJECT_ROOT && $WAKE_CMD"
+tmux split-window -v -t "$SESSION_NAME:voice.0" "cd $PROJECT_ROOT && $LOG_CMD"
+tmux select-pane -t "$SESSION_NAME:voice.0"
+tmux new-window -t "$SESSION_NAME" -n shell "cd $PROJECT_ROOT"
+tmux select-window -t "$SESSION_NAME:voice"
+exec tmux attach -t "$SESSION_NAME"
