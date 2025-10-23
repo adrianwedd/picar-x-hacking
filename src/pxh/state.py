@@ -25,6 +25,9 @@ def default_state() -> Dict[str, Any]:
         "confirm_motion_allowed": False,
         "watchdog_heartbeat_ts": None,
         "last_weather": None,
+        "last_prompt_excerpt": None,
+        "last_model_action": None,
+        "last_tool_payload": None,
         "history": [],
     }
 

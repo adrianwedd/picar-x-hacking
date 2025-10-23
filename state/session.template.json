@@ -9,5 +9,8 @@
   "confirm_motion_allowed": false,
   "watchdog_heartbeat_ts": null,
   "last_weather": null,
+  "last_prompt_excerpt": null,
+  "last_model_action": null,
+  "last_tool_payload": null,
   "history": []
 }

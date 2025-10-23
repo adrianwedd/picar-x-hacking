@@ -116,9 +116,43 @@ def capture_voice_input(cmd_spec: str) -> Optional[str]:
 
 def build_model_prompt(system_prompt: str, state: Dict[str, Any], user_text: str) -> str:
     state_copy = {k: v for k, v in state.items() if k != "history"}
+
+    highlights: Dict[str, Any] = {}
+    for key in (
+        "mode",
+        "confirm_motion_allowed",
+        "wheels_on_blocks",
+        "battery_pct",
+        "battery_ok",
+        "last_motion",
+        "last_action",
+    ):
+        value = state_copy.get(key)
+        if value is not None:
+            highlights[key] = value
+
+    last_weather = state_copy.get("last_weather") or {}
+    if isinstance(last_weather, dict):
+        summary = last_weather.get("summary")
+        if summary:
+            highlights["last_weather_summary"] = summary
+
+    recent_history = state.get("history") or []
+    recent_events = recent_history[-3:]
+
+    context_sections = [
+        "Current highlights:",
+        json.dumps(highlights, indent=2),
+    ]
+    if recent_events:
+        context_sections.append("Recent events:")
+        context_sections.append(json.dumps(recent_events, indent=2))
+
+    context_block = "\n".join(context_sections)
+
     return (
         f"{system_prompt}\n\n"
-        f"Current state: {json.dumps(state_copy, indent=2)}\n"
+        f"{context_block}\n"
         f"User transcript: {user_text}\n"
         f"Respond with a single JSON object as instructed."
     )
@@ -240,7 +274,10 @@ def supervisor_loop(args: argparse.Namespace) -> None:
             print("[voice-loop] No input, exiting.")
             break
 
+
         prompt = build_model_prompt(system_prompt, session, user_text)
+        prompt_excerpt = prompt[:800]
+
         rc, stdout, stderr = run_codex(args.codex_cmd, prompt)
         if args.auto_log:
             log_event(
@@ -274,6 +311,29 @@ def supervisor_loop(args: argparse.Namespace) -> None:
             print(f"[voice-loop] Execution error: {exc}")
             continue
 
+        tool_payload = parse_tool_payload(tool_stdout)
+        session_update = {
+            "last_prompt_excerpt": prompt_excerpt,
+            "last_model_action": action,
+        }
+        if isinstance(tool_payload, dict):
+            session_update["last_tool_payload"] = tool_payload
+
+        update_session(fields=session_update)
+
+        transcript_entry = {
+            "turn": turn,
+            "prompt_excerpt": prompt_excerpt,
+            "model_action": action,
+            "tool": tool,
+            "returncode": rc_tool,
+            "dry": args.dry_run,
+            "tool_stdout": tool_stdout[-1000:],
+            "tool_stderr": tool_stderr[-1000:],
+        }
+        if isinstance(tool_payload, dict):
+            transcript_entry["tool_payload"] = tool_payload
+
         log_event(
             "voice-loop",
             {
@@ -289,9 +349,9 @@ def supervisor_loop(args: argparse.Namespace) -> None:
         if tool_stderr.strip():
             print(tool_stderr.strip(), file=sys.stderr)
 
+        voice_result = None
         if tool == "tool_weather":
-            payload = parse_tool_payload(tool_stdout)
-            summary = payload.get("summary") if isinstance(payload, dict) else None
+            summary = tool_payload.get("summary") if isinstance(tool_payload, dict) else None
             if summary:
                 try:
                     rc_voice, voice_stdout, voice_stderr = execute_tool(
@@ -310,6 +370,16 @@ def supervisor_loop(args: argparse.Namespace) -> None:
                         print(voice_stdout.strip())
                     if voice_stderr.strip():
                         print(voice_stderr.strip(), file=sys.stderr)
+                    voice_result = {
+                        "returncode": rc_voice,
+                        "stdout": voice_stdout[-1000:],
+                        "stderr": voice_stderr[-1000:],
+                    }
+
+        if voice_result is not None:
+            transcript_entry["voice_result"] = voice_result
+
+        log_event("voice-transcript", transcript_entry)
 
         if args.exit_on_stop and tool == "tool_stop" and rc_tool == 0:
             print("[voice-loop] Stop command acknowledged. Exiting loop.")

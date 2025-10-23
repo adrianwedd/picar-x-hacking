@@ -49,7 +49,7 @@ All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
   ```bash
   sudo -E bin/px-stop
   ```
-- `tool-weather` – fetch the latest Bureau of Meteorology observation for the configured station (defaults to Grove AWS while Cygnet feed is offline). The helper automatically falls back from HTTPS to the public FTP catalogue when required and includes a human-ready summary for the voice agent:
+- `tool-weather` – fetch the latest Bureau of Meteorology observation for the configured station (defaults to Grove AWS while Cygnet feed is offline). The helper automatically falls back from HTTPS to the public FTP catalogue when required and includes a conversational summary for the voice agent:
   ```bash
   PX_DRY=1 bin/tool-weather          # plan only
   PX_DRY=0 bin/tool-weather          # live fetch
@@ -68,7 +68,7 @@ Each helper logs actions with ISO timestamps and exits cleanly on Ctrl+C.
 
 ## Codex Voice Assistant
 The Codex-driven loop keeps context in `state/session.json`, validates every tool call, and defaults to dry-run for safety.
-The loop automatically speaks weather summaries using `espeak` (or another player set via `PX_VOICE_PLAYER`) whenever `tool_weather` succeeds. Install an ALSA-compatible TTS engine if you want audible responses.
+The loop automatically speaks weather summaries using `espeak` (or another player set via `PX_VOICE_PLAYER`) whenever `tool_weather` succeeds, and each turn captures a prompt/action record in `logs/tool-voice-transcript.log` for auditing. Install an ALSA-compatible TTS engine if you want audible responses.
 
 
 1. Configure the Codex CLI command (example assumes `codex chat` accepts stdin):
@@ -81,17 +81,18 @@ The loop automatically speaks weather summaries using `espeak` (or another playe
    ```
 3. Run the loop in dry-run mode first:
    ```bash
-   bin/codex-voice-loop --dry-run --auto-log
+   bin/run-voice-loop --dry-run --auto-log
    ```
+   `bin/run-voice-loop` sets up `CODEX_CHAT_CMD` automatically (defaults to `codex chat --model gpt-4.1-mini --input -`). Override the variable before launch if you need a different Codex command.
    Type a prompt at `You>` and the supervisor will call the Codex CLI, parse the JSON tool request, and execute the corresponding wrapper in dry-run mode.
 4. When moving beyond dry-run, manually flip `confirm_motion_allowed` to `true` in `state/session.json` *after* confirming the car is on blocks. The wrappers will refuse motion otherwise.
-5. Use `--exit-on-stop` if you want the loop to terminate after a successful `tool-stop` invocation.
+5. Use `--exit-on-stop` if you want the loop to terminate after a successful `tool-stop` invocation. Turn-by-turn transcripts live in `logs/tool-voice-transcript.log`; they include the prompt excerpt, Codex action, tool results, and auto-generated speech status.
 
 The system prompt consumed by Codex lives in `docs/prompts/codex-voice-system.md`; adjust it if you add tools or new safety rules.
 
 ## Logging Strategy
 - Logs live under `~/picar-x-hacking/logs`. Individual helpers use dedicated files such as `px-circle.log`, `px-figure8.log`, and `px-scan.log`.
-- Tool wrappers emit JSON lines to `logs/tool-*.log`; the voice supervisor writes to `logs/tool-voice-loop.log` when `--auto-log` is enabled.
+- Tool wrappers emit JSON lines to `logs/tool-*.log`; the voice supervisor writes to `logs/tool-voice-loop.log` when `--auto-log` is enabled and to `logs/tool-voice-transcript.log` on every turn (prompt excerpt, Codex action, tool payload).
 - Camera sweeps store captures in `logs/scans/<timestamp>/` alongside `px-scan.log` entries.
 - Keep the directory under version control via `logs/.gitkeep`.
 - Tail logs during testing:

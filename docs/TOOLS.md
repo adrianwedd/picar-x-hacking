@@ -15,7 +15,8 @@ All helper scripts live in `~/picar-x-hacking/bin`. Each script is designed to b
 | `tool-figure8` | Same safety wrapper pattern for `px-figure8`, with clamped duration/rest values before execution. |
 | `tool-stop` | Safe halt wrapper that respects dry-run mode and resets the session state after invoking `px-stop`. |
 | `tool-voice` | Logs and plays spoken responses; uses the player defined by `PX_VOICE_PLAYER` or falls back to `espeak`/`say` when available. Respects `PX_DRY` for silent rehearsals. |
-| `tool-weather` | Fetches the latest Bureau of Meteorology observation for the configured product/station (default Grove AWS), falling back from HTTPS to FTP when required, records the snapshot in `state/session.json`, and emits structured logs. Override with `PX_WEATHER_PRODUCT`, `PX_WEATHER_STATION`, or `PX_WEATHER_URL` as needed. |
+| `tool-weather` | Fetches the latest Bureau of Meteorology observation for the configured product/station (default Grove AWS), falling back from HTTPS to FTP when required and producing a conversational summary for Codex/voice playback. Override with `PX_WEATHER_PRODUCT`, `PX_WEATHER_STATION`, or `PX_WEATHER_URL`. |
+| `run-voice-loop` | Convenience launcher that exports `CODEX_CHAT_CMD` (default `codex chat --model gpt-4.1-mini --input -`) and executes `codex-voice-loop` with supplied flags. |
 | `codex-voice-loop` | Supervisor that pipes transcripts through the Codex CLI, parses JSON tool requests, enforces allowlists/ranges, executes wrappers, and records a watchdog heartbeat in `state/session.json`. |
 
 All motion-capable helpers include `--dry-run` (or honour `PX_DRY`) so you can review planned actions before spinning the wheels. Always confirm the car is on blocks prior to running live motion. Use `sudo -E bin/<script>` to ensure the virtualenv and path configuration remain intact under sudo.
