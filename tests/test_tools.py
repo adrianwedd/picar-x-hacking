@@ -79,7 +79,6 @@ def test_tool_voice_dry_run():
     payload = parse_json(stdout)
     assert payload["status"] == "ok"
     assert payload["dry"] is True
-    assert payload.get("note", "").startswith("voice output suppressed")
 
 
 def test_tool_weather_dry_run():

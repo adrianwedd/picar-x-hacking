@@ -44,9 +44,7 @@ def main() -> int:
         "text": text,
     }
 
-    if dry_mode:
-        payload["note"] = "voice output suppressed (dry-run)"
-    elif not DEFAULT_PLAYER:
+    if not DEFAULT_PLAYER:
         payload["note"] = "no speech engine available"
     else:
         command = [DEFAULT_PLAYER]
