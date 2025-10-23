@@ -50,6 +50,19 @@ All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
   sudo -E bin/px-stop
   ```
 - `px-wake` – manage the wake-word state for the voice loop:
+- `px-diagnostics` – run a quick health check (status, optional motion, weather) and announce results:
+  ```bash
+  PX_DRY=1 bin/px-diagnostics --no-motion --short
+  bin/px-diagnostics --no-motion
+  ```
+  Reports land in `logs/tool-diagnostics.log` and announce through `tool-voice`.
+- `px-dance` – choreographed demo (voice intro, circle, figure-eight, finale):
+  ```bash
+  PX_DRY=1 bin/px-dance --voice "Demo routine"
+  bin/px-dance --speed 30 --duration 4
+  ```
+  Uses existing motion helpers under the hood and logs to `logs/tool-dance.log`.
+
   ```bash
   bin/px-wake --set on   # enable listening
   bin/px-wake --set off  # disable

@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+from typing import Any, Dict, List
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+
+def run_tool(command: List[str], extra_env: Dict[str, str] | None = None) -> Dict[str, Any]:
+    env = os.environ.copy()
+    env.setdefault("PROJECT_ROOT", os.environ["PROJECT_ROOT"])
+    env.setdefault("PX_BYPASS_SUDO", os.environ.get("PX_BYPASS_SUDO", "0"))
+    if extra_env:
+        env.update(extra_env)
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    payload: Dict[str, Any] = {
+        "cmd": " ".join(command),
+        "returncode": result.returncode,
+        "stdout": result.stdout[-2048:],
+        "stderr": result.stderr[-2048:],
+    }
+    try:
+        payload["data"] = json.loads(result.stdout.splitlines()[-1])
+    except Exception:
+        payload["data"] = None
+    return payload
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="PiCar-X diagnostics sweep")
+    parser.add_argument("--no-motion", action="store_true", help="Skip motion tests even if not in dry-run")
+    parser.add_argument("--short", action="store_true", help="Skip weather and camera checks for speed")
+    args = parser.parse_args()
+
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    results: Dict[str, Any] = {
+        "status": "ok",
+        "dry": dry_mode,
+        "checks": [],
+    }
+
+    status_info = run_tool(["bin/tool-status"], {"PX_DRY": "1" if dry_mode else "0"})
+    results["checks"].append({"name": "status", **status_info})
+    battery_ok = status_info.get("data", {}).get("battery_ok")
+    if battery_ok is False:
+        results["status"] = "warn"
+        results.setdefault("warnings", []).append("battery low")
+
+    if not args.short:
+        weather_info = run_tool(["bin/tool-weather"], {"PX_DRY": "1"})
+        results["checks"].append({"name": "weather", **weather_info})
+
+    do_motion = not (dry_mode or args.no_motion)
+    motion_env = {"PX_DRY": "1" if dry_mode else "0", "PX_SPEED": "25", "PX_DURATION": "2"}
+    motion_check = run_tool(["bin/tool-circle"], motion_env)
+    motion_check["name"] = "circle"
+    results["checks"].append(motion_check)
+    if motion_check["returncode"] != 0:
+        results["status"] = "error"
+
+    voice_summary = "Diagnostics complete: "
+    voice_bits = []
+    if battery_ok is False:
+        voice_bits.append("battery below threshold")
+    elif battery_ok:
+        voice_bits.append("battery is healthy")
+    if motion_check["returncode"] == 0:
+        voice_bits.append("motors responsive")
+    else:
+        voice_bits.append("motor test failed")
+    if not voice_bits:
+        voice_bits.append("see logs")
+    voice_summary += ", ".join(voice_bits)
+
+    voice_info = run_tool(["bin/tool-voice"], {"PX_TEXT": voice_summary, "PX_DRY": "1" if dry_mode else "0"})
+    voice_info["name"] = "voice"
+    results["checks"].append(voice_info)
+
+    log_event("diagnostics", results)
+    update_session(history_entry={"event": "diagnostics", "status": results["status"]})
+    print(json.dumps(results, ensure_ascii=False))
+    return 0 if results["status"] != "error" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
