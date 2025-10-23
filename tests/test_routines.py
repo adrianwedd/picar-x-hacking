@@ -46,3 +46,22 @@ def test_px_dance_dry_run(tmp_path):
     assert summary["dry"] is True
     names = [entry["name"] for entry in summary["sequence"]]
     assert names[0] == "voice" and "circle" in names and "figure8" in names
+
+
+def test_px_frigate_stream_dry_run(tmp_path):
+    env = {
+        "PX_DRY": "1",
+        "PROJECT_ROOT": str(PROJECT_ROOT),
+    }
+    result = subprocess.run(
+        ["bin/px-frigate-stream", "--host", "example.local", "--stream", "test", "--dry-run"],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+        env=env,
+    )
+    payload = json.loads(result.stdout.strip())
+    assert payload["status"] == "dry-run"
+    assert "camera" in payload["commands"]
+    assert payload["commands"]["ffmpeg"][-1].endswith("test")

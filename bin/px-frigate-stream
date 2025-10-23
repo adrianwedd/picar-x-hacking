@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+from typing import Dict, List
+
+from pxh.logging import log_event
+
+STOP_REQUESTED = False
+
+
+def handle_sigint(signum, frame):
+    global STOP_REQUESTED
+    STOP_REQUESTED = True
+
+
+def build_commands(args) -> Dict[str, List[str]]:
+    cam_cmd = [
+        "rpicam-vid",
+        "--codec",
+        "h264",
+        "--profile",
+        "baseline",
+        "--inline",
+        "--timeout",
+        "0",
+        "--framerate",
+        str(args.fps),
+        "--width",
+        str(args.width),
+        "--height",
+        str(args.height),
+        "--segment",
+        "1",
+        "--output",
+        "-",
+    ]
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-re",
+        "-i",
+        "pipe:0",
+        "-fflags",
+        "+genpts",
+        "-preset",
+        "ultrafast",
+        "-tune",
+        "zerolatency",
+        "-f",
+        "rtsp",
+        "-rtsp_transport",
+        "tcp",
+        "-muxdelay",
+        "0.1",
+        args.url,
+    ]
+    return {"camera": cam_cmd, "ffmpeg": ffmpeg_cmd}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Stream PiCar-X camera to Frigate/go2rtc")
+    parser.add_argument("--host", default="pi5-hailo.local", help="Frigate/go2rtc host")
+    parser.add_argument("--port", type=int, default=8554, help="RTSP port")
+    parser.add_argument("--stream", default="picar-x", help="Stream name")
+    parser.add_argument("--fps", type=int, default=15)
+    parser.add_argument("--width", type=int, default=1280)
+    parser.add_argument("--height", type=int, default=720)
+    parser.add_argument("--duration", type=float, default=0, help="Stop after N seconds (0 = until Ctrl+C)")
+    parser.add_argument("--dry-run", action="store_true", help="Print commands without executing")
+
+    args = parser.parse_args()
+
+    target_url = f"rtsp://{args.host}:{args.port}/api/stream?push={args.stream}"
+    args.url = target_url
+    commands = build_commands(args)
+
+    if args.dry_run or os.environ.get("PX_DRY", "0") == "1":
+        payload = {
+            "status": "dry-run",
+            "commands": commands,
+        }
+        log_event("frigate-stream", payload)
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    if not shutil.which(commands["camera"][0]):
+        print("rpicam-vid not found in PATH", file=sys.stderr)
+        return 1
+    if not shutil.which(commands["ffmpeg"][0]):
+        print("ffmpeg not found in PATH", file=sys.stderr)
+        return 1
+
+    signal.signal(signal.SIGINT, handle_sigint)
+    signal.signal(signal.SIGTERM, handle_sigint)
+
+    cam_proc = subprocess.Popen(commands["camera"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        ffmpeg_proc = subprocess.Popen(
+            commands["ffmpeg"],
+            stdin=cam_proc.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except Exception:
+        cam_proc.terminate()
+        cam_proc.wait(timeout=2)
+        raise
+
+    start_ts = time.time()
+    payload = {
+        "status": "streaming",
+        "url": target_url,
+        "camera_cmd": commands["camera"],
+        "ffmpeg_cmd": commands["ffmpeg"],
+    }
+    log_event("frigate-stream", payload)
+    print(json.dumps(payload))
+
+    duration = args.duration
+    try:
+        while True:
+            if STOP_REQUESTED:
+                break
+            if duration > 0 and (time.time() - start_ts) >= duration:
+                break
+            time.sleep(0.5)
+    finally:
+        for proc in (ffmpeg_proc, cam_proc):
+            if proc.poll() is None:
+                proc.terminate()
+        for proc in (ffmpeg_proc, cam_proc):
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        log_event(
+            "frigate-stream",
+            {"status": "stopped", "url": target_url, "duration": time.time() - start_ts},
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    import shutil
+    raise SystemExit(main())
+PY

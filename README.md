@@ -50,6 +50,12 @@ All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
   sudo -E bin/px-stop
   ```
 - `px-wake` – manage the wake-word state for the voice loop:
+- `px-frigate-stream` – push an H.264 stream to Frigate/go2rtc (default `pi5-hailo.local`):
+  ```bash
+  PX_DRY=1 bin/px-frigate-stream --dry-run
+  bin/px-frigate-stream --host pi5-hailo.local --stream picar-x
+  ```
+  Streams via `rpicam-vid` + `ffmpeg` into `rtsp://HOST:PORT/api/stream?push=NAME`. Configure Frigate/go2rtc to pull the same name.
 - `px-diagnostics` – run a quick health check (status, optional motion, weather) and announce results:
   ```bash
   PX_DRY=1 bin/px-diagnostics --no-motion --short
