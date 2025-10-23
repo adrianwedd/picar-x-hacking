@@ -49,6 +49,13 @@ All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
   ```bash
   sudo -E bin/px-stop
   ```
+- `px-wake` – manage the wake-word state for the voice loop:
+  ```bash
+  bin/px-wake --set on   # enable listening
+  bin/px-wake --set off  # disable
+  bin/px-wake --pulse 5  # enable for 5 seconds
+  ```
+  (`px-wake --keyboard` lets you simulate the wake word from the terminal; the loop checks `state/session.json` for `listening: true` before consuming microphone input.)
 - `tool-weather` – fetch the latest Bureau of Meteorology observation for the configured station (defaults to Grove AWS while Cygnet feed is offline). The helper automatically falls back from HTTPS to the public FTP catalogue when required and includes a conversational summary for the voice agent:
   ```bash
   PX_DRY=1 bin/tool-weather          # plan only
@@ -79,14 +86,15 @@ The loop automatically speaks weather summaries using `espeak` (or another playe
    ```bash
    export PX_VOICE_PLAYER="/usr/bin/say"
    ```
-3. Run the loop in dry-run mode first:
+3. Use `px-wake` (or any other wake controller) to set `listening: true` before the loop listens on the microphone. The supervisor polls this flag and stays idle until it is raised.
+4. Run the loop in dry-run mode first:
    ```bash
    bin/run-voice-loop --dry-run --auto-log
    ```
    `bin/run-voice-loop` sets up `CODEX_CHAT_CMD` automatically (defaults to `codex exec --model gpt-5-codex --full-auto --search -`). Override the variable before launch if you need a different Codex command.
    Type a prompt at `You>` and the supervisor will call the Codex CLI, parse the JSON tool request, and execute the corresponding wrapper in dry-run mode.
-4. When moving beyond dry-run, manually flip `confirm_motion_allowed` to `true` in `state/session.json` *after* confirming the car is on blocks. The wrappers will refuse motion otherwise.
-5. Use `--exit-on-stop` if you want the loop to terminate after a successful `tool-stop` invocation. Turn-by-turn transcripts live in `logs/tool-voice-transcript.log`; they include the prompt excerpt, Codex action, tool results, and auto-generated speech status.
+5. When moving beyond dry-run, manually flip `confirm_motion_allowed` to `true` in `state/session.json` *after* confirming the car is on blocks. The wrappers will refuse motion otherwise.
+6. Use `--exit-on-stop` if you want the loop to terminate after a successful `tool-stop` invocation. Turn-by-turn transcripts live in `logs/tool-voice-transcript.log`; they include the prompt excerpt, Codex action, tool results, and auto-generated speech status.
 
 The system prompt consumed by Codex lives in `docs/prompts/codex-voice-system.md`; adjust it if you add tools or new safety rules.
 

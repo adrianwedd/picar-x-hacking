@@ -8,6 +8,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 LOG_ROOT = PROJECT_ROOT / "logs_test"
 LOG_ROOT.mkdir(exist_ok=True)
+
+
+def load_session(path: Path):
+    return json.loads(path.read_text())
+
 def run_tool(args, extra_env=None):
     env = os.environ.copy()
     env.setdefault("PROJECT_ROOT", str(PROJECT_ROOT))
@@ -82,3 +87,18 @@ def test_tool_weather_dry_run():
     payload = parse_json(stdout)
     assert payload["status"] == "dry-run"
     assert "Dry-run" in payload["summary"]
+
+def test_px_wake_set_and_pulse(tmp_path):
+    session_path = tmp_path / "session.json"
+    env = {"PX_SESSION_PATH": str(session_path)}
+    run_tool(["bin/px-wake", "--set", "on"], env)
+    data = load_session(session_path)
+    assert data["listening"] is True
+
+    run_tool(["bin/px-wake", "--set", "off"], env)
+    data = load_session(session_path)
+    assert data["listening"] is False
+
+    run_tool(["bin/px-wake", "--pulse", "0.1"], env)
+    data = load_session(session_path)
+    assert data["listening"] is False

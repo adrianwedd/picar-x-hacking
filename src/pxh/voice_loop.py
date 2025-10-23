@@ -6,6 +6,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -265,6 +266,11 @@ def supervisor_loop(args: argparse.Namespace) -> None:
         session = load_session()
         update_session(fields={"watchdog_heartbeat_ts": utc_timestamp()})
 
+        listening_enabled = session.get("listening", False)
+        if args.input_mode == "voice" and not listening_enabled:
+            time.sleep(float(os.environ.get("PX_LISTEN_IDLE_SLEEP", "0.5")))
+            continue
+
         if args.input_mode == "text":
             user_text = capture_text_input()
         else:
@@ -318,6 +324,8 @@ def supervisor_loop(args: argparse.Namespace) -> None:
         }
         if isinstance(tool_payload, dict):
             session_update["last_tool_payload"] = tool_payload
+        if args.input_mode == "voice":
+            session_update.update({"listening": False, "listening_since": None})
 
         update_session(fields=session_update)
 

@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import sys
+import time
+from typing import Literal
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+
+def set_listening(value: bool, note: str | None = None) -> None:
+    fields = {"listening": value}
+    if value:
+        fields["listening_since"] = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    else:
+        fields["listening_since"] = None
+    update_session(fields=fields, history_entry={"event": "wake", "listening": value})
+    payload = {"status": "ok", "listening": value}
+    if note:
+        payload["note"] = note
+    log_event("wake", payload)
+    print(f"listening={'on' if value else 'off'}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Manage wake-word listening state")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--set", choices=["on", "off"], help="Explicitly toggle listening state")
+    group.add_argument("--pulse", type=float, help="Enable listening for N seconds then disable")
+    group.add_argument("--keyboard", action="store_true", help="Simulate wake word via keyboard input")
+    parser.add_argument("--wake-word", default="hey pi", help="Wake phrase for keyboard mode")
+    parser.add_argument("--duration", type=float, default=10.0, help="Listening duration after wake (seconds)")
+    parser.add_argument("--oneshot", action="store_true", help="Exit after the first wake event in keyboard mode")
+
+    args = parser.parse_args()
+
+    if args.set:
+        set_listening(args.set == "on")
+        return 0
+
+    if args.pulse is not None:
+        length = max(args.pulse, 0.1)
+        set_listening(True, note=f"pulse {length}s")
+        try:
+            time.sleep(length)
+        finally:
+            set_listening(False, note="pulse-complete")
+        return 0
+
+    wake_word = args.wake_word.lower().strip()
+    print(f"[px-wake] waiting for '{wake_word}' (Ctrl+C to exit)")
+    try:
+        while True:
+            try:
+                line = input("wake> ")
+            except EOFError:
+                break
+            if wake_word in line.lower():
+                set_listening(True, note="keyboard wake")
+                if args.duration > 0:
+                    time.sleep(args.duration)
+                    set_listening(False, note="keyboard auto-off")
+                if args.oneshot:
+                    break
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
