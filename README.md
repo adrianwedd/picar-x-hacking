@@ -134,6 +134,7 @@ The loop automatically speaks weather summaries using `espeak` (or another playe
    bin/run-voice-loop-ollama --dry-run --auto-log
    ```
    The wrapper pins `CODEX_CHAT_CMD` to `bin/codex-ollama`, which posts prompts to the Ollama HTTP API and streams the response back to the supervisor. Override `CODEX_OLLAMA_MODEL` (or `OLLAMA_HOST`) before launch if you want a different local model or a remote Ollama endpoint.
+   Tuned defaults use `CODEX_OLLAMA_TEMPERATURE=0.2` and `CODEX_OLLAMA_NUM_PREDICT=64`, which produced the best balance of latency (~12 s mean) and JSON compliance during the latest evaluation (see `docs/OLLAMA_TUNING.md`). Set either variable before launch to experiment or disable the token cap (set `CODEX_OLLAMA_NUM_PREDICT=0`).
 
 The system prompt consumed by Codex lives in `docs/prompts/codex-voice-system.md`; adjust it if you add tools or new safety rules.
 

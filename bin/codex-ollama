@@ -8,6 +8,29 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+ALLOWED_TOOLS = {
+    "tool_status",
+    "tool_circle",
+    "tool_figure8",
+    "tool_stop",
+    "tool_voice",
+    "tool_weather",
+}
+
+
+def _int_from_env(var: str, default: int | None) -> int | None:
+    raw = os.environ.get(var)
+    if raw is None:
+        return default
+    raw_stripped = raw.strip()
+    if raw_stripped == "":
+        return default
+    try:
+        value = int(raw_stripped)
+    except ValueError:
+        return default
+    return value
+
 
 def main() -> int:
     prompt = sys.stdin.read()
@@ -18,14 +41,18 @@ def main() -> int:
     if not host.startswith(("http://", "https://")):
         host = "http://" + host
     url = host.rstrip("/") + "/api/generate"
+    options: dict[str, object] = {
+        "temperature": float(os.environ.get("CODEX_OLLAMA_TEMPERATURE", "0.2")),
+    }
+    num_predict = _int_from_env("CODEX_OLLAMA_NUM_PREDICT", 64)
+    if num_predict and num_predict > 0:
+        options["num_predict"] = num_predict
     payload = {
         "model": model,
         "prompt": prompt,
         "stream": False,
         "format": "json",
-        "options": {
-            "temperature": float(os.environ.get("CODEX_OLLAMA_TEMPERATURE", "0.2")),
-        },
+        "options": options,
     }
     data_bytes = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"})
@@ -45,13 +72,9 @@ def main() -> int:
     except json.JSONDecodeError:
         parsed = None
     if isinstance(parsed, dict):
-        tool = parsed.get("tool")
-        if not tool and isinstance(parsed.get("tool_name"), str):
-            tool = parsed["tool_name"]
-        params = parsed.get("params")
-        if not isinstance(params, dict):
-            params = {}
-        if tool:
+        tool = parsed.get("tool") or parsed.get("tool_name")
+        params = parsed.get("params") if isinstance(parsed.get("params"), dict) else {}
+        if tool in ALLOWED_TOOLS:
             normalized = {"tool": tool, "params": params}
     if normalized is not None:
         output = json.dumps(normalized)
