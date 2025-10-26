@@ -10,9 +10,9 @@ Predict issues before they bite: richer telemetry, health summaries, and battery
 - Instrument energy sensing hardware (ADC or INA219) and normalise readings in software.
 
 ## Milestones
-- [ ] Define telemetry schema + state/session fields.
-- [ ] Upgrade `px-diagnostics` to emit predictive metrics (dry-run compatible).
-- [ ] Build `bin/px-health-report` for weekly summaries.
+- [x] Define telemetry schema + state telemetry fields.
+- [x] Upgrade `px-diagnostics` to emit predictive metrics (dry-run compatible).
+- [x] Build `bin/px-health-report` for weekly summaries.
 - [ ] Document hardware calibration + safe operating ranges.
 
 ## Dependencies

@@ -11,7 +11,7 @@ Guarantee every autonomous action is reversible, observable, and fails safe.
 
 ## Milestones
 - [ ] Wake-word + gesture stop prototypes integrated with `tool-stop`.
-- [ ] Watchdog service monitoring voice loop and motion helpers.
+- [x] Watchdog service monitoring voice loop heartbeat (extend to motion helpers next).
 - [ ] Regression test suite (`tests/test_safety.py`) covering triggered stops.
 - [ ] LED/audio state feedback mapping documented.
 

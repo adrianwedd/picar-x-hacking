@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import shlex
@@ -264,7 +265,32 @@ def supervisor_loop(args: argparse.Namespace) -> None:
 
     for turn in range(1, args.max_turns + 1):
         session = load_session()
-        update_session(fields={"watchdog_heartbeat_ts": utc_timestamp()})
+        last_heartbeat = session.get("watchdog_heartbeat_ts")
+        threshold = float(os.environ.get("PX_WATCHDOG_STALE_SECONDS", "30"))
+        heartbeat_history = None
+        if last_heartbeat:
+            age_seconds = None
+            try:
+                last_dt = dt.datetime.strptime(last_heartbeat, "%Y-%m-%dT%H:%M:%SZ")
+                age_seconds = (dt.datetime.utcnow() - last_dt).total_seconds()
+            except ValueError:
+                pass
+            if age_seconds is None or age_seconds > threshold:
+                heartbeat_history = {"event": "watchdog_stale"}
+                if age_seconds is not None:
+                    heartbeat_history["age_seconds"] = age_seconds
+                log_event(
+                    "voice-watchdog",
+                    {
+                        "status": "stale",
+                        "age_seconds": age_seconds,
+                        "threshold_seconds": threshold,
+                    },
+                )
+        update_session(
+            fields={"watchdog_heartbeat_ts": utc_timestamp()},
+            history_entry=heartbeat_history,
+        )
 
         listening_enabled = session.get("listening", False)
         if args.input_mode == "voice" and not listening_enabled:

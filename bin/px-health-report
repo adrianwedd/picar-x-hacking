@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from collections import deque
+from pathlib import Path
+from typing import Deque, Dict, List
+
+PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+from pxh.time import utc_timestamp
+
+LOG_DIR = Path(os.environ.get("LOG_DIR", PROJECT_ROOT / "logs"))
+HEALTH_LOG = LOG_DIR / "tool-health.log"
+
+
+def read_entries(limit: int) -> List[Dict[str, object]]:
+    if not HEALTH_LOG.exists():
+        return []
+    rows: Deque[Dict[str, object]] = deque(maxlen=limit)
+    with HEALTH_LOG.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return list(rows)
+
+
+def render_text(entries: List[Dict[str, object]]) -> str:
+    if not entries:
+        return "No health telemetry logged yet."
+    lines = []
+    for entry in entries:
+        ts = entry.get("ts", "unknown")
+        status = entry.get("status", "unknown")
+        dry = entry.get("dry")
+        telemetry = entry.get("telemetry", {}) or {}
+        battery = telemetry.get("battery_pct")
+        voltage = telemetry.get("battery_voltage")
+        speaker = telemetry.get("speaker_ok")
+        motors = telemetry.get("motors_ok")
+        line = f"[{ts}] status={status} dry={dry}"
+        if battery is not None:
+            line += f" battery={battery}%"
+        if voltage is not None:
+            line += f" voltage={voltage}"
+        if motors is not None:
+            line += f" motors_ok={motors}"
+        if speaker is not None:
+            line += f" speaker_ok={speaker}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Summarise recent diagnostics telemetry")
+    parser.add_argument("--limit", type=int, default=1, help="Number of recent entries to display")
+    parser.add_argument("--json", action="store_true", help="Emit JSON instead of text")
+    args = parser.parse_args()
+
+    entries = read_entries(max(args.limit, 1))
+    if args.json:
+        print(json.dumps({"ts": utc_timestamp(), "entries": entries}))
+    else:
+        print(render_text(entries))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

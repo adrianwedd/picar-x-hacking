@@ -63,6 +63,10 @@ All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
   bin/px-diagnostics                             # full live sweep (wheels on blocks)
   ```
   Logs live under `logs/tool-diagnostics.log`; each stage is narrated so you can confirm speaker output and hear any faults. Set `PX_DRY=1` if you prefer to control rehearsal mode via the environment.
+  Each run now appends a telemetry snapshot (battery, sensors, audio) to `logs/tool-health.log`; summarise recent health data with:
+  ```bash
+  bin/px-health-report --limit 3
+  ```
 - `px-dance` – choreographed demo (voice intro, circle, figure-eight, finale):
   ```bash
   PX_DRY=1 bin/px-dance --voice "Demo routine"
@@ -116,6 +120,7 @@ The loop automatically speaks weather summaries using `espeak` (or another playe
 5. When moving beyond dry-run, manually flip `confirm_motion_allowed` to `true` in `state/session.json` *after* confirming the car is on blocks. The wrappers will refuse motion otherwise.
 6. Use `--exit-on-stop` if you want the loop to terminate after a successful `tool-stop` invocation. Turn-by-turn transcripts live in `logs/tool-voice-transcript.log`; they include the prompt excerpt, Codex action, tool results, and auto-generated speech status.
 7. Use `bin/px-session` to launch a tmux workspace with the voice loop, wake controller, and transcript tail in separate panes. Run `bin/px-session --plan` to inspect the layout before attaching.
+8. A watchdog heartbeat updates `state/session.json` each turn; if the loop stalls for more than 30 seconds a `voice-watchdog` log entry is created and the session history records the stall. Review `logs/tool-voice-watchdog.log` for alerts.
 
 ### Local DeepSeek via Ollama
 1. Install Ollama for ARM64/Linux (one-time):

@@ -17,7 +17,7 @@ import tempfile
 import time
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from pxh.logging import log_event
 from pxh.state import update_session
@@ -57,13 +57,27 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="PiCar-X diagnostics sweep")
     parser.add_argument("--no-motion", action="store_true", help="Skip motion tests even if not in dry-run")
     parser.add_argument("--short", action="store_true", help="Skip weather and camera checks for speed")
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument("--dry-run", dest="force_dry", action="store_true", help="Force dry-run mode regardless of PX_DRY")
+    mode_group.add_argument("--live", dest="force_live", action="store_true", help="Force live mode regardless of PX_DRY")
     args = parser.parse_args()
+
+    current_dry = os.environ.get("PX_DRY")
+    if args.force_dry:
+        os.environ["PX_DRY"] = "1"
+    elif args.force_live:
+        os.environ["PX_DRY"] = "0"
+    elif current_dry is None:
+        os.environ["PX_DRY"] = "0"
 
     dry_mode = os.environ.get("PX_DRY", "1") != "0"
     results: Dict[str, Any] = {
         "status": "ok",
         "dry": dry_mode,
         "checks": [],
+    }
+    telemetry: Dict[str, Any] = {
+        "mode": "dry-run" if dry_mode else "live",
     }
 
     announce(f"Starting diagnostics {'dry run' if dry_mode else 'live'}")
@@ -74,12 +88,22 @@ def main() -> int:
     results["checks"].append({"name": "status", **status_info})
     status_payload = status_info.get("data", {}) or {}
     battery_ok = status_payload.get("battery_ok")
+    battery_pct: Optional[float] = status_payload.get("battery_pct")
+    telemetry["battery_ok"] = battery_ok
+    telemetry["battery_pct"] = battery_pct
+    stdout_status = status_info.get("stdout", "")
+    voltage_match = re.search(r"Battery estimate:\s*([0-9.]+)\s*V", stdout_status)
+    if voltage_match:
+        try:
+            telemetry["battery_voltage"] = float(voltage_match.group(1))
+        except ValueError:
+            telemetry["battery_voltage"] = voltage_match.group(1)
     if battery_ok is False:
         results["status"] = "warn"
         results.setdefault("warnings", []).append("battery low")
 
     sensor_check = {"name": "sensors", "status": "ok"}
-    stdout = status_info.get("stdout", "")
+    stdout = stdout_status
     distance = None
     match = re.search(r"Ultrasonic distance: ([\-\d.]+)", stdout)
     if match:
@@ -98,6 +122,9 @@ def main() -> int:
         sensor_check["status"] = "warn"
     sensor_check["raw"] = stdout[-512:]
     results["checks"].append(sensor_check)
+    telemetry["ultrasonic_cm"] = distance
+    if "grayscale" in sensor_check:
+        telemetry["grayscale"] = sensor_check["grayscale"]
     if distance is not None:
         announce(f"Ultrasonic {distance:.0f} centimeters")
     else:
@@ -121,6 +148,7 @@ def main() -> int:
         motion_check = run_tool(["bin/tool-circle"], motion_env)
         motion_check["name"] = "circle"
         results["checks"].append(motion_check)
+        telemetry["motors_ok"] = motion_check.get("returncode") == 0
         if motion_check["returncode"] != 0:
             results["status"] = "error"
             announce("Motor test failed")
@@ -144,6 +172,7 @@ def main() -> int:
             results.setdefault("warnings", []).append("camera capture failed")
             announce("Camera capture failed")
         results["checks"].append(camera_check)
+        telemetry["camera_ok"] = camera_check.get("returncode") == 0
         if image_path.exists():
             try:
                 image_path.unlink()
@@ -153,6 +182,7 @@ def main() -> int:
     speaker_check = run_tool(["bin/tool-voice"], {"PX_TEXT": "Speaker diagnostic", "PX_DRY": "0"})
     speaker_check["name"] = "speaker"
     results["checks"].append(speaker_check)
+    telemetry["speaker_ok"] = speaker_check.get("returncode") == 0
     if not dry_mode and speaker_check.get("returncode") != 0:
         results.setdefault("warnings", []).append("speaker test failed")
         results["status"] = "warn"
@@ -186,6 +216,7 @@ def main() -> int:
         except OSError:
             pass
 
+    telemetry["microphone_status"] = mic_check.get("status")
     voice_summary = "Diagnostics complete: "
     voice_bits = []
     if battery_ok is False:
@@ -219,8 +250,11 @@ def main() -> int:
     voice_info = run_tool(["bin/tool-voice"], {"PX_TEXT": voice_summary, "PX_DRY": "0"})
     voice_info["name"] = "voice"
     results["checks"].append(voice_info)
+    telemetry["voice_summary"] = voice_summary
 
+    results["telemetry"] = telemetry
     log_event("diagnostics", results)
+    log_event("health", {"status": results["status"], "dry": dry_mode, "telemetry": telemetry})
     update_session(history_entry={"event": "diagnostics", "status": results["status"]})
     print(json.dumps(results, ensure_ascii=False))
     return 0 if results["status"] != "error" else 1
