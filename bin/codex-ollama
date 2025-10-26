@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+
+def main() -> int:
+    prompt = sys.stdin.read()
+    if not prompt:
+        return 0
+    model = os.environ.get("CODEX_OLLAMA_MODEL", "deepseek-coder:1.3b")
+    host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+    if not host.startswith(("http://", "https://")):
+        host = "http://" + host
+    url = host.rstrip("/") + "/api/generate"
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "format": "json",
+        "options": {
+            "temperature": float(os.environ.get("CODEX_OLLAMA_TEMPERATURE", "0.2")),
+        },
+    }
+    data_bytes = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=600) as response:
+            data = json.load(response)
+    except urllib.error.HTTPError as exc:
+        sys.stderr.write(f"ollama HTTP error {exc.code}: {exc.reason}\n")
+        return 1
+    except urllib.error.URLError as exc:
+        sys.stderr.write(f"ollama connection error: {exc.reason}\n")
+        return 1
+    output = data.get("response", "")
+    normalized = None
+    try:
+        parsed = json.loads(output)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        tool = parsed.get("tool")
+        if not tool and isinstance(parsed.get("tool_name"), str):
+            tool = parsed["tool_name"]
+        params = parsed.get("params")
+        if not isinstance(params, dict):
+            params = {}
+        if tool:
+            normalized = {"tool": tool, "params": params}
+    if normalized is not None:
+        output = json.dumps(normalized)
+    sys.stdout.write(output)
+    if not output.endswith("\n"):
+        sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

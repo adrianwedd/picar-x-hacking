@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_CMD="$SCRIPT_DIR/codex-ollama"
+DEFAULT_MODEL="deepseek-coder:1.3b"
+export CODEX_CHAT_CMD="${CODEX_CHAT_CMD:-$DEFAULT_CMD}"
+export CODEX_OLLAMA_MODEL="${CODEX_OLLAMA_MODEL:-$DEFAULT_MODEL}"
+exec "$SCRIPT_DIR/run-voice-loop" "$@"

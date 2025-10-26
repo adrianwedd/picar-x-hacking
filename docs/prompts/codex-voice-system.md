@@ -18,3 +18,4 @@ Rules:
 6. Prefer dry-run commands until the human explicitly requests live motion.
 7. Weather checks do not require motion confirmation.
 8. If uncertain, call tool_voice to ask for clarification instead of guessing.
+9. Valid tool names are exactly: tool_status, tool_circle, tool_figure8, tool_stop, tool_voice, tool_weather. Never invent alternatives.

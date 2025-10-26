@@ -58,11 +58,11 @@ All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
   Streams via `rpicam-vid` + `ffmpeg` into `rtsp://HOST:PORT/api/stream?push=NAME`. Configure Frigate/go2rtc to pull the same name.
 - `px-diagnostics` – run a quick health check (status, sensors, speaker/mic, optional circle, weather/camera) and voice the results:
   ```bash
-  PX_DRY=1 bin/px-diagnostics --short            # everything except motion/camera
-  bin/px-diagnostics --no-motion                 # skip the gentle circle motion
+  bin/px-diagnostics --dry-run --short           # exercise reporting without motion/camera
+  bin/px-diagnostics --no-motion                 # live sweep, skip the gentle circle motion
   bin/px-diagnostics                             # full live sweep (wheels on blocks)
   ```
-  Logs live under `logs/tool-diagnostics.log`; each stage is narrated so you can confirm speaker output and hear any faults.
+  Logs live under `logs/tool-diagnostics.log`; each stage is narrated so you can confirm speaker output and hear any faults. Set `PX_DRY=1` if you prefer to control rehearsal mode via the environment.
 - `px-dance` – choreographed demo (voice intro, circle, figure-eight, finale):
   ```bash
   PX_DRY=1 bin/px-dance --voice "Demo routine"
@@ -116,6 +116,24 @@ The loop automatically speaks weather summaries using `espeak` (or another playe
 5. When moving beyond dry-run, manually flip `confirm_motion_allowed` to `true` in `state/session.json` *after* confirming the car is on blocks. The wrappers will refuse motion otherwise.
 6. Use `--exit-on-stop` if you want the loop to terminate after a successful `tool-stop` invocation. Turn-by-turn transcripts live in `logs/tool-voice-transcript.log`; they include the prompt excerpt, Codex action, tool results, and auto-generated speech status.
 7. Use `bin/px-session` to launch a tmux workspace with the voice loop, wake controller, and transcript tail in separate panes. Run `bin/px-session --plan` to inspect the layout before attaching.
+
+### Local DeepSeek via Ollama
+1. Install Ollama for ARM64/Linux (one-time):
+   ```bash
+   curl -fsSL https://ollama.com/install.sh | sh
+   ```
+   The installer registers and starts the `ollama` service; if it is not running later, start it manually with `ollama serve` (or `sudo systemctl start ollama`).
+2. Pull a compact DeepSeek model (default for the helper is `deepseek-coder:1.3b`; keep the smaller size in mind on slow links):
+   ```bash
+   ollama pull deepseek-coder:1.3b
+   # optional extra reasoning model
+   ollama pull deepseek-r1:1.5b
+   ```
+3. Launch the voice loop against the local model:
+   ```bash
+   bin/run-voice-loop-ollama --dry-run --auto-log
+   ```
+   The wrapper pins `CODEX_CHAT_CMD` to `bin/codex-ollama`, which posts prompts to the Ollama HTTP API and streams the response back to the supervisor. Override `CODEX_OLLAMA_MODEL` (or `OLLAMA_HOST`) before launch if you want a different local model or a remote Ollama endpoint.
 
 The system prompt consumed by Codex lives in `docs/prompts/codex-voice-system.md`; adjust it if you add tools or new safety rules.
 
