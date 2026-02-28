@@ -6,3 +6,6 @@ logs/*
 state/session.json
 
 logs_test/
+.DS_Store
+|
+picar-x-hacking/
