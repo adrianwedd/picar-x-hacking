@@ -1,7 +1,7 @@
 # Tool Expansion Brainstorm
 
 ## High-Value Additions
-1. **px-diagnostics** – run an end-to-end hardware audit (servo motion, motor pulse, ultrasonic ping, grayscale read, camera test), aggregate results into a conversational summary via `tool_voice`. Dry-run mode exercises the reporting without moving hardware.
+1. **px-diagnostics** – run an end-to-end hardware audit (servo motion, motor pulse, ultrasonic ping, grayscale read, camera test), aggregate results into a conversational summary via `tool_voice`. Runs live by default; add `--dry-run` or `PX_DRY=1` to rehearse without moving hardware.
 2. **px-dance** – choreograph a short routine combining circles, figure-eight segments, and timed voice prompts/music for demo mode. Include parameters for speed, duration, and playlist.
 3. **px-calibrate** – guided workflow to centre steering, align camera servos, and update `/opt/picar-x/picar-x.conf` offsets with before/after snapshots.
 4. **px-battery-watch** – monitor voltage trend; optionally trigger alerts/voice warnings when dropping below thresholds or charging completes.

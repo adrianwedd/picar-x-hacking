@@ -1,0 +1,5 @@
+{
+  "last_run": "PX_DRY=0 px-diagnostics --no-motion --short",
+  "speaker_player": "espeak+aplay(plughw:3,0)",
+  "microphone_status": "ok"
+}

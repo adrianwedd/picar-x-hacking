@@ -1,23 +1,40 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Mapping
+
+from filelock import FileLock
 
 from .time import utc_timestamp
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-LOG_DIR = PROJECT_ROOT / "logs"
+
+
+def _resolve_log_dir() -> Path:
+    """Resolve the log directory, honoring an optional LOG_DIR override."""
+    env_dir = os.environ.get("LOG_DIR")
+    if not env_dir:
+        return PROJECT_ROOT / "logs"
+    candidate = Path(env_dir)
+    if not candidate.is_absolute():
+        candidate = PROJECT_ROOT / candidate
+    return candidate
+
+LOG_DIR = _resolve_log_dir()
 
 
 def log_event(name: str, payload: Mapping[str, Any]) -> None:
     """Append a structured log entry under logs/tool-<name>.log."""
     log_path = LOG_DIR / f"tool-{name}.log"
+    lock_path = LOG_DIR / f"tool-{name}.log.lock"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "ts": utc_timestamp(),
         **payload,
     }
-    with log_path.open("a", encoding="utf-8") as handle:
-        json.dump(record, handle)
-        handle.write("\n")
+    with FileLock(lock_path):
+        with log_path.open("a", encoding="utf-8") as handle:
+            json.dump(record, handle)
+            handle.write("\n")

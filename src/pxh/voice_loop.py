@@ -4,9 +4,11 @@ import argparse
 import datetime as dt
 import json
 import os
+import queue
 import shlex
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -39,6 +41,31 @@ TOOL_COMMANDS = {
 
 class VoiceLoopError(Exception):
     """Domain-specific errors."""
+
+
+def watchdog_thread_func(heartbeat_q: queue.Queue, timeout: float) -> None:
+    """Monitors a queue for heartbeats and exits if they become stale."""
+    last_heartbeat = time.monotonic()
+    while True:
+        try:
+            last_heartbeat = heartbeat_q.get_nowait()
+        except queue.Empty:
+            pass
+
+        stale_time = time.monotonic() - last_heartbeat
+        if stale_time > timeout:
+            log_event(
+                "voice-watchdog",
+                {
+                    "status": "stale",
+                    "age_seconds": stale_time,
+                    "threshold_seconds": timeout,
+                    "message": "Watchdog timeout exceeded. Forcing process exit.",
+                },
+            )
+            # Use os._exit for an immediate, hard exit that bypasses finally blocks.
+            os._exit(1)
+        time.sleep(timeout / 4)
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
@@ -84,6 +111,12 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Exit loop immediately after a successful tool_stop call",
     )
+    parser.add_argument(
+        "--watchdog-timeout",
+        type=float,
+        default=float(os.environ.get("PX_WATCHDOG_STALE_SECONDS", "30.0")),
+        help="Seconds of inactivity before the watchdog forces an exit.",
+    )
     return parser.parse_args(argv)
 
 
@@ -106,14 +139,28 @@ def capture_text_input() -> Optional[str]:
 def capture_voice_input(cmd_spec: str) -> Optional[str]:
     if not cmd_spec:
         raise VoiceLoopError("voice mode requested but --transcriber-cmd not provided")
+
+    if any(token in cmd_spec for token in ("|", ";", "&&", "||", ">", "<")):
+        raise VoiceLoopError(
+            "shell pipelines are not allowed in --transcriber-cmd for security reasons. "
+            "Please create a wrapper script in the bin/ directory."
+        )
+
     command = shlex.split(cmd_spec)
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        encoding="utf-8",
+        errors="ignore",
+    )
     if result.returncode != 0:
         raise VoiceLoopError(
             f"transcription failed (rc={result.returncode}): {result.stderr.strip()}"
         )
-    text = result.stdout.strip()
-    return text or None
+    text_result = result.stdout.strip()
+    return text_result or None
 
 
 def build_model_prompt(system_prompt: str, state: Dict[str, Any], user_text: str) -> str:
@@ -263,40 +310,22 @@ def supervisor_loop(args: argparse.Namespace) -> None:
     ensure_session()
     system_prompt = read_prompt(Path(args.prompt))
 
+    heartbeat_q = queue.Queue()
+    watchdog = threading.Thread(
+        target=watchdog_thread_func, args=(heartbeat_q, args.watchdog_timeout), daemon=True
+    )
+    watchdog.start()
+
     for turn in range(1, args.max_turns + 1):
+        heartbeat_q.put(time.monotonic())
         session = load_session()
-        last_heartbeat = session.get("watchdog_heartbeat_ts")
-        threshold = float(os.environ.get("PX_WATCHDOG_STALE_SECONDS", "30"))
-        heartbeat_history = None
-        if last_heartbeat:
-            age_seconds = None
-            try:
-                last_dt = dt.datetime.strptime(last_heartbeat, "%Y-%m-%dT%H:%M:%SZ")
-                age_seconds = (dt.datetime.utcnow() - last_dt).total_seconds()
-            except ValueError:
-                pass
-            if age_seconds is None or age_seconds > threshold:
-                heartbeat_history = {"event": "watchdog_stale"}
-                if age_seconds is not None:
-                    heartbeat_history["age_seconds"] = age_seconds
-                log_event(
-                    "voice-watchdog",
-                    {
-                        "status": "stale",
-                        "age_seconds": age_seconds,
-                        "threshold_seconds": threshold,
-                    },
-                )
-        update_session(
-            fields={"watchdog_heartbeat_ts": utc_timestamp()},
-            history_entry=heartbeat_history,
-        )
 
         listening_enabled = session.get("listening", False)
         if args.input_mode == "voice" and not listening_enabled:
             time.sleep(float(os.environ.get("PX_LISTEN_IDLE_SLEEP", "0.5")))
             continue
 
+        heartbeat_q.put(time.monotonic())
         if args.input_mode == "text":
             user_text = capture_text_input()
         else:
@@ -306,11 +335,14 @@ def supervisor_loop(args: argparse.Namespace) -> None:
             print("[voice-loop] No input, exiting.")
             break
 
-
+        heartbeat_q.put(time.monotonic())
         prompt = build_model_prompt(system_prompt, session, user_text)
         prompt_excerpt = prompt[:800]
 
+        heartbeat_q.put(time.monotonic())
         rc, stdout, stderr = run_codex(args.codex_cmd, prompt)
+        heartbeat_q.put(time.monotonic())
+
         if args.auto_log:
             log_event(
                 "voice-loop",
@@ -337,16 +369,19 @@ def supervisor_loop(args: argparse.Namespace) -> None:
             print(f"[voice-loop] Invalid action: {exc}")
             continue
 
+        heartbeat_q.put(time.monotonic())
         try:
             rc_tool, tool_stdout, tool_stderr = execute_tool(tool, env_overrides, args.dry_run)
         except VoiceLoopError as exc:
             print(f"[voice-loop] Execution error: {exc}")
             continue
+        heartbeat_q.put(time.monotonic())
 
         tool_payload = parse_tool_payload(tool_stdout)
         session_update = {
             "last_prompt_excerpt": prompt_excerpt,
             "last_model_action": action,
+            "watchdog_heartbeat_ts": utc_timestamp(),
         }
         if isinstance(tool_payload, dict):
             session_update["last_tool_payload"] = tool_payload
@@ -387,6 +422,7 @@ def supervisor_loop(args: argparse.Namespace) -> None:
         if tool == "tool_weather":
             summary = tool_payload.get("summary") if isinstance(tool_payload, dict) else None
             if summary:
+                heartbeat_q.put(time.monotonic())
                 try:
                     rc_voice, voice_stdout, voice_stderr = execute_tool(
                         "tool_voice",
@@ -409,6 +445,7 @@ def supervisor_loop(args: argparse.Namespace) -> None:
                         "stdout": voice_stdout[-1000:],
                         "stderr": voice_stderr[-1000:],
                     }
+                heartbeat_q.put(time.monotonic())
 
         if voice_result is not None:
             transcript_entry["voice_result"] = voice_result

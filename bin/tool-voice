@@ -49,19 +49,22 @@ def main() -> int:
     else:
         if DEFAULT_PLAYER == "espeak":
             rate = os.environ.get("PX_VOICE_RATE", "150")
-            device = os.environ.get("PX_VOICE_DEVICE", "plughw:3,0")
+            device = os.environ.get("PX_VOICE_DEVICE")
             es_res = subprocess.run(
                 [DEFAULT_PLAYER, "-s", rate, "--stdout", text],
                 capture_output=True,
                 text=False,
                 check=False,
             )
-            payload["player"] = f"espeak->{device}"
+            play_descriptor = device or "default"
+            payload["player"] = f"espeak->{play_descriptor}"
             payload["returncode"] = es_res.returncode
             payload["stdout"] = es_res.stdout[-1024:].decode("latin1", errors="ignore")
             payload["stderr"] = es_res.stderr[-1024:].decode("latin1", errors="ignore")
             if es_res.returncode == 0 and shutil.which("aplay"):
-                play_cmd = ["aplay", "-q", "-D", device]
+                play_cmd = ["aplay", "-q"]
+                if device:
+                    play_cmd.extend(["-D", device])
                 play_res = subprocess.run(
                     play_cmd,
                     input=es_res.stdout,
@@ -69,7 +72,7 @@ def main() -> int:
                     text=False,
                     check=False,
                 )
-                payload["player"] = f"espeak+aplay({device})"
+                payload["player"] = f"espeak+aplay({play_descriptor})"
                 payload["returncode"] = play_res.returncode
                 payload["stdout"] = play_res.stdout[-1024:].decode("latin1", errors="ignore")
                 payload["stderr"] = play_res.stderr[-1024:].decode("latin1", errors="ignore")

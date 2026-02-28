@@ -158,26 +158,29 @@ def main() -> int:
     camera_check = None
     if not dry_mode and not args.short:
         announce("Capturing camera frame")
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            image_path = Path(tmp.name)
-        camera_check = run_tool(["rpicam-still", "--nopreview", "-t", "200", "-o", str(image_path)])
-        camera_check["name"] = "camera"
-        if camera_check["returncode"] == 0 and image_path.exists():
-            camera_check["status"] = "ok"
-            camera_check["file"] = str(image_path)
-            announce("Camera capture successful")
-        else:
-            camera_check["status"] = "error"
-            results["status"] = "warn"
-            results.setdefault("warnings", []).append("camera capture failed")
-            announce("Camera capture failed")
-        results["checks"].append(camera_check)
-        telemetry["camera_ok"] = camera_check.get("returncode") == 0
-        if image_path.exists():
-            try:
-                image_path.unlink()
-            except OSError:
-                pass
+        image_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                image_path = Path(tmp.name)
+            camera_check = run_tool(["rpicam-still", "--nopreview", "-t", "200", "-o", str(image_path)])
+            camera_check["name"] = "camera"
+            if camera_check["returncode"] == 0 and image_path.exists():
+                camera_check["status"] = "ok"
+                camera_check["file"] = str(image_path)
+                announce("Camera capture successful")
+            else:
+                camera_check["status"] = "error"
+                results["status"] = "warn"
+                results.setdefault("warnings", []).append("camera capture failed")
+                announce("Camera capture failed")
+            results["checks"].append(camera_check)
+            telemetry["camera_ok"] = camera_check.get("returncode") == 0
+        finally:
+            if image_path and image_path.exists():
+                try:
+                    image_path.unlink()
+                except OSError:
+                    pass
 
     speaker_check = run_tool(["bin/tool-voice"], {"PX_TEXT": "Speaker diagnostic", "PX_DRY": "0"})
     speaker_check["name"] = "speaker"
@@ -188,33 +191,35 @@ def main() -> int:
         results["status"] = "warn"
 
     mic_check = {"name": "microphone", "status": "dry-run" if dry_mode else "skip"}
-    mic_path = None
     if not dry_mode:
-        if shutil.which("arecord"):
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                mic_path = Path(tmp.name)
-            cmd = ["arecord", "-d", "2", "-f", "cd", str(mic_path)]
-            proc = subprocess.run(cmd, capture_output=True, text=True)
-            mic_check["cmd"] = " ".join(cmd)
-            mic_check["returncode"] = proc.returncode
-            if proc.returncode == 0 and mic_path.exists() and mic_path.stat().st_size > 0:
-                mic_check["status"] = "ok"
-                mic_check["file"] = str(mic_path)
-            else:
-                mic_check["status"] = "warn"
-                mic_check["stderr"] = proc.stderr[-512:]
-                results.setdefault("warnings", []).append("microphone test failed")
-                results["status"] = "warn"
-        else:
-            mic_check["status"] = "unavailable"
-            results.setdefault("warnings", []).append("arecord not found")
-            results["status"] = "warn"
-    results["checks"].append(mic_check)
-    if mic_path and mic_path.exists():
+        mic_path = None
         try:
-            mic_path.unlink()
-        except OSError:
-            pass
+            if shutil.which("arecord"):
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                    mic_path = Path(tmp.name)
+                cmd = ["arecord", "-d", "2", "-f", "cd", str(mic_path)]
+                proc = subprocess.run(cmd, capture_output=True, text=True)
+                mic_check["cmd"] = " ".join(cmd)
+                mic_check["returncode"] = proc.returncode
+                if proc.returncode == 0 and mic_path.exists() and mic_path.stat().st_size > 0:
+                    mic_check["status"] = "ok"
+                    mic_check["file"] = str(mic_path)
+                else:
+                    mic_check["status"] = "warn"
+                    mic_check["stderr"] = proc.stderr[-512:]
+                    results.setdefault("warnings", []).append("microphone test failed")
+                    results["status"] = "warn"
+            else:
+                mic_check["status"] = "unavailable"
+                results.setdefault("warnings", []).append("arecord not found")
+                results["status"] = "warn"
+        finally:
+            if mic_path and mic_path.exists():
+                try:
+                    mic_path.unlink()
+                except OSError:
+                    pass
+    results["checks"].append(mic_check)
 
     telemetry["microphone_status"] = mic_check.get("status")
     voice_summary = "Diagnostics complete: "

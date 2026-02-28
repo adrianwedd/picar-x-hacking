@@ -18,7 +18,7 @@
 ## Development Workflow
 1. Activate the virtualenv: `source .venv/bin/activate`.
 2. Implement helpers under `bin/` and keep logic in Python for easier testing.
-3. Add or update pytest coverage in `tests/`; use `PX_BYPASS_SUDO=1` and `LOG_DIR=logs_test` in the test environment to avoid privileged operations.
+3. Add or update pytest coverage in `tests/`; set `PX_BYPASS_SUDO=1` and `LOG_DIR=logs_test` (relative paths resolve under `PROJECT_ROOT`) in the test environment to avoid privileged operations.
 4. Run `python -m pytest` before every commit (current suite covers voice tools, diagnostics, tmux plan, and streaming helpers).
 5. Update documentation (`README.md`, `docs/TOOLS.md`, roadmap/strategy docs) alongside new features so operators have fresh instructions.
 

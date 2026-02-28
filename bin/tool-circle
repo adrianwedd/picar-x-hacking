@@ -59,7 +59,8 @@ def main() -> int:
 
     command = []
     if os.environ.get("PX_BYPASS_SUDO", "0") != "1":
-        command.extend(["sudo", "-n", "-E"])
+        python_path = os.environ.get("PYTHONPATH", "")
+        command.extend(["sudo", "-n", "env", f"PYTHONPATH={python_path}"])
     command.extend([
         str(PX_CIRCLE),
         "--speed",

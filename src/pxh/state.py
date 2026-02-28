@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from filelock import FileLock
+
 from .time import utc_timestamp
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -44,43 +46,57 @@ def session_path() -> Path:
 def ensure_session() -> Path:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     path = session_path()
-    if not path.exists():
-        if TEMPLATE_PATH.exists():
-            path.write_text(TEMPLATE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
-        else:
-            path.write_text(json.dumps(default_state(), indent=2) + "\n", encoding="utf-8")
+    lock_path = str(path) + ".lock"
+    with FileLock(lock_path):
+        if not path.exists():
+            if TEMPLATE_PATH.exists():
+                path.write_text(TEMPLATE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+            else:
+                path.write_text(json.dumps(default_state(), indent=2) + "\n", encoding="utf-8")
     return path
 
 
 def load_session() -> Dict[str, Any]:
     path = ensure_session()
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        # Fallback to default if file is corrupted.
-        data = default_state()
-        save_session(data)
-        return data
-
+    lock_path = str(path) + ".lock"
+    with FileLock(lock_path):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            # Fallback to default if file is corrupted.
+            data = default_state()
+            path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            return data
 
 def save_session(data: Dict[str, Any]) -> None:
     path = ensure_session()
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
+    lock_path = str(path) + ".lock"
+    with FileLock(lock_path):
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 def update_session(
     fields: Optional[Dict[str, Any]] = None,
     history_entry: Optional[Dict[str, Any]] = None,
     history_limit: int = 100,
 ) -> Dict[str, Any]:
-    data = load_session()
-    if fields:
-        data.update(fields)
-    if history_entry:
-        entry = {"ts": utc_timestamp(), **history_entry}
-        history = data.setdefault("history", [])
-        history.append(entry)
-        if len(history) > history_limit:
-            data["history"] = history[-history_limit:]
-    save_session(data)
-    return data
+    path = session_path()
+    lock_path = str(path) + ".lock"
+    with FileLock(lock_path):
+        # Ensure file exists before trying to load
+        ensure_session()
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            data = default_state()
+
+        if fields:
+            data.update(fields)
+        if history_entry:
+            entry = {"ts": utc_timestamp(), **history_entry}
+            history = data.setdefault("history", [])
+            history.append(entry)
+            if len(history) > history_limit:
+                data["history"] = history[-history_limit:]
+        
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        return data

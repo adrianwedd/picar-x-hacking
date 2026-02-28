@@ -4,7 +4,7 @@ Helper scripts and documentation for experimenting with the SunFounder PiCar-X w
 
 ## Safety Checklist
 - Wheels off the ground on secure blocks before any motion tests.
-- Verify an emergency stop option (Ctrl+C in the terminal, `sudo -E bin/tool-stop`, or a physical kill switch) is within reach.
+- Verify an emergency stop option (Ctrl+C in the terminal, `sudo bin/tool-stop`, or a physical kill switch) is within reach.
 - Confirm `state/session.json` has `confirm_motion_allowed: true` only after a human inspection.
 - Run `--dry-run` first to confirm intent and parameters.
 - Keep the working area clear of people, pets, and loose cables.
@@ -19,35 +19,44 @@ Helper scripts and documentation for experimenting with the SunFounder PiCar-X w
    PIP_BREAK_SYSTEM_PACKAGES=1 pip install --upgrade openai-codex
    ```
    The `PIP_BREAK_SYSTEM_PACKAGES` warning is expected on Raspberry Pi OS; it simply acknowledges that the venv can access system packages.
-3. When running helpers that touch hardware, prefix the command with `sudo -E` so the virtualenv and environment variables persist.
+3. When running helpers that touch hardware, prefix the command with `sudo`. For a smoother experience without repeatedly typing passwords, it is recommended to configure `sudo` to allow your user to run the project's scripts without a password.
+
+   **Recommended `sudoers` Configuration:**
+
+   Create a new file at `/etc/sudoers.d/99-picar-x` with the following content, replacing `pi` with your actual username:
+   ```
+   # Allow user 'pi' to run all scripts in the picar-x-hacking/bin directory without a password.
+   pi ALL=(ALL) NOPASSWD: /home/pi/picar-x-hacking/bin/*
+   ```
+   This configuration is more secure than using `sudo -E` as it does not expose all user environment variables to the root context. The scripts are designed to pass the necessary `PYTHONPATH` securely.
 
 ## Helper Usage
 All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
 
 - `px-status` – capture a telemetry snapshot:
   ```bash
-  sudo -E bin/px-status --dry-run
-  sudo -E bin/px-status
+  sudo bin/px-status --dry-run
+  sudo bin/px-status
   ```
   After the live run, compare the reported voltage and percentage with a multimeter reading to validate the heuristic and note any correction factor for future tuning.
 - `px-circle` – gentle clockwise circle in five pulses:
   ```bash
-  sudo -E bin/px-circle --dry-run --speed 30
-  sudo -E bin/px-circle --speed 35 --duration 6
+  sudo bin/px-circle --dry-run --speed 30
+  sudo bin/px-circle --speed 35 --duration 6
   ```
 - `px-figure8` – two back-to-back circles (right then left):
   ```bash
-  sudo -E bin/px-figure8 --dry-run --rest 2
-  sudo -E bin/px-figure8 --speed 35 --duration 6 --rest 1.5
+  sudo bin/px-figure8 --dry-run --rest 2
+  sudo bin/px-figure8 --speed 35 --duration 6 --rest 1.5
   ```
 - `px-scan` – camera pan sweep with still captures:
   ```bash
-  sudo -E bin/px-scan --dry-run --min-angle -50 --max-angle 50 --step 10
-  sudo -E bin/px-scan --min-angle -60 --max-angle 60 --step 10
+  sudo bin/px-scan --dry-run --min-angle -50 --max-angle 50 --step 10
+  sudo bin/px-scan --min-angle -60 --max-angle 60 --step 10
   ```
 - `px-stop` – emergency halt and servo reset:
   ```bash
-  sudo -E bin/px-stop
+  sudo bin/px-stop
   ```
 - `px-wake` – manage the wake-word state for the voice loop:
 - `px-frigate-stream` – push an H.264 stream to Frigate/go2rtc (default `pi5-hailo.local`):
@@ -110,6 +119,7 @@ The loop automatically speaks weather summaries using `espeak` (or another playe
    ```bash
    export PX_VOICE_PLAYER="/usr/bin/say"
    ```
+   When running in voice input mode, ensure `--transcriber-cmd` invokes a speech-to-text pipeline that outputs UTF-8 text. Wrap shell pipelines (e.g., `arecord ... | whisper`) in `bash -lc "…"` so pipes are honoured.
 3. Use `px-wake` (or any other wake controller) to set `listening: true` before the loop listens on the microphone. The supervisor polls this flag and stays idle until it is raised.
 4. Run the loop in dry-run mode first:
    ```bash
