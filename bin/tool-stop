@@ -27,6 +27,7 @@ def main() -> int:
             "status": "ok",
             "dry": True,
             "message": "stop skipped in dry-run",
+            "warning": "no-op: motors were NOT physically stopped; disable dry-run before relying on this halt",
         }
         update_session(fields={"last_action": "tool_stop"}, history_entry={"event": "stop", "dry": True})
         log_event("stop", payload)

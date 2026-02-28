@@ -14,13 +14,33 @@ mkdir -p "$(dirname "$LOG_FILE")"
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
 
 log() {
+    local level="$1" msg="$2"
+    printf '{"ts":"%s","level":"%s","msg":"%s"}\n' "$(ts)" "$level" "$msg" >> "$LOG_FILE"
+}
+
+log_json() {
+    # log_json LEVEL key=value [key=value ...]
+    # Emits a valid JSON object with ts, level, and arbitrary string key-value pairs.
     local level="$1"; shift
-    printf '{"ts":"%s","level":"%s","msg":%s}\n' "$(ts)" "$level" "$*" >> "$LOG_FILE"
+    local json
+    json="{\"ts\":\"$(ts)\",\"level\":\"${level}\""
+    for pair in "$@"; do
+        local k="${pair%%=*}" v="${pair#*=}"
+        json+=",\"${k}\":\"${v}\""
+    done
+    json+="}"
+    printf '%s\n' "$json" >> "$LOG_FILE"
 }
 
 # ── Throttle status ───────────────────────────────────────────────────────────
 THROTTLED_RAW=$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2 || echo "unavailable")
-THROTTLED_DEC=$(( 16#${THROTTLED_RAW#0x} )) 2>/dev/null || THROTTLED_DEC=0
+if [[ "$THROTTLED_RAW" == "unavailable" || "$THROTTLED_RAW" == "0x"* ]] && [[ "$THROTTLED_RAW" != "unavailable" ]]; then
+    THROTTLED_DEC=$(( 16#${THROTTLED_RAW#0x} )) || THROTTLED_DEC=0
+elif [[ "$THROTTLED_RAW" == "unavailable" ]]; then
+    THROTTLED_DEC=-1  # sentinel: reading not available
+else
+    THROTTLED_DEC=0
+fi
 
 decode_throttle() {
     local val=$1
@@ -36,7 +56,11 @@ decode_throttle() {
     printf '%s' "${flags[*]:-none}"
 }
 
-FLAGS=$(decode_throttle "$THROTTLED_DEC")
+if [[ "$THROTTLED_DEC" -eq -1 ]]; then
+    FLAGS="unavailable"
+else
+    FLAGS=$(decode_throttle "$THROTTLED_DEC")
+fi
 
 # ── Voltages ──────────────────────────────────────────────────────────────────
 V_CORE=$(vcgencmd measure_volts core  2>/dev/null | cut -d= -f2 || echo "unavailable")
@@ -48,11 +72,13 @@ CPU_TEMP=$(vcgencmd measure_temp 2>/dev/null | cut -d= -f2 || echo "unavailable"
 # ── Uptime at time of check ───────────────────────────────────────────────────
 UPTIME_SEC=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo "unavailable")
 
-log "INFO" "\"Boot health check\",\"throttled_raw\":\"${THROTTLED_RAW}\",\"throttled_flags\":\"${FLAGS}\",\"v_core\":\"${V_CORE}\",\"v_sdram\":\"${V_SDRAM}\",\"cpu_temp\":\"${CPU_TEMP}\",\"uptime_sec\":${UPTIME_SEC}"
+log_json "INFO" "msg=Boot health check" "throttled_raw=${THROTTLED_RAW}" "throttled_flags=${FLAGS}" "v_core=${V_CORE}" "v_sdram=${V_SDRAM}" "cpu_temp=${CPU_TEMP}" "uptime_sec=${UPTIME_SEC}"
 
 # ── Warn if under-voltage occurred ───────────────────────────────────────────
-if [[ "$FLAGS" == *"under_voltage"* ]]; then
-    log "WARN" "\"Under-voltage detected during boot — check battery/hat power rail\",\"flags\":\"${FLAGS}\""
+if [[ "$FLAGS" == "unavailable" ]]; then
+    log_json "WARN" "msg=throttle reading unavailable from vcgencmd" "throttled_raw=${THROTTLED_RAW}"
+elif [[ "$FLAGS" == *"under_voltage"* ]]; then
+    log_json "WARN" "msg=Under-voltage detected during boot - check battery/hat power rail" "flags=${FLAGS}"
     echo "WARNING: under-voltage flags set: $FLAGS" >&2
 fi
 
@@ -62,7 +88,7 @@ fi
 # ── Motor reset (stop any spurious PWM from boot) ────────────────────────────
 # Use system python3 (has robot_hat) and monkey-patch os.getlogin so picarx.py
 # doesn't fail when running without a controlling terminal under systemd.
-log "INFO" "\"Running motor reset to clear any boot-time PWM state\""
+log "INFO" "Running motor reset to clear any boot-time PWM state"
 if /usr/bin/python3 - >> "$LOG_FILE" 2>&1 <<'PY'
 import os, sys
 # Patch os.getlogin before picarx imports it via fileDB
@@ -79,9 +105,9 @@ px.set_cam_tilt_angle(0)
 print("Motor reset OK")
 PY
 then
-    log "INFO" "\"Motor reset OK\""
+    log "INFO" "Motor reset OK"
 else
-    log "WARN" "\"Motor reset failed — servos/motors may be in unknown state\""
+    log "WARN" "Motor reset failed - servos/motors may be in unknown state"
 fi
 
 echo "Boot health logged to $LOG_FILE (throttle: ${FLAGS:-none})"

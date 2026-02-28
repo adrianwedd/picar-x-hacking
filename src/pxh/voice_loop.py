@@ -220,14 +220,22 @@ def run_codex(command_spec: str, prompt: str) -> Tuple[int, str, str]:
 
 
 def extract_action(text: str) -> Optional[Dict[str, Any]]:
-    for line in reversed(text.strip().splitlines()):
+    # First try the full output as a single JSON object (handles multi-line pretty-printed responses).
+    stripped = text.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            pass
+
+    # Fall back to scanning lines in reverse for the last single-line JSON object.
+    for line in reversed(stripped.splitlines()):
         candidate = line.strip()
         if candidate.startswith("{") and candidate.endswith("}"):
             try:
-                data = json.loads(candidate)
+                return json.loads(candidate)
             except json.JSONDecodeError:
                 continue
-            return data
     return None
 
 
@@ -292,7 +300,10 @@ def execute_tool(tool: str, env_overrides: Dict[str, str], dry_mode: bool) -> Tu
     env = os.environ.copy()
     env.setdefault("PROJECT_ROOT", str(PROJECT_ROOT))
     env_overrides = dict(env_overrides)
-    env["PX_DRY"] = "1" if dry_mode else env_overrides.pop("PX_DRY", "0")
+    env_overrides.pop("PX_DRY", None)  # never allow model to control PX_DRY
+    if dry_mode:
+        env["PX_DRY"] = "1"
+    # else: leave PX_DRY as inherited from the operator's environment
     for key, value in env_overrides.items():
         env[key] = value
 
@@ -316,7 +327,8 @@ def supervisor_loop(args: argparse.Namespace) -> None:
     )
     watchdog.start()
 
-    for turn in range(1, args.max_turns + 1):
+    turn = 0
+    while turn < args.max_turns:
         heartbeat_q.put(time.monotonic())
         session = load_session()
 
@@ -325,6 +337,7 @@ def supervisor_loop(args: argparse.Namespace) -> None:
             time.sleep(float(os.environ.get("PX_LISTEN_IDLE_SLEEP", "0.5")))
             continue
 
+        turn += 1
         heartbeat_q.put(time.monotonic())
         if args.input_mode == "text":
             user_text = capture_text_input()

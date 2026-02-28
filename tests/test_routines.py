@@ -52,19 +52,10 @@ def test_px_dance_dry_run(tmp_path):
 
 
 def test_px_frigate_stream_dry_run(tmp_path):
-    env = {
-        "PX_DRY": "1",
-        "PROJECT_ROOT": str(PROJECT_ROOT),
-    }
-    result = subprocess.run(
+    payload = run(
         ["bin/px-frigate-stream", "--host", "example.local", "--stream", "test", "--dry-run"],
-        cwd=PROJECT_ROOT,
-        text=True,
-        capture_output=True,
-        check=True,
-        env=env,
+        {"PX_DRY": "1"},
     )
-    payload = json.loads(result.stdout.strip())
     assert payload["status"] == "dry-run"
     assert "camera" in payload["commands"]
     assert payload["commands"]["ffmpeg"][-1].endswith("test")

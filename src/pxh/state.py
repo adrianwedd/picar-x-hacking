@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 from filelock import FileLock
 
+from .logging import log_event
 from .time import utc_timestamp
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -44,8 +45,8 @@ def session_path() -> Path:
 
 
 def ensure_session() -> Path:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
     path = session_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = str(path) + ".lock"
     with FileLock(lock_path):
         if not path.exists():
@@ -88,6 +89,7 @@ def update_session(
             data = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             data = default_state()
+            log_event("state-corruption", {"path": str(path), "message": "session.json was corrupt; reset to default state"})
 
         if fields:
             data.update(fields)

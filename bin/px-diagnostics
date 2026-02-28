@@ -22,15 +22,20 @@ from typing import Any, Dict, List, Optional
 from pxh.logging import log_event
 from pxh.state import update_session
 
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+
 
 def run_tool(command: List[str], extra_env: Dict[str, str] | None = None) -> Dict[str, Any]:
+    # Resolve the first token (the tool binary) relative to PROJECT_ROOT so this
+    # script works correctly regardless of the caller's working directory.
+    resolved_command = [str(PROJECT_ROOT / command[0])] + command[1:] if not Path(command[0]).is_absolute() else command
     env = os.environ.copy()
-    env.setdefault("PROJECT_ROOT", os.environ["PROJECT_ROOT"])
+    env.setdefault("PROJECT_ROOT", str(PROJECT_ROOT))
     env.setdefault("PX_BYPASS_SUDO", os.environ.get("PX_BYPASS_SUDO", "0"))
     if extra_env:
         env.update(extra_env)
     result = subprocess.run(
-        command,
+        resolved_command,
         capture_output=True,
         text=True,
         check=False,
@@ -50,7 +55,7 @@ def run_tool(command: List[str], extra_env: Dict[str, str] | None = None) -> Dic
 
 
 def announce(message: str) -> None:
-    run_tool(["bin/tool-voice"], {"PX_TEXT": message, "PX_DRY": os.environ.get("PX_DRY", "0")})
+    run_tool(["bin/tool-voice"], {"PX_TEXT": message, "PX_DRY": os.environ.get("PX_DRY", "1")})
 
 
 def main() -> int:
@@ -149,7 +154,13 @@ def main() -> int:
         motion_check["name"] = "circle"
         results["checks"].append(motion_check)
         telemetry["motors_ok"] = motion_check.get("returncode") == 0
-        if motion_check["returncode"] != 0:
+        if motion_check["returncode"] == 2:
+            results["status"] = "warn"
+            results.setdefault("warnings", []).append(
+                "motion skipped: set confirm_motion_allowed=true in state/session.json before running live diagnostics"
+            )
+            announce("Motor test skipped, motion not authorised")
+        elif motion_check["returncode"] != 0:
             results["status"] = "error"
             announce("Motor test failed")
         else:
