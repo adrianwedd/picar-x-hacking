@@ -12,29 +12,35 @@
 
 ## Time Horizons
 ### Foundation (0–1 Month)
-- Upgrade diagnostics to log predictive signals (battery, servo current, audio health) with weekly summaries.
-- Extend energy sensing (voltage/current/temperature) and pipe metrics into `state/session.json`.
-- Ship safety fallbacks: gesture-driven stop prototype, wake-word emergency halt, watchdog heartbeats.
-- Harden logging paths (done: `LOG_DIR` override) and ensure Ollama-based voice loop remains auditable.
+- ✅ Upgrade diagnostics to log predictive signals (battery, sensors, audio health) — `px-diagnostics`, `px-health-report`, `logs/tool-health.log`
+- ✅ Extend energy sensing (voltage/temperature) and pipe metrics into `state/session.json`
+- ✅ Boot health service: captures throttle/voltage at boot, resets motors — `bin/boot-health`, `picar-boot-health.service`
+- ✅ Ship safety fallbacks: wake-word halt, threaded watchdog heartbeats in voice loop
+- ✅ Harden logging paths (`LOG_DIR` override, `FileLock` on all writes, isolated test fixtures)
+- ✅ Source control: repo at `adrianwedd/picar-x-hacking`, Pi authenticated via SSH key
+- ✅ Critical bug fixes: `update_session` deadlock, `tool-voice` dry-mode audio, `voice_loop` JSON parsing
+- ⬜ Gesture-driven stop prototype
+- ⬜ Weekly battery/health summary reports
 
 ### Growth (1–3 Months)
-- Implement modular sensor fusion and persistent mapping; expose map context to Codex/Ollama tools.
-- Expand interaction layer with richer voice summaries, mission templates, and gesture recognition.
-- Stand up simulation CI sweeps (Gazebo/Isaac or lightweight custom sim) to test planners and RL policies offline.
-- Build predictive maintenance alerts using historical logs.
+- ⬜ Implement modular sensor fusion and persistent mapping; expose map context to Codex/Ollama tools
+- ⬜ Expand interaction layer with richer voice summaries, mission templates, and gesture recognition
+- ⬜ Stand up simulation CI sweeps (Gazebo/Isaac or lightweight custom sim) to test planners and RL policies offline
+- ⬜ Build predictive maintenance alerts using historical logs
+- ⬜ Investigate Robot Hat power-on PWM state — root cause of wheel spinning at boot
 
 ### Visionary (3+ Months)
-- Deploy reinforcement learning “dream buffer” and policy sharing across fleet units.
-- Create autonomous docking workflows, payload auto-detection, and multi-car choreographed demos.
-- Establish a central knowledge base syncing maps/logs, enabling collaborative autonomy.
-- Explore quantised/accelerated model variants to keep on-device AI sustainable.
+- ⬜ Deploy reinforcement learning “dream buffer” and policy sharing across fleet units
+- ⬜ Create autonomous docking workflows, payload auto-detection, and multi-car choreographed demos
+- ⬜ Establish a central knowledge base syncing maps/logs, enabling collaborative autonomy
+- ⬜ Explore quantised/accelerated model variants to keep on-device AI sustainable
 
 ## Current Initiatives
 Active execution tracks and their living plans live under `docs/initiatives/`:
-- **Diagnostics & Energy Sprint:** Predictive health telemetry and reporting.
+- **Diagnostics & Energy Sprint:** Predictive health telemetry and reporting — boot-health service now running.
 - **Mapping & Fusion Initiative:** Foundational state estimation and map persistence.
 - **Interaction Studio:** Voice/gesture UX powered by local LLMs.
-- **Safety Envelope:** Redundant fail-safes and regression simulations.
+- **Safety Envelope:** Redundant fail-safes and regression simulations — watchdog thread and motor reset on boot now in place.
 - **Learning Sandbox Prep:** Simulation pipelines and data capture for RL.
 
 Each initiative doc captures scope, milestones, dependencies, and verification steps. Update them as deliverables land or priorities shift.

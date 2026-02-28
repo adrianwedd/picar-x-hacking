@@ -164,5 +164,44 @@ The system prompt consumed by Codex lives in `docs/prompts/codex-voice-system.md
   tail -f logs/px-circle.log
   ```
 
+## Boot Health & Motor Reset
+
+A systemd service runs automatically on every boot to capture power diagnostics and reset motors:
+
+```bash
+# View results from last boot
+tail -20 logs/boot-health.log
+
+# Check service status
+sudo systemctl status picar-boot-health.service
+```
+
+The service (`/etc/systemd/system/picar-boot-health.service`) runs `bin/boot-health` which:
+- Reads `vcgencmd get_throttled` and decodes all under-voltage/throttle flags
+- Captures core voltage, SDRAM voltage, CPU temperature, and uptime
+- Logs a JSON entry to `logs/boot-health.log` — warns if under-voltage occurred
+- Resets all motors to stopped and servos to neutral to clear any spurious PWM state from boot
+
+This is particularly useful when powering via the Robot Hat battery, which may brown out during the Pi's boot peak draw. If `under_voltage_occurred` appears in the log, charge the battery and check the 5 V rail with a multimeter.
+
+## Source Control
+
+The repository is hosted at `git@github.com:adrianwedd/picar-x-hacking.git`. The Pi is configured to authenticate via SSH key.
+
+```bash
+# Pull latest from GitHub
+git pull origin master
+
+# Push changes from the Pi
+git add -A && git commit -m "..." && git push origin master
+```
+
+## Known Bugs Fixed
+
+- **`state.py` deadlock** — `update_session()` called `ensure_session()` while holding a `FileLock`, causing any tool that updates session state to hang indefinitely. Fixed by calling `ensure_session()` before acquiring the lock.
+- **`tool-voice` ignored dry mode** — audio (`espeak`/`aplay`) always ran regardless of `PX_DRY=1`, hanging tests and dry runs. Fixed to skip audio when dry mode is active.
+- **`px-diagnostics` hardcoded live audio** — `announce()` and speaker/summary voice calls always used `PX_DRY=0` even during dry runs. Fixed to pass `PX_DRY` from the environment.
+- **`voice_loop.py` JSON parsing** — `extract_action()` used `startswith("{}")` / `endswith("{}")` instead of `startswith("{")` / `endswith("}")`, silently dropping all valid Codex responses. Fixed.
+
 ## Next Steps
 See `docs/ROADMAP.md` for upcoming automation goals, including REST control surfaces, tmux automation, OpenAI/Codex CLI integration, telemetry streaming, and regression testing infrastructure.
