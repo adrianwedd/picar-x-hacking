@@ -44,7 +44,9 @@ def main() -> int:
         "text": text,
     }
 
-    if not DEFAULT_PLAYER:
+    if dry_mode:
+        payload["note"] = "dry-run: audio skipped"
+    elif not DEFAULT_PLAYER:
         payload["note"] = "no speech engine available"
     else:
         if DEFAULT_PLAYER == "espeak":

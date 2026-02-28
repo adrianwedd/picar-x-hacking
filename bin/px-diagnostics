@@ -50,7 +50,7 @@ def run_tool(command: List[str], extra_env: Dict[str, str] | None = None) -> Dic
 
 
 def announce(message: str) -> None:
-    run_tool(["bin/tool-voice"], {"PX_TEXT": message, "PX_DRY": "0"})
+    run_tool(["bin/tool-voice"], {"PX_TEXT": message, "PX_DRY": os.environ.get("PX_DRY", "0")})
 
 
 def main() -> int:
@@ -182,7 +182,7 @@ def main() -> int:
                 except OSError:
                     pass
 
-    speaker_check = run_tool(["bin/tool-voice"], {"PX_TEXT": "Speaker diagnostic", "PX_DRY": "0"})
+    speaker_check = run_tool(["bin/tool-voice"], {"PX_TEXT": "Speaker diagnostic", "PX_DRY": "1" if dry_mode else "0"})
     speaker_check["name"] = "speaker"
     results["checks"].append(speaker_check)
     telemetry["speaker_ok"] = speaker_check.get("returncode") == 0
@@ -252,7 +252,7 @@ def main() -> int:
         voice_bits.append("see logs")
     voice_summary += ", ".join(voice_bits)
 
-    voice_info = run_tool(["bin/tool-voice"], {"PX_TEXT": voice_summary, "PX_DRY": "0"})
+    voice_info = run_tool(["bin/tool-voice"], {"PX_TEXT": voice_summary, "PX_DRY": "1" if dry_mode else "0"})
     voice_info["name"] = "voice"
     results["checks"].append(voice_info)
     telemetry["voice_summary"] = voice_summary

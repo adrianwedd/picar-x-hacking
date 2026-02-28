@@ -79,11 +79,11 @@ def update_session(
     history_entry: Optional[Dict[str, Any]] = None,
     history_limit: int = 100,
 ) -> Dict[str, Any]:
-    path = session_path()
+    # Call ensure_session BEFORE acquiring the lock — ensure_session acquires
+    # the same lock internally and FileLock is not reentrant.
+    path = ensure_session()
     lock_path = str(path) + ".lock"
     with FileLock(lock_path):
-        # Ensure file exists before trying to load
-        ensure_session()
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
@@ -97,6 +97,6 @@ def update_session(
             history.append(entry)
             if len(history) > history_limit:
                 data["history"] = history[-history_limit:]
-        
+
         path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         return data
