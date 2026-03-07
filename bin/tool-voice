@@ -52,6 +52,12 @@ def main() -> int:
         if DEFAULT_PLAYER == "espeak":
             rate = os.environ.get("PX_VOICE_RATE", "150")
             device = os.environ.get("PX_VOICE_DEVICE")
+            # Enable robot-hat speaker amplifier (GPIO 20) before audio
+            subprocess.run(
+                ["sudo", "-n", "/usr/bin/python3", "-c",
+                 "from robot_hat import enable_speaker; enable_speaker()"],
+                check=False, capture_output=True,
+            )
             es_res = subprocess.run(
                 [DEFAULT_PLAYER, "-s", rate, "--stdout", text],
                 capture_output=True,

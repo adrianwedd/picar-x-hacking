@@ -75,6 +75,12 @@ def speak_text(text: str, rate: str = "150") -> None:
     if not shutil.which("espeak"):
         log("espeak not found — skipping speech")
         return
+    # Enable robot-hat speaker amplifier (GPIO 20)
+    try:
+        from robot_hat import enable_speaker
+        enable_speaker()
+    except Exception:
+        pass
     espeak = subprocess.Popen(
         ["espeak", "-s", rate, "--stdout", text],
         stdout=subprocess.PIPE,
