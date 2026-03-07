@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Sweep the camera pan servo and sample ultrasonic distance at each step.
+
+Outputs JSON: {closest_angle, closest_cm, readings: [[angle, cm], ...]}
+"""
+import argparse
+import datetime as dt
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+LOG_DIR = Path(os.environ.get("LOG_DIR", Path.cwd() / "logs"))
+LOG_FILE = Path(os.environ.get("PX_LOG_FILE", LOG_DIR / "px-sonar.log"))
+
+
+def log(msg: str) -> None:
+    ts = dt.datetime.now().isoformat(timespec="seconds")
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with LOG_FILE.open("a", encoding="utf-8") as f:
+        f.write(f"{ts} {msg}\n")
+    print(f"{ts} {msg}", file=sys.stderr)
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description="Ultrasonic sweep scan")
+    parser.add_argument("--steps",   type=int,   default=7,    help="Number of pan positions")
+    parser.add_argument("--pan-min", type=float, default=-60,  help="Leftmost pan angle")
+    parser.add_argument("--pan-max", type=float, default=60,   help="Rightmost pan angle")
+    parser.add_argument("--tilt",    type=float, default=0,    help="Fixed tilt during scan")
+    parser.add_argument("--settle",  type=float, default=0.15, help="Settle time per position (s)")
+    parser.add_argument("--samples", type=int,   default=3,    help="Distance samples per position")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args(argv)
+
+    steps = max(2, args.steps)
+    angles = [args.pan_min + i * (args.pan_max - args.pan_min) / (steps - 1)
+              for i in range(steps)]
+
+    log(f"begin steps={steps} pan_min={args.pan_min} pan_max={args.pan_max} dry={args.dry_run}")
+
+    if args.dry_run:
+        readings = [[round(a, 1), -1.0] for a in angles]
+        result = {"status": "ok", "dry": True, "closest_angle": 0, "closest_cm": -1,
+                  "readings": readings}
+        print(json.dumps(result))
+        return 0
+
+    try:
+        from picarx import Picarx
+    except Exception as exc:
+        log(f"import error: {exc}")
+        print(json.dumps({"status": "error", "error": str(exc)}))
+        return 1
+
+    px = None
+    try:
+        px = Picarx()
+        px.set_cam_tilt_angle(int(args.tilt))
+        readings = []
+
+        for angle in angles:
+            px.set_cam_pan_angle(int(round(angle)))
+            time.sleep(args.settle)
+            samples = []
+            for _ in range(args.samples):
+                d = px.get_distance()
+                if d and d > 0:
+                    samples.append(d)
+                time.sleep(0.05)
+            dist = round(sum(samples) / len(samples), 1) if samples else -1.0
+            readings.append([round(angle, 1), dist])
+            log(f"angle={angle:.1f} dist={dist}cm")
+
+        px.set_cam_pan_angle(0)
+        px.set_cam_tilt_angle(0)
+
+        valid = [(a, d) for a, d in readings if d > 0]
+        closest_angle, closest_cm = min(valid, key=lambda x: x[1]) if valid else (0, -1)
+
+        result = {"status": "ok", "dry": False, "closest_angle": closest_angle,
+                  "closest_cm": round(closest_cm, 1), "readings": readings}
+        log(f"complete closest_angle={closest_angle} closest_cm={closest_cm}")
+        print(json.dumps(result))
+        return 0
+
+    except KeyboardInterrupt:
+        log("aborted")
+        return 130
+    except Exception as exc:
+        log(f"runtime error: {exc}")
+        print(json.dumps({"status": "error", "error": str(exc)}))
+        return 1
+    finally:
+        if px is not None:
+            try:
+                px.set_cam_pan_angle(0)
+                px.set_cam_tilt_angle(0)
+                px.close()
+            except Exception:
+                pass
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY

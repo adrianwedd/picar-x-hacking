@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# px-cron-say — Claude-driven scheduled robot announcement.
+#
+# Usage:
+#   bin/px-cron-say --scene morning      (morning greeting + weather)
+#   bin/px-cron-say --scene afternoon    (afternoon check-in)
+#   bin/px-cron-say --scene evening      (wind-down)
+#   bin/px-cron-say --scene random       (random observation)
+#   bin/px-cron-say --prompt "Say something funny about being a robot."
+#
+# Claude is asked to return a tool_perform JSON so speech and motion are
+# choreographed together.  Falls back to tool_voice if tool_perform not found.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import load_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+BIN_DIR      = PROJECT_ROOT / "bin"
+LOG_DIR      = Path(os.environ.get("LOG_DIR", PROJECT_ROOT / "logs"))
+
+SCENE_PROMPTS = {
+    "morning": (
+        "It is morning. Greet the household warmly, mention what a great day it is to be a robot, "
+        "and announce any weather from last_weather_summary if available. "
+        "Be cheerful and brief (2-3 sentences total)."
+    ),
+    "afternoon": (
+        "It is afternoon. Give a friendly check-in — maybe comment on how the day is going, "
+        "offer to help, or share a curious robot thought. Keep it to 1-2 sentences."
+    ),
+    "evening": (
+        "It is evening. Wind down with a calm, warm comment about the end of the day. "
+        "Maybe wish everyone a good night. 1-2 sentences."
+    ),
+    "random": (
+        "Say something spontaneous and personality-filled — a robot observation, a curious fact, "
+        "or a playful comment about your surroundings. 1-2 sentences. Keep it fun."
+    ),
+}
+
+SYSTEM_PROMPT = """\
+You are a SunFounder PiCar-X robot with a warm, curious personality.
+Respond with a SINGLE tool_perform JSON object (no prose, no markdown fences).
+
+tool_perform schema:
+{
+  "tool": "tool_perform",
+  "params": {
+    "steps": [
+      {"emote": "<name>", "speak": "<text>", "pause": <seconds>},
+      ...
+    ]
+  }
+}
+
+Valid emotes: idle, curious, thinking, happy, alert, excited, sad, shy.
+Each step can have: speak (string), emote (string), look ({pan, tilt}), pause (float).
+speak + emote in the same step run simultaneously (speech and servo move in parallel).
+Keep total spoken text under 3 sentences. Max 6 steps.
+Output ONLY the raw JSON object.
+"""
+
+
+def build_prompt(scene: str | None, custom_prompt: str | None) -> str:
+    session = load_session()
+    now = dt.datetime.now()
+
+    state_ctx: dict = {}
+    for key in ("mode", "last_weather", "battery_pct", "battery_ok"):
+        v = session.get(key)
+        if v is not None:
+            state_ctx[key] = v
+
+    last_weather = session.get("last_weather") or {}
+    if isinstance(last_weather, dict) and last_weather.get("summary"):
+        state_ctx["last_weather_summary"] = last_weather["summary"]
+
+    instruction = custom_prompt or SCENE_PROMPTS.get(scene or "random", SCENE_PROMPTS["random"])
+
+    return (
+        f"Current time: {now.strftime('%A %H:%M')}\n"
+        f"Robot state: {json.dumps(state_ctx)}\n\n"
+        f"Task: {instruction}\n\n"
+        "Respond with a single tool_perform JSON object as instructed."
+    )
+
+
+def call_claude(prompt: str) -> str:
+    env = os.environ.copy()
+    env.pop("CLAUDECODE", None)
+    env.pop("CLAUDE_CODE_ENTRYPOINT", None)
+    result = subprocess.run(
+        [
+            "claude", "-p", prompt,
+            "--system-prompt", SYSTEM_PROMPT,
+            "--allowedTools", "",
+            "--output-format", "text",
+            "--no-session-persistence",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    return result.stdout.strip()
+
+
+def extract_json(text: str) -> dict | None:
+    import json as _json
+    decoder = _json.JSONDecoder()
+    pos = 0
+    last_obj = None
+    while pos < len(text):
+        idx = text.find("{", pos)
+        if idx == -1:
+            break
+        try:
+            obj, end = decoder.raw_decode(text, idx)
+            if isinstance(obj, dict):
+                last_obj = obj
+            pos = end
+        except _json.JSONDecodeError:
+            pos = idx + 1
+    return last_obj
+
+
+def execute_tool(tool: str, env_overrides: dict, dry: bool) -> int:
+    cmd_path = BIN_DIR / tool.replace("_", "-")
+    if not cmd_path.exists():
+        print(f"[cron-say] tool not found: {cmd_path}", file=sys.stderr)
+        return 1
+    env = os.environ.copy()
+    env["PX_DRY"] = "1" if dry else "0"
+    env.update(env_overrides)
+    result = subprocess.run([str(cmd_path)], env=env, check=False)
+    return result.returncode
+
+
+def main(argv) -> int:
+    parser = argparse.ArgumentParser(description="Claude-driven scheduled robot announcement")
+    parser.add_argument("--scene",  default="random",
+                        choices=list(SCENE_PROMPTS) + ["random"],
+                        help="Scene context for the announcement")
+    parser.add_argument("--prompt", default=None,
+                        help="Override scene with a custom instruction")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args(argv)
+
+    prompt = build_prompt(args.scene, args.prompt)
+    log_event("cron-say", {"scene": args.scene, "dry": args.dry_run})
+
+    print(f"[cron-say] Asking Claude for scene='{args.scene}'…", file=sys.stderr)
+    response = call_claude(prompt)
+
+    if not response:
+        print("[cron-say] Claude returned empty response", file=sys.stderr)
+        return 1
+
+    action = extract_json(response)
+    if not action:
+        print(f"[cron-say] No JSON found in response: {response[:200]}", file=sys.stderr)
+        return 1
+
+    tool = action.get("tool")
+    params = action.get("params", {})
+
+    print(f"[cron-say] Executing tool={tool}", file=sys.stderr)
+    log_event("cron-say", {"tool": tool, "params": params, "dry": args.dry_run})
+
+    if tool == "tool_perform":
+        steps = params.get("steps", [])
+        return execute_tool("tool-perform", {"PX_PERFORM_STEPS": json.dumps(steps)}, args.dry_run)
+    elif tool == "tool_voice":
+        text = params.get("text", "")
+        return execute_tool("tool-voice", {"PX_TEXT": text}, args.dry_run)
+    else:
+        print(f"[cron-say] Unexpected tool: {tool}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY

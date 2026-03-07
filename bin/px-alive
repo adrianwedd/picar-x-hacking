@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Idle-alive daemon: keeps the robot looking alive with organic servo motion.
+
+Behaviours (no wheels):
+  - Gaze drift: pick a new random look direction every 10-25 s, ease there.
+  - Slow scan:  every 3-8 min, sweep pan left→right (idle scanning).
+  - Proximity:  if ultrasonic < threshold for 3 s, turn to face nearest object.
+
+Run with sudo (needs picarx). Writes PID file; handles SIGTERM cleanly.
+"""
+import argparse
+import datetime as dt
+import os
+import random
+import signal
+import sys
+import time
+from pathlib import Path
+
+LOG_DIR  = Path(os.environ.get("LOG_DIR",  Path.cwd() / "logs"))
+LOG_FILE = Path(os.environ.get("PX_LOG_FILE", LOG_DIR / "px-alive.log"))
+PID_FILE = Path(os.environ.get("PX_ALIVE_PID", LOG_DIR / "px-alive.pid"))
+
+GAZE_MIN_S   = 10
+GAZE_MAX_S   = 25
+SCAN_MIN_S   = 180
+SCAN_MAX_S   = 480
+PROX_THRESH  = 35.0   # cm
+PROX_HOLD_S  = 3.0    # seconds consistently close before reacting
+PAN_RANGE    = (-65, 65)
+TILT_RANGE   = (-15, 35)
+EASE_SPEED   = 20     # steps per second
+
+
+def log(msg: str) -> None:
+    ts = dt.datetime.now().isoformat(timespec="seconds")
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with LOG_FILE.open("a", encoding="utf-8") as f:
+        f.write(f"{ts} [alive] {msg}\n")
+    print(f"{ts} [alive] {msg}", flush=True)
+
+
+def ease(px, from_pan: int, from_tilt: int, to_pan: int, to_tilt: int, duration: float) -> None:
+    steps = max(2, int(duration * EASE_SPEED))
+    for i in range(steps + 1):
+        t = i / steps
+        px.set_cam_pan_angle(int(round(from_pan  + (to_pan  - from_pan)  * t)))
+        px.set_cam_tilt_angle(int(round(from_tilt + (to_tilt - from_tilt) * t)))
+        if i < steps:
+            time.sleep(duration / steps)
+
+
+def safe_distance(px) -> float:
+    try:
+        d = px.get_distance()
+        return float(d) if d and d > 0 else 999.0
+    except Exception:
+        return 999.0
+
+
+def idle_loop(px, args) -> None:
+    cur_pan, cur_tilt = 0, 0
+    next_gaze = time.monotonic() + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
+    next_scan = time.monotonic() + random.uniform(SCAN_MIN_S, SCAN_MAX_S)
+    prox_near_since: float | None = None
+
+    log("idle loop started")
+
+    while True:
+        now = time.monotonic()
+
+        # --- Proximity check (every ~0.5 s) ---
+        dist = safe_distance(px)
+        if dist < PROX_THRESH:
+            if prox_near_since is None:
+                prox_near_since = now
+            elif now - prox_near_since >= PROX_HOLD_S:
+                log(f"proximity react: object at {dist:.1f}cm — facing forward")
+                ease(px, cur_pan, cur_tilt, 0, 5, 0.5)
+                cur_pan, cur_tilt = 0, 5
+                prox_near_since = None
+                next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
+        else:
+            prox_near_since = None
+
+        # --- Slow idle scan ---
+        if now >= next_scan:
+            log("idle scan: sweeping pan")
+            angles = list(range(PAN_RANGE[0], PAN_RANGE[1] + 1, 15)) + \
+                     list(range(PAN_RANGE[1], PAN_RANGE[0] - 1, -15))
+            for a in angles:
+                ease(px, cur_pan, cur_tilt, a, cur_tilt, 0.6)
+                cur_pan = a
+                time.sleep(0.2)
+            ease(px, cur_pan, cur_tilt, 0, 0, 0.8)
+            cur_pan, cur_tilt = 0, 0
+            next_scan = now + random.uniform(SCAN_MIN_S, SCAN_MAX_S)
+            next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
+
+        # --- Gaze drift ---
+        elif now >= next_gaze:
+            target_pan  = random.randint(*PAN_RANGE)
+            target_tilt = random.randint(*TILT_RANGE)
+            duration    = random.uniform(0.8, 2.2)
+            log(f"gaze drift: ({cur_pan},{cur_tilt}) → ({target_pan},{target_tilt}) over {duration:.1f}s")
+            ease(px, cur_pan, cur_tilt, target_pan, target_tilt, duration)
+            cur_pan, cur_tilt = target_pan, target_tilt
+            next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
+
+        time.sleep(0.5)
+
+
+def main(argv) -> int:
+    parser = argparse.ArgumentParser(description="PiCar-X idle alive daemon")
+    parser.add_argument("--gaze-min",   type=float, default=GAZE_MIN_S,
+                        help="Min seconds between gaze shifts")
+    parser.add_argument("--gaze-max",   type=float, default=GAZE_MAX_S,
+                        help="Max seconds between gaze shifts")
+    parser.add_argument("--prox-cm",    type=float, default=PROX_THRESH,
+                        help="Proximity threshold in cm to trigger reaction")
+    parser.add_argument("--no-prox",    action="store_true",
+                        help="Disable proximity sensing")
+    parser.add_argument("--dry-run",    action="store_true",
+                        help="Log planned actions without moving servos")
+    args = parser.parse_args(argv)
+
+    # Override globals from args
+    global GAZE_MIN_S, GAZE_MAX_S, PROX_THRESH
+    GAZE_MIN_S  = args.gaze_min
+    GAZE_MAX_S  = args.gaze_max
+    PROX_THRESH = args.prox_cm if not args.no_prox else 0.0
+
+    # Write PID
+    PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PID_FILE.write_text(str(os.getpid()))
+    log(f"starting pid={os.getpid()} dry={args.dry_run}")
+
+    # Signal handler for clean shutdown
+    def _shutdown(sig, _frame):
+        log(f"received signal {sig} — shutting down")
+        try:
+            PID_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT,  _shutdown)
+
+    if args.dry_run:
+        log("dry-run: would start idle loop (servo movements skipped)")
+        for i in range(3):
+            target_pan  = random.randint(*PAN_RANGE)
+            target_tilt = random.randint(*TILT_RANGE)
+            log(f"dry gaze {i+1}: pan={target_pan} tilt={target_tilt}")
+            time.sleep(1)
+        PID_FILE.unlink(missing_ok=True)
+        return 0
+
+    try:
+        from picarx import Picarx
+    except Exception as exc:
+        log(f"import error: {exc}")
+        return 1
+
+    px = None
+    try:
+        px = Picarx()
+        idle_loop(px, args)
+    except SystemExit:
+        pass
+    except Exception as exc:
+        log(f"fatal: {exc}")
+        return 1
+    finally:
+        if px is not None:
+            try:
+                px.set_cam_pan_angle(0)
+                px.set_cam_tilt_angle(0)
+                px.close()
+            except Exception:
+                pass
+        PID_FILE.unlink(missing_ok=True)
+        log("stopped")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY

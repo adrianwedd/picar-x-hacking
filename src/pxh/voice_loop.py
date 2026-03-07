@@ -27,20 +27,32 @@ ALLOWED_TOOLS = {
     "tool_stop",
     "tool_voice",
     "tool_weather",
+    "tool_look",
+    "tool_emote",
+    "tool_sonar",
+    "tool_perform",
 }
 
 TOOL_COMMANDS = {
-    "tool_status": BIN_DIR / "tool-status",
-    "tool_circle": BIN_DIR / "tool-circle",
+    "tool_status":  BIN_DIR / "tool-status",
+    "tool_circle":  BIN_DIR / "tool-circle",
     "tool_figure8": BIN_DIR / "tool-figure8",
-    "tool_stop": BIN_DIR / "tool-stop",
-    "tool_voice": BIN_DIR / "tool-voice",
+    "tool_stop":    BIN_DIR / "tool-stop",
+    "tool_voice":   BIN_DIR / "tool-voice",
     "tool_weather": BIN_DIR / "tool-weather",
+    "tool_look":    BIN_DIR / "tool-look",
+    "tool_emote":   BIN_DIR / "tool-emote",
+    "tool_sonar":   BIN_DIR / "tool-sonar",
+    "tool_perform": BIN_DIR / "tool-perform",
 }
 
 
 class VoiceLoopError(Exception):
     """Domain-specific errors."""
+
+
+def clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
 
 
 def watchdog_thread_func(heartbeat_q: queue.Queue, timeout: float) -> None:
@@ -292,6 +304,33 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         if len(text) > 180:
             text = text[:180]
         sanitized["PX_TEXT"] = text
+    elif tool == "tool_look":
+        pan  = int(clamp(float(params.get("pan",  0)), -90, 90))
+        tilt = int(clamp(float(params.get("tilt", 0)), -35, 65))
+        ease = clamp(float(params.get("ease", 0.8)), 0.1, 5.0)
+        sanitized["PX_PAN"]  = str(pan)
+        sanitized["PX_TILT"] = str(tilt)
+        sanitized["PX_EASE"] = f"{ease:.2f}"
+    elif tool == "tool_emote":
+        valid = {"idle", "curious", "thinking", "happy", "alert", "excited", "sad", "shy"}
+        name = str(params.get("name", "idle")).lower()
+        if name not in valid:
+            raise VoiceLoopError(f"unknown emote '{name}'; valid: {sorted(valid)}")
+        sanitized["PX_EMOTE"] = name
+    elif tool == "tool_sonar":
+        pass  # no params required
+    elif tool == "tool_perform":
+        steps = params.get("steps")
+        if not isinstance(steps, list) or not steps:
+            raise VoiceLoopError("tool_perform requires a non-empty 'steps' list")
+        if len(steps) > 12:
+            steps = steps[:12]
+        for step in steps:
+            if not isinstance(step, dict):
+                raise VoiceLoopError("each perform step must be a JSON object")
+            if "speak" in step and len(str(step["speak"])) > 200:
+                step["speak"] = str(step["speak"])[:200]
+        sanitized["PX_PERFORM_STEPS"] = json.dumps(steps)
     else:
         if params:
             raise VoiceLoopError("unexpected parameters for tool")

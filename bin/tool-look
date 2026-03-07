@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool wrapper: move camera pan/tilt to a target angle."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PX_LOOK = Path(os.environ.get("PX_LOOK_CMD", PROJECT_ROOT / "bin/px-look"))
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+
+    try:
+        pan  = int(float(os.environ.get("PX_PAN",  "0")))
+        tilt = int(float(os.environ.get("PX_TILT", "0")))
+        ease = float(os.environ.get("PX_EASE", "0.8"))
+        hold = float(os.environ.get("PX_HOLD", "0.0"))
+    except ValueError:
+        payload = {"status": "error", "error": "invalid numeric parameters"}
+        log_event("look", payload)
+        print(json.dumps(payload))
+        return 1
+
+    pan  = max(-90, min(90, pan))
+    tilt = max(-35, min(65, tilt))
+
+    command = []
+    if os.environ.get("PX_BYPASS_SUDO", "0") != "1":
+        python_path = os.environ.get("PYTHONPATH", "")
+        command.extend(["sudo", "-n", "env", f"PYTHONPATH={python_path}"])
+    command.extend([str(PX_LOOK), "--pan", str(pan), "--tilt", str(tilt),
+                    "--ease", f"{ease:.2f}", "--hold", f"{hold:.2f}"])
+    if dry_mode:
+        command.append("--dry-run")
+
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+
+    update_session(
+        fields={"last_action": "tool_look"},
+        history_entry={"event": "look", "pan": pan, "tilt": tilt, "dry": dry_mode, "rc": result.returncode},
+    )
+
+    payload = {
+        "status": "ok" if result.returncode == 0 else "error",
+        "returncode": result.returncode,
+        "dry": dry_mode,
+        "pan": pan,
+        "tilt": tilt,
+        "stdout": result.stdout[-1024:],
+        "stderr": result.stderr[-512:],
+    }
+    log_event("look", payload)
+    print(json.dumps(payload))
+    return 0 if result.returncode == 0 else result.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

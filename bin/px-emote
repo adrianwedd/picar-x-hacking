@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Move camera to a named emotional pose, with optional animated variation."""
+import argparse
+import datetime as dt
+import os
+import sys
+import time
+from pathlib import Path
+
+LOG_DIR = Path(os.environ.get("LOG_DIR", Path.cwd() / "logs"))
+LOG_FILE = Path(os.environ.get("PX_LOG_FILE", LOG_DIR / "px-emote.log"))
+
+# (pan, tilt, ease_s, hold_s)
+EMOTES = {
+    "idle":     (0,    0,   1.0, 0.0),
+    "curious":  (25,   18,  0.7, 0.5),
+    "thinking": (-22, -8,   0.9, 0.8),
+    "happy":    (0,    12,  0.5, 0.0),   # followed by side-to-side nod
+    "alert":    (0,    0,   0.3, 0.3),
+    "excited":  (0,    15,  0.4, 0.0),   # rapid pan sweep
+    "sad":      (-10, -20,  1.2, 1.0),
+    "shy":      (-40,  5,   0.8, 0.6),
+}
+
+
+def log(msg: str) -> None:
+    ts = dt.datetime.now().isoformat(timespec="seconds")
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with LOG_FILE.open("a", encoding="utf-8") as f:
+        f.write(f"{ts} {msg}\n")
+    print(f"{ts} {msg}")
+
+
+def ease(px, from_pan, from_tilt, to_pan, to_tilt, duration):
+    steps = max(2, int(duration * 20))
+    for i in range(steps + 1):
+        t = i / steps
+        px.set_cam_pan_angle(int(round(from_pan + (to_pan - from_pan) * t)))
+        px.set_cam_tilt_angle(int(round(from_tilt + (to_tilt - from_tilt) * t)))
+        if i < steps:
+            time.sleep(duration / steps)
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description="Move camera to a named pose")
+    parser.add_argument("name", nargs="?", default="idle",
+                        help=f"Emote name: {', '.join(sorted(EMOTES))}")
+    parser.add_argument("--from-pan",  type=float, default=0)
+    parser.add_argument("--from-tilt", type=float, default=0)
+    parser.add_argument("--dry-run",   action="store_true")
+    args = parser.parse_args(argv)
+
+    name = args.name.lower()
+    if name not in EMOTES:
+        log(f"error: unknown emote '{name}'. Valid: {sorted(EMOTES)}")
+        return 1
+
+    pan, tilt, ease_s, hold_s = EMOTES[name]
+    log(f"begin emote={name} pan={pan} tilt={tilt} ease={ease_s:.2f}s hold={hold_s:.2f}s dry={args.dry_run}")
+
+    if args.dry_run:
+        log(f"dry_run: would pose as '{name}'")
+        if name == "happy":
+            log("dry_run: would sweep pan ±20 deg twice")
+        elif name == "excited":
+            log("dry_run: would sweep pan ±35 deg rapidly")
+        return 0
+
+    try:
+        from picarx import Picarx
+    except Exception as exc:
+        log(f"import error: {exc}")
+        return 1
+
+    px = None
+    try:
+        px = Picarx()
+        ease(px, args.from_pan, args.from_tilt, pan, tilt, ease_s)
+        log(f"arrived pan={pan} tilt={tilt}")
+
+        # Animated variations per emote
+        if name == "happy":
+            for _ in range(2):
+                ease(px, pan, tilt, 20, tilt, 0.25)
+                ease(px, 20,  tilt, -20, tilt, 0.35)
+                ease(px, -20, tilt, 0,   tilt, 0.25)
+        elif name == "excited":
+            for deg in [35, -35, 25, -25, 0]:
+                ease(px, px.cam_pan_cali_val or pan, tilt, deg, tilt, 0.18)
+        elif name == "curious":
+            # Slight tilt-nod
+            ease(px, pan, tilt, pan, tilt + 5, 0.3)
+            ease(px, pan, tilt + 5, pan, tilt, 0.3)
+
+        if hold_s > 0:
+            time.sleep(hold_s)
+
+        log(f"complete emote={name}")
+        return 0
+
+    except KeyboardInterrupt:
+        log("aborted")
+        return 130
+    except Exception as exc:
+        log(f"runtime error: {exc}")
+        return 1
+    finally:
+        if px is not None:
+            try:
+                px.close()
+            except Exception:
+                pass
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY

@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool wrapper: multi-step choreography (speak + move simultaneously)."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PX_PERFORM = Path(os.environ.get("PX_PERFORM_CMD", PROJECT_ROOT / "bin/px-perform"))
+
+MAX_STEPS = 12
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    steps_json = os.environ.get("PX_PERFORM_STEPS", "")
+
+    if not steps_json:
+        payload = {"status": "error", "error": "PX_PERFORM_STEPS is required"}
+        log_event("perform", payload)
+        print(json.dumps(payload))
+        return 1
+
+    try:
+        steps = json.loads(steps_json)
+        if not isinstance(steps, list):
+            raise ValueError("steps must be a JSON array")
+        if len(steps) > MAX_STEPS:
+            steps = steps[:MAX_STEPS]
+    except (json.JSONDecodeError, ValueError) as exc:
+        payload = {"status": "error", "error": str(exc)}
+        log_event("perform", payload)
+        print(json.dumps(payload))
+        return 1
+
+    env = os.environ.copy()
+    env["PX_PERFORM_STEPS"] = json.dumps(steps)
+
+    command = []
+    if os.environ.get("PX_BYPASS_SUDO", "0") != "1":
+        python_path = os.environ.get("PYTHONPATH", "")
+        command.extend(["sudo", "-n", "env",
+                        f"PYTHONPATH={python_path}",
+                        f"PX_PERFORM_STEPS={json.dumps(steps)}"])
+    command.append(str(PX_PERFORM))
+    if dry_mode:
+        command.append("--dry-run")
+
+    result = subprocess.run(command, capture_output=True, text=True, check=False, env=env)
+
+    update_session(
+        fields={"last_action": "tool_perform"},
+        history_entry={"event": "perform", "steps": len(steps), "dry": dry_mode,
+                       "rc": result.returncode},
+    )
+
+    payload = {
+        "status": "ok" if result.returncode == 0 else "error",
+        "returncode": result.returncode,
+        "dry": dry_mode,
+        "steps": len(steps),
+        "stdout": result.stdout[-1024:],
+        "stderr": result.stderr[-512:],
+    }
+    log_event("perform", payload)
+    print(json.dumps(payload))
+    return 0 if result.returncode == 0 else result.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool wrapper: move camera to a named emotional pose."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PX_EMOTE = Path(os.environ.get("PX_EMOTE_CMD", PROJECT_ROOT / "bin/px-emote"))
+
+VALID_EMOTES = {"idle", "curious", "thinking", "happy", "alert", "excited", "sad", "shy"}
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    name = os.environ.get("PX_EMOTE", "idle").lower()
+
+    if name not in VALID_EMOTES:
+        payload = {"status": "error", "error": f"unknown emote '{name}'",
+                   "valid": sorted(VALID_EMOTES)}
+        log_event("emote", payload)
+        print(json.dumps(payload))
+        return 1
+
+    command = []
+    if os.environ.get("PX_BYPASS_SUDO", "0") != "1":
+        python_path = os.environ.get("PYTHONPATH", "")
+        command.extend(["sudo", "-n", "env", f"PYTHONPATH={python_path}"])
+    command.extend([str(PX_EMOTE), name])
+    if dry_mode:
+        command.append("--dry-run")
+
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+
+    update_session(
+        fields={"last_action": "tool_emote"},
+        history_entry={"event": "emote", "name": name, "dry": dry_mode, "rc": result.returncode},
+    )
+
+    payload = {
+        "status": "ok" if result.returncode == 0 else "error",
+        "returncode": result.returncode,
+        "dry": dry_mode,
+        "emote": name,
+        "stdout": result.stdout[-512:],
+        "stderr": result.stderr[-256:],
+    }
+    log_event("emote", payload)
+    print(json.dumps(payload))
+    return 0 if result.returncode == 0 else result.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

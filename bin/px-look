@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Move the PiCar-X camera pan/tilt servos to a target angle, with easing."""
+import argparse
+import datetime as dt
+import os
+import sys
+import time
+from pathlib import Path
+
+LOG_DIR = Path(os.environ.get("LOG_DIR", Path.cwd() / "logs"))
+LOG_FILE = Path(os.environ.get("PX_LOG_FILE", LOG_DIR / "px-look.log"))
+
+
+def log(msg: str) -> None:
+    ts = dt.datetime.now().isoformat(timespec="seconds")
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    line = f"{ts} {msg}"
+    with LOG_FILE.open("a", encoding="utf-8") as f:
+        f.write(line + "\n")
+    print(line)
+
+
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def ease_servos(px, from_pan, from_tilt, to_pan, to_tilt, duration):
+    """Linearly interpolate servo angles over duration seconds."""
+    steps = max(2, int(duration * 20))  # 20 steps/sec
+    for i in range(steps + 1):
+        t = i / steps
+        pan = int(round(from_pan + (to_pan - from_pan) * t))
+        tilt = int(round(from_tilt + (to_tilt - from_tilt) * t))
+        px.set_cam_pan_angle(pan)
+        px.set_cam_tilt_angle(tilt)
+        if i < steps:
+            time.sleep(duration / steps)
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description="Move camera pan/tilt servos")
+    parser.add_argument("--pan",  type=float, default=0,   help="Pan angle  (-90 to 90 degrees)")
+    parser.add_argument("--tilt", type=float, default=0,   help="Tilt angle (-35 to 65 degrees)")
+    parser.add_argument("--from-pan",  type=float, default=None, help="Starting pan  (default: 0)")
+    parser.add_argument("--from-tilt", type=float, default=None, help="Starting tilt (default: 0)")
+    parser.add_argument("--ease", type=float, default=0.8, help="Easing duration in seconds")
+    parser.add_argument("--hold", type=float, default=0.0, help="Hold at target for N seconds")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args(argv)
+
+    to_pan  = int(clamp(round(args.pan),  -90, 90))
+    to_tilt = int(clamp(round(args.tilt), -35, 65))
+    from_pan  = int(clamp(round(args.from_pan  if args.from_pan  is not None else 0), -90, 90))
+    from_tilt = int(clamp(round(args.from_tilt if args.from_tilt is not None else 0), -35, 65))
+
+    log(f"begin pan={to_pan} tilt={to_tilt} from_pan={from_pan} from_tilt={from_tilt} ease={args.ease:.2f}s dry={args.dry_run}")
+
+    if args.dry_run:
+        log(f"dry_run: would ease from ({from_pan},{from_tilt}) → ({to_pan},{to_tilt}) over {args.ease:.2f}s")
+        if args.hold:
+            log(f"dry_run: would hold {args.hold:.2f}s")
+        return 0
+
+    try:
+        from picarx import Picarx
+    except Exception as exc:
+        log(f"error importing picarx: {exc}")
+        return 1
+
+    px = None
+    try:
+        px = Picarx()
+        ease_servos(px, from_pan, from_tilt, to_pan, to_tilt, args.ease)
+        log(f"arrived pan={to_pan} tilt={to_tilt}")
+        if args.hold > 0:
+            time.sleep(args.hold)
+    except KeyboardInterrupt:
+        log("aborted by user")
+        return 130
+    except Exception as exc:
+        log(f"runtime_error: {exc}")
+        return 1
+    finally:
+        if px is not None:
+            try:
+                px.close()
+            except Exception:
+                pass
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY

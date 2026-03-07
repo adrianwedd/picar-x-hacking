@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool wrapper: ultrasonic sweep scan."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PX_SONAR = Path(os.environ.get("PX_SONAR_CMD", PROJECT_ROOT / "bin/px-sonar"))
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+
+    command = []
+    if os.environ.get("PX_BYPASS_SUDO", "0") != "1":
+        python_path = os.environ.get("PYTHONPATH", "")
+        command.extend(["sudo", "-n", "env", f"PYTHONPATH={python_path}"])
+    command.append(str(PX_SONAR))
+    if dry_mode:
+        command.append("--dry-run")
+
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+
+    try:
+        payload = json.loads(result.stdout.strip().splitlines()[-1]) if result.stdout.strip() else {}
+    except (json.JSONDecodeError, IndexError):
+        payload = {}
+
+    if not payload:
+        payload = {"status": "error", "returncode": result.returncode,
+                   "stderr": result.stderr[-512:]}
+
+    payload.setdefault("dry", dry_mode)
+    log_event("sonar", payload)
+
+    update_session(
+        fields={"last_action": "tool_sonar"},
+        history_entry={"event": "sonar", "dry": dry_mode,
+                       "closest_cm": payload.get("closest_cm", -1)},
+    )
+    print(json.dumps(payload))
+    return 0 if payload.get("status") == "ok" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

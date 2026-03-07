@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Multi-step choreography: speak + move/emote simultaneously.
+
+Reads PX_PERFORM_STEPS (JSON array) and executes each step, running
+speech and servo motion in parallel threads.
+
+Step schema:
+  { "speak": "text",           # optional — spoken via espeak+aplay
+    "emote": "happy",          # optional — named camera pose
+    "look":  {"pan": 30, "tilt": 10},  # optional — explicit angle
+    "move":  "circle"|"figure8",       # optional — wheel motion (motion-gated)
+    "pause": 1.5               # optional — hold N seconds after this step
+  }
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import shutil
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+LOG_DIR = Path(os.environ.get("LOG_DIR", Path.cwd() / "logs"))
+LOG_FILE = Path(os.environ.get("PX_LOG_FILE", LOG_DIR / "px-perform.log"))
+
+EMOTE_POSES: Dict[str, tuple] = {
+    "idle":     (0,    0),
+    "curious":  (25,   18),
+    "thinking": (-22, -8),
+    "happy":    (0,    12),
+    "alert":    (0,    0),
+    "excited":  (0,    15),
+    "sad":      (-10, -20),
+    "shy":      (-40,  5),
+}
+
+
+def log(msg: str) -> None:
+    ts = dt.datetime.now().isoformat(timespec="seconds")
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with LOG_FILE.open("a", encoding="utf-8") as f:
+        f.write(f"{ts} {msg}\n")
+    print(f"{ts} {msg}", file=sys.stderr)
+
+
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def ease_servos(px, from_pan: int, from_tilt: int, to_pan: int, to_tilt: int, duration: float) -> None:
+    steps = max(2, int(duration * 20))
+    for i in range(steps + 1):
+        t = i / steps
+        px.set_cam_pan_angle(int(round(from_pan + (to_pan - from_pan) * t)))
+        px.set_cam_tilt_angle(int(round(from_tilt + (to_tilt - from_tilt) * t)))
+        if i < steps:
+            time.sleep(duration / steps)
+
+
+def speak_text(text: str, rate: str = "150") -> None:
+    """Run espeak → aplay pipeline (no sudo needed)."""
+    if not shutil.which("espeak"):
+        log("espeak not found — skipping speech")
+        return
+    espeak = subprocess.Popen(
+        ["espeak", "-s", rate, "--stdout", text],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    if shutil.which("aplay"):
+        aplay = subprocess.Popen(
+            ["aplay", "-q"],
+            stdin=espeak.stdout,
+            stderr=subprocess.DEVNULL,
+        )
+        espeak.stdout.close()
+        aplay.wait()
+    else:
+        espeak.wait()
+
+
+def execute_step(px, step: Dict[str, Any], dry: bool, cur_pan: int, cur_tilt: int) -> tuple:
+    """Execute one performance step. Returns (new_pan, new_tilt)."""
+    speak   = step.get("speak")
+    emote   = step.get("emote")
+    look    = step.get("look")
+    pause   = float(step.get("pause", 0))
+
+    # Resolve target servo position
+    if emote and emote in EMOTE_POSES:
+        target_pan, target_tilt = EMOTE_POSES[emote]
+    elif look:
+        target_pan  = int(clamp(look.get("pan",  0), -90, 90))
+        target_tilt = int(clamp(look.get("tilt", 0), -35, 65))
+    else:
+        target_pan, target_tilt = cur_pan, cur_tilt
+
+    threads = []
+
+    # Thread 1: speech
+    if speak and not dry:
+        rate = os.environ.get("PX_VOICE_RATE", "150")
+        t = threading.Thread(target=speak_text, args=(speak, rate), daemon=True)
+        threads.append(t)
+        log(f"speak: {speak[:60]}")
+
+    # Thread 2: servo movement
+    if (target_pan, target_tilt) != (cur_pan, cur_tilt) and not dry:
+        ease_s = float(step.get("ease", 0.8))
+        def do_servo(fp=cur_pan, ft=cur_tilt, tp=target_pan, tt=target_tilt, es=ease_s):
+            ease_servos(px, fp, ft, tp, tt, es)
+        t = threading.Thread(target=do_servo, daemon=True)
+        threads.append(t)
+        log(f"move servo: pan={target_pan} tilt={target_tilt}")
+
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    if dry and speak:
+        log(f"dry_speak: {speak[:80]}")
+    if dry and (target_pan, target_tilt) != (cur_pan, cur_tilt):
+        log(f"dry_servo: pan={target_pan} tilt={target_tilt}")
+
+    if pause > 0:
+        time.sleep(pause)
+
+    return target_pan, target_tilt
+
+
+def main(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(description="Multi-step choreography")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args(argv)
+
+    steps_json = os.environ.get("PX_PERFORM_STEPS", "[]")
+    try:
+        steps: List[Dict[str, Any]] = json.loads(steps_json)
+    except json.JSONDecodeError as exc:
+        log(f"invalid PX_PERFORM_STEPS JSON: {exc}")
+        return 1
+
+    if not isinstance(steps, list) or not steps:
+        log("PX_PERFORM_STEPS must be a non-empty JSON array")
+        return 1
+
+    log(f"begin steps={len(steps)} dry={args.dry_run}")
+
+    if args.dry_run:
+        cur_pan, cur_tilt = 0, 0
+        for i, step in enumerate(steps):
+            log(f"step {i+1}/{len(steps)}: {json.dumps(step)[:120]}")
+            cur_pan, cur_tilt = execute_step(None, step, dry=True,
+                                             cur_pan=cur_pan, cur_tilt=cur_tilt)
+        log("complete dry_run=True")
+        return 0
+
+    try:
+        from picarx import Picarx
+    except Exception as exc:
+        log(f"import error: {exc}")
+        return 1
+
+    px = None
+    try:
+        px = Picarx()
+        cur_pan, cur_tilt = 0, 0
+
+        for i, step in enumerate(steps):
+            log(f"step {i+1}/{len(steps)}: {json.dumps(step)[:120]}")
+            cur_pan, cur_tilt = execute_step(px, step, dry=False,
+                                             cur_pan=cur_pan, cur_tilt=cur_tilt)
+
+        log("complete")
+        return 0
+
+    except KeyboardInterrupt:
+        log("aborted")
+        return 130
+    except Exception as exc:
+        log(f"runtime error: {exc}")
+        return 1
+    finally:
+        if px is not None:
+            try:
+                px.set_cam_pan_angle(0)
+                px.set_cam_tilt_angle(0)
+                px.close()
+            except Exception:
+                pass
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY
