@@ -5,7 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/px-env"
 
-python - "$@" <<'PY'
+# Use system python3 explicitly — the venv has include-system-site-packages=false
+# so the venv python3 cannot see robot_hat/picarx which live in system site-packages.
+/usr/bin/python3 - "$@" <<'PY'
 """Idle-alive daemon: keeps the robot looking alive with organic servo motion.
 
 Behaviours (no wheels):

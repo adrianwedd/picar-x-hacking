@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/px-env"
 
-python - "$@" <<'PY'
+/usr/bin/python3 - "$@" <<'PY'
 """Sweep the camera pan servo and sample ultrasonic distance at each step.
 
 Outputs JSON: {closest_angle, closest_cm, readings: [[angle, cm], ...]}
