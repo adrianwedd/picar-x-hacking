@@ -118,6 +118,7 @@ def idle_loop(px, args) -> None:
 
 
 def main(argv) -> int:
+    global GAZE_MIN_S, GAZE_MAX_S, PROX_THRESH
     parser = argparse.ArgumentParser(description="PiCar-X idle alive daemon")
     parser.add_argument("--gaze-min",   type=float, default=GAZE_MIN_S,
                         help="Min seconds between gaze shifts")
@@ -131,8 +132,6 @@ def main(argv) -> int:
                         help="Log planned actions without moving servos")
     args = parser.parse_args(argv)
 
-    # Override globals from args
-    global GAZE_MIN_S, GAZE_MAX_S, PROX_THRESH
     GAZE_MIN_S  = args.gaze_min
     GAZE_MAX_S  = args.gaze_max
     PROX_THRESH = args.prox_cm if not args.no_prox else 0.0
