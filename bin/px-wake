@@ -21,7 +21,7 @@ from pxh.state import update_session
 def set_listening(value: bool, note: str | None = None) -> None:
     fields = {"listening": value}
     if value:
-        fields["listening_since"] = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        fields["listening_since"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     else:
         fields["listening_since"] = None
     update_session(fields=fields, history_entry={"event": "wake", "listening": value})

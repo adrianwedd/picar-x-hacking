@@ -69,11 +69,13 @@ def load_session() -> Dict[str, Any]:
             path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
             return data
 
+
 def save_session(data: Dict[str, Any]) -> None:
     path = ensure_session()
     lock_path = str(path) + ".lock"
     with FileLock(lock_path):
         path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
 
 def update_session(
     fields: Optional[Dict[str, Any]] = None,

@@ -68,7 +68,6 @@ def fetch_ftp(url: str, timeout: float) -> Dict[str, Any]:
     buffer = BytesIO()
     with FTP(parsed.hostname, timeout=timeout) as ftp:
         ftp.login()
-        ftp.cwd("anon/gen/fwo")
         ftp.retrbinary(f"RETR {path}", buffer.write)
     return json.loads(buffer.getvalue().decode("utf-8"))
 
@@ -182,7 +181,7 @@ def build_success_payload(source_url: str, raw: Dict[str, Any]) -> Dict[str, Any
         "humidity_pct": humidity,
         "rain_24h_mm": rain,
         "timestamp_utc": timestamp,
-        "fetched_utc": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "fetched_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "summary": summary,
     }
 

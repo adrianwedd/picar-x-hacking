@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, Iterable
+
+PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", Path(__file__).resolve().parents[1]))
+_DEFAULT_LOG = Path(os.environ.get("LOG_DIR", PROJECT_ROOT / "logs")) / "tool-voice-transcript.log"
 
 
 def load_records(path: Path) -> Iterable[Dict[str, Any]]:
@@ -69,7 +73,7 @@ def summarise(records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize voice transcript log")
-    parser.add_argument("--log", default=str(Path("logs/tool-voice-transcript.log")), help="Path to transcript log")
+    parser.add_argument("--log", default=str(_DEFAULT_LOG), help="Path to transcript log")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of text summary")
     args = parser.parse_args()
 

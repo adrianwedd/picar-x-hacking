@@ -111,9 +111,9 @@ The Codex-driven loop keeps context in `state/session.json`, validates every too
 The loop automatically speaks weather summaries using `espeak` (or another player set via `PX_VOICE_PLAYER`) whenever `tool_weather` succeeds, and each turn captures a prompt/action record in `logs/tool-voice-transcript.log` for auditing. Install an ALSA-compatible TTS engine if you want audible responses.
 
 
-1. Configure the Codex CLI command (example assumes `codex chat` accepts stdin):
+1. Configure the Codex CLI command (override only if you need a different model or options; `bin/run-voice-loop` sets a sensible default automatically):
    ```bash
-   export CODEX_CHAT_CMD="codex exec --model gpt-5-codex --full-auto --search -"
+   export CODEX_CHAT_CMD="codex exec --model gpt-5-codex --full-auto -"
    ```
 2. (Optional) Select an audio player for spoken responses:
    ```bash
@@ -125,7 +125,7 @@ The loop automatically speaks weather summaries using `espeak` (or another playe
    ```bash
    bin/run-voice-loop --dry-run --auto-log
    ```
-   `bin/run-voice-loop` sets up `CODEX_CHAT_CMD` automatically (defaults to `codex exec --model gpt-5-codex --full-auto --search -`). Override the variable before launch if you need a different Codex command.
+   `bin/run-voice-loop` sets up `CODEX_CHAT_CMD` automatically (defaults to `codex exec --model gpt-5-codex --full-auto -`). Override the variable before launch if you need a different Codex command.
    Type a prompt at `You>` and the supervisor will call the Codex CLI, parse the JSON tool request, and execute the corresponding wrapper in dry-run mode.
 5. When moving beyond dry-run, manually flip `confirm_motion_allowed` to `true` in `state/session.json` *after* confirming the car is on blocks. The wrappers will refuse motion otherwise.
 6. Use `--exit-on-stop` if you want the loop to terminate after a successful `tool-stop` invocation. Turn-by-turn transcripts live in `logs/tool-voice-transcript.log`; they include the prompt excerpt, Codex action, tool results, and auto-generated speech status.

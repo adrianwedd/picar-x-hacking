@@ -4,14 +4,12 @@ import subprocess
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-LOG_ROOT = PROJECT_ROOT / "logs_test"
-LOG_ROOT.mkdir(exist_ok=True)
+
 
 def run(cmd, extra_env=None):
     env = os.environ.copy()
     env.setdefault("PROJECT_ROOT", str(PROJECT_ROOT))
     env.setdefault("PX_BYPASS_SUDO", "1")
-    env.setdefault("LOG_DIR", str(LOG_ROOT))
     env.setdefault("PX_VOICE_DEVICE", "null")
     if extra_env:
         env.update(extra_env)
@@ -26,9 +24,12 @@ def run(cmd, extra_env=None):
     return json.loads(result.stdout.strip())
 
 def test_px_diagnostics_dry_run(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
     env = {
         "PX_DRY": "1",
         "PX_SESSION_PATH": str(tmp_path / "session.json"),
+        "LOG_DIR": str(log_dir),
     }
     summary = run(["bin/px-diagnostics", "--no-motion", "--short"], env)
     assert summary["status"] == "ok"
@@ -40,9 +41,12 @@ def test_px_diagnostics_dry_run(tmp_path):
     assert "microphone" in names
 
 def test_px_dance_dry_run(tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
     env = {
         "PX_DRY": "1",
         "PX_SESSION_PATH": str(tmp_path / "session.json"),
+        "LOG_DIR": str(log_dir),
     }
     summary = run(["bin/px-dance", "--voice", "Demo"], env)
     assert summary["status"] == "ok"
@@ -52,10 +56,22 @@ def test_px_dance_dry_run(tmp_path):
 
 
 def test_px_frigate_stream_dry_run(tmp_path):
-    payload = run(
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    env = {
+        "PX_DRY": "1",
+        "PROJECT_ROOT": str(PROJECT_ROOT),
+        "LOG_DIR": str(log_dir),
+    }
+    result = subprocess.run(
         ["bin/px-frigate-stream", "--host", "example.local", "--stream", "test", "--dry-run"],
-        {"PX_DRY": "1"},
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+        env={**{k: v for k, v in os.environ.items()}, **env},
     )
+    payload = json.loads(result.stdout.strip())
     assert payload["status"] == "dry-run"
     assert "camera" in payload["commands"]
     assert payload["commands"]["ffmpeg"][-1].endswith("test")

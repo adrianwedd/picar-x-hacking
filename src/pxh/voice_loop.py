@@ -87,7 +87,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--codex-cmd",
-        default=os.environ.get("CODEX_CHAT_CMD", "codex chat --model gpt-4.1-mini --input -"),
+        default=os.environ.get("CODEX_CHAT_CMD", "codex exec --model gpt-5-codex --full-auto -"),
         help="Command used to invoke the Codex CLI",
     )
     parser.add_argument(
@@ -220,23 +220,30 @@ def run_codex(command_spec: str, prompt: str) -> Tuple[int, str, str]:
 
 
 def extract_action(text: str) -> Optional[Dict[str, Any]]:
-    # First try the full output as a single JSON object (handles multi-line pretty-printed responses).
-    stripped = text.strip()
-    if stripped.startswith("{") and stripped.endswith("}"):
-        try:
-            return json.loads(stripped)
-        except json.JSONDecodeError:
-            pass
-
-    # Fall back to scanning lines in reverse for the last single-line JSON object.
-    for line in reversed(stripped.splitlines()):
+    # Fast path: scan lines in reverse for a single-line JSON object
+    for line in reversed(text.strip().splitlines()):
         candidate = line.strip()
         if candidate.startswith("{") and candidate.endswith("}"):
             try:
                 return json.loads(candidate)
             except json.JSONDecodeError:
                 continue
-    return None
+    # Fallback: find the last valid JSON object that may span multiple lines
+    decoder = json.JSONDecoder()
+    last_obj: Optional[Dict[str, Any]] = None
+    pos = 0
+    while pos < len(text):
+        idx = text.find("{", pos)
+        if idx == -1:
+            break
+        try:
+            obj, end = decoder.raw_decode(text, idx)
+            if isinstance(obj, dict):
+                last_obj = obj
+            pos = end
+        except json.JSONDecodeError:
+            pos = idx + 1
+    return last_obj
 
 
 def parse_tool_payload(raw: str) -> Optional[Dict[str, Any]]:
@@ -321,11 +328,12 @@ def supervisor_loop(args: argparse.Namespace) -> None:
     ensure_session()
     system_prompt = read_prompt(Path(args.prompt))
 
-    heartbeat_q = queue.Queue()
-    watchdog = threading.Thread(
-        target=watchdog_thread_func, args=(heartbeat_q, args.watchdog_timeout), daemon=True
-    )
-    watchdog.start()
+    heartbeat_q: queue.Queue = queue.Queue()
+    if args.input_mode != "text":
+        watchdog = threading.Thread(
+            target=watchdog_thread_func, args=(heartbeat_q, args.watchdog_timeout), daemon=True
+        )
+        watchdog.start()
 
     turn = 0
     while turn < args.max_turns:
