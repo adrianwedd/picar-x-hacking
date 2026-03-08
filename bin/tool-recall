@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: recall recent notes from state/notes.jsonl and speak them."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from collections import deque
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+NOTES_FILE   = PROJECT_ROOT / "state" / "notes.jsonl"
+
+
+def load_notes(limit: int) -> list[str]:
+    if not NOTES_FILE.exists():
+        return []
+    rows: deque[str] = deque(maxlen=limit)
+    with NOTES_FILE.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line)["note"])
+            except (json.JSONDecodeError, KeyError):
+                continue
+    return list(rows)
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    try:
+        limit = int(os.environ.get("PX_RECALL_LIMIT", "5"))
+        limit = max(1, min(limit, 20))
+    except ValueError:
+        limit = 5
+
+    notes = load_notes(limit)
+
+    if not notes:
+        spoken = "I don't have any notes saved yet."
+    elif len(notes) == 1:
+        spoken = f"I remember: {notes[0]}"
+    else:
+        items = "; ".join(notes)
+        spoken = f"I remember {len(notes)} things: {items}."
+
+    update_session(
+        fields={"last_action": "tool_recall"},
+        history_entry={"event": "recall", "count": len(notes)},
+    )
+
+    payload = {"status": "ok", "dry": dry_mode, "notes": notes, "spoken": spoken}
+
+    if not dry_mode:
+        result = subprocess.run(
+            [str(PROJECT_ROOT / "bin/tool-voice")],
+            env={**os.environ, "PX_TEXT": spoken, "PX_DRY": "0"},
+            capture_output=True, text=True, check=False,
+        )
+        payload["voice_rc"] = result.returncode
+
+    log_event("recall", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

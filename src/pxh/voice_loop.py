@@ -31,19 +31,27 @@ ALLOWED_TOOLS = {
     "tool_emote",
     "tool_sonar",
     "tool_perform",
+    "tool_drive",
+    "tool_time",
+    "tool_remember",
+    "tool_recall",
 }
 
 TOOL_COMMANDS = {
-    "tool_status":  BIN_DIR / "tool-status",
-    "tool_circle":  BIN_DIR / "tool-circle",
-    "tool_figure8": BIN_DIR / "tool-figure8",
-    "tool_stop":    BIN_DIR / "tool-stop",
-    "tool_voice":   BIN_DIR / "tool-voice",
-    "tool_weather": BIN_DIR / "tool-weather",
-    "tool_look":    BIN_DIR / "tool-look",
-    "tool_emote":   BIN_DIR / "tool-emote",
-    "tool_sonar":   BIN_DIR / "tool-sonar",
-    "tool_perform": BIN_DIR / "tool-perform",
+    "tool_status":   BIN_DIR / "tool-status",
+    "tool_circle":   BIN_DIR / "tool-circle",
+    "tool_figure8":  BIN_DIR / "tool-figure8",
+    "tool_stop":     BIN_DIR / "tool-stop",
+    "tool_voice":    BIN_DIR / "tool-voice",
+    "tool_weather":  BIN_DIR / "tool-weather",
+    "tool_look":     BIN_DIR / "tool-look",
+    "tool_emote":    BIN_DIR / "tool-emote",
+    "tool_sonar":    BIN_DIR / "tool-sonar",
+    "tool_perform":  BIN_DIR / "tool-perform",
+    "tool_drive":    BIN_DIR / "tool-drive",
+    "tool_time":     BIN_DIR / "tool-time",
+    "tool_remember": BIN_DIR / "tool-remember",
+    "tool_recall":   BIN_DIR / "tool-recall",
 }
 
 
@@ -333,6 +341,27 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
             if "speak" in step and len(str(step["speak"])) > 200:
                 step["speak"] = str(step["speak"])[:200]
         sanitized["PX_PERFORM_STEPS"] = json.dumps(steps)
+    elif tool == "tool_drive":
+        direction = str(params.get("direction", "forward")).lower()
+        if direction not in ("forward", "backward"):
+            raise VoiceLoopError(f"tool_drive direction must be 'forward' or 'backward'")
+        speed    = int(clamp(float(params.get("speed",    30)),  0,   60))
+        duration = clamp(float(params.get("duration", 1.0)),     0.1, 10.0)
+        steer    = int(clamp(float(params.get("steer",     0)), -35,  35))
+        sanitized["PX_DIRECTION"] = direction
+        sanitized["PX_SPEED"]     = str(speed)
+        sanitized["PX_DURATION"]  = f"{duration:.2f}"
+        sanitized["PX_STEER"]     = str(steer)
+    elif tool == "tool_time":
+        pass  # no params required
+    elif tool == "tool_remember":
+        note = params.get("text") or params.get("note", "")
+        if not isinstance(note, str) or not note.strip():
+            raise VoiceLoopError("tool_remember requires a non-empty 'text' parameter")
+        sanitized["PX_NOTE"] = note.strip()[:500]
+    elif tool == "tool_recall":
+        limit = int(clamp(float(params.get("limit", 5)), 1, 20))
+        sanitized["PX_RECALL_LIMIT"] = str(limit)
     else:
         if params:
             raise VoiceLoopError("unexpected parameters for tool")

@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: persist a note to state/notes.jsonl."""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+from pxh.time import utc_timestamp
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+NOTES_FILE   = PROJECT_ROOT / "state" / "notes.jsonl"
+
+
+def main() -> int:
+    text = os.environ.get("PX_NOTE", "").strip()
+    if not text:
+        payload = {"status": "error", "error": "PX_NOTE is required"}
+        log_event("remember", payload)
+        print(json.dumps(payload))
+        return 1
+
+    if len(text) > 500:
+        text = text[:500]
+
+    record = {"ts": utc_timestamp(), "note": text}
+    NOTES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with NOTES_FILE.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+    update_session(
+        fields={"last_action": "tool_remember"},
+        history_entry={"event": "remember", "note": text[:80]},
+    )
+
+    payload = {"status": "ok", "note": text, "ts": record["ts"]}
+    log_event("remember", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

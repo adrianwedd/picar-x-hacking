@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: speak the current date and time."""
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+
+
+def spoken_time() -> str:
+    now = dt.datetime.now()
+    hour = now.hour
+    minute = now.minute
+    # 12-hour format
+    period = "AM" if hour < 12 else "PM"
+    h12 = hour % 12 or 12
+    min_str = f"{minute:02d}"
+    day = now.day
+    # ordinal suffix
+    suffix = {1: "st", 2: "nd", 3: "rd"}.get(day if day < 20 else day % 10, "th")
+    month = now.strftime("%B")
+    weekday = now.strftime("%A")
+    return (
+        f"It's {h12}:{min_str} {period} on {weekday} the {day}{suffix} of {month}."
+    )
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    text = spoken_time()
+
+    update_session(
+        fields={"last_action": "tool_time"},
+        history_entry={"event": "time"},
+    )
+
+    payload = {"status": "ok", "dry": dry_mode, "spoken": text}
+
+    if not dry_mode:
+        result = subprocess.run(
+            [str(PROJECT_ROOT / "bin/tool-voice")],
+            env={**os.environ, "PX_TEXT": text, "PX_DRY": "0"},
+            capture_output=True, text=True, check=False,
+        )
+        payload["voice_rc"] = result.returncode
+
+    log_event("time", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

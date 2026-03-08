@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+/usr/bin/python3 - "$@" <<'PY'
+"""Drive the robot forward or backward for a fixed duration with optional steering."""
+import argparse
+import datetime as dt
+import os
+import sys
+import time
+from pathlib import Path
+
+LOG_DIR  = Path(os.environ.get("LOG_DIR",  Path.cwd() / "logs"))
+LOG_FILE = Path(os.environ.get("PX_LOG_FILE", LOG_DIR / "px-drive.log"))
+DRY_RUN  = os.environ.get("PX_DRY", "0") == "1"
+
+
+def log(msg: str) -> None:
+    ts = dt.datetime.now().isoformat(timespec="seconds")
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    line = f"{ts} [drive] {msg}"
+    with LOG_FILE.open("a") as f:
+        f.write(line + "\n")
+    print(line, flush=True)
+
+
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def main(argv) -> int:
+    parser = argparse.ArgumentParser(description="Drive the robot in a direction for a set time")
+    parser.add_argument("--direction", choices=["forward", "backward"], default="forward")
+    parser.add_argument("--speed",    type=int,   default=30,  help="Speed 0-100% (capped at 60)")
+    parser.add_argument("--duration", type=float, default=1.0, help="Drive time in seconds (0.1-10)")
+    parser.add_argument("--steer",    type=int,   default=0,   help="Steering angle -35…35°")
+    parser.add_argument("--dry-run",  action="store_true")
+    args = parser.parse_args(argv)
+
+    dry   = DRY_RUN or args.dry_run
+    speed = int(clamp(args.speed, 0, 60))
+    dur   = clamp(args.duration, 0.1, 10.0)
+    steer = int(clamp(args.steer, -35, 35))
+
+    log(f"begin direction={args.direction} speed={speed} duration={dur:.2f}s "
+        f"steer={steer} dry={dry}")
+
+    if dry:
+        log(f"dry_run: would {args.direction} at speed={speed} steer={steer} for {dur:.2f}s")
+        return 0
+
+    try:
+        from picarx import Picarx
+    except Exception as exc:
+        log(f"import error: {exc}")
+        return 1
+
+    px = None
+    try:
+        px = Picarx()
+        px.set_dir_servo_angle(steer)
+        if args.direction == "forward":
+            px.forward(speed)
+        else:
+            px.backward(speed)
+        time.sleep(dur)
+        px.stop()
+        log(f"complete direction={args.direction} speed={speed} duration={dur:.2f}s steer={steer}")
+        return 0
+    except KeyboardInterrupt:
+        log("aborted")
+        return 130
+    except Exception as exc:
+        log(f"runtime error: {exc}")
+        return 1
+    finally:
+        if px is not None:
+            try:
+                px.stop()
+                px.set_dir_servo_angle(0)
+                px.close()
+            except Exception:
+                pass
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY

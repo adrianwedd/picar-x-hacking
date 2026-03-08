@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool wrapper: drive the robot in a direction for a fixed duration."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import load_session, update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PX_DRIVE = Path(os.environ.get("PX_DRIVE_CMD", PROJECT_ROOT / "bin/px-drive"))
+
+
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+
+    session = load_session()
+    if not dry_mode and not session.get("confirm_motion_allowed", False):
+        payload = {"status": "blocked", "reason": "motion not confirmed safe"}
+        log_event("drive", payload)
+        print(json.dumps(payload))
+        return 2
+
+    try:
+        direction = os.environ.get("PX_DIRECTION", "forward").strip().lower()
+        if direction not in ("forward", "backward"):
+            raise ValueError(f"invalid direction: {direction}")
+        speed    = int(clamp(float(os.environ.get("PX_SPEED",    "30")), 0, 60))
+        duration = clamp(float(os.environ.get("PX_DURATION", "1.0")),  0.1, 10.0)
+        steer    = int(clamp(float(os.environ.get("PX_STEER",    "0")), -35, 35))
+    except (ValueError, TypeError) as exc:
+        payload = {"status": "error", "error": str(exc)}
+        log_event("drive", payload)
+        print(json.dumps(payload))
+        return 1
+
+    command = []
+    if os.environ.get("PX_BYPASS_SUDO", "0") != "1":
+        python_path = os.environ.get("PYTHONPATH", "")
+        command.extend(["sudo", "-n", "env", f"PYTHONPATH={python_path}"])
+    command.extend([
+        str(PX_DRIVE),
+        "--direction", direction,
+        "--speed",     str(speed),
+        "--duration",  f"{duration:.2f}",
+        "--steer",     str(steer),
+    ])
+    if dry_mode:
+        command.append("--dry-run")
+
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    rc = result.returncode
+
+    update_session(
+        fields={"last_action": "tool_drive",
+                **({"last_motion": "px-drive"} if not dry_mode and rc == 0 else {})},
+        history_entry={"event": "drive", "direction": direction, "speed": speed,
+                       "duration": duration, "steer": steer, "dry": dry_mode, "rc": rc},
+    )
+
+    payload = {
+        "status": "ok" if rc == 0 else "error",
+        "returncode": rc,
+        "dry": dry_mode,
+        "direction": direction,
+        "speed": speed,
+        "duration": duration,
+        "steer": steer,
+        "stdout": result.stdout[-1024:],
+        "stderr": result.stderr[-512:],
+    }
+    log_event("drive", payload)
+    print(json.dumps(payload))
+    return 0 if rc == 0 else rc
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
