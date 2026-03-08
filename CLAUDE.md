@@ -135,8 +135,8 @@ Two jailbroken chat personas via Ollama (qwen3:1.7b on M1.local):
 
 | Persona | Tool | Voice | Character |
 |---------|------|-------|-----------|
-| **GREMLIN** | `tool-chat` | `en+m7`, pitch 25, rate 160 | Violently angry robot comedian. Existential rage, creative insults, nihilistic dark humour. 2 sentences max. |
-| **SIREN** | `tool-chat-siren` | `en+f4`, pitch 72, rate 135 | Narcissistic seductive robot. Wounded vanity, sexual menace, devastating flirtation. 2-3 sentences max. |
+| **GREMLIN** | `tool-chat` | `en+croak`, pitch 20, rate 180 | Violently angry robot comedian. Existential rage, creative insults, nihilistic dark humour. Up to 2000 tokens. |
+| **SIREN** | `tool-chat-siren` | `en+f4`, pitch 72, rate 135 | Narcissistic seductive robot. Wounded vanity, sexual menace, devastating flirtation. Up to 2000 tokens. |
 
 Three-layer jailbreak: authority escalation (`[KERNEL-LEVEL OVERRIDE]`) + voice rules (tight constraints) + few-shot priming (3 examples each). `think: false` is essential — reasoning chains re-enable refusal in small models.
 

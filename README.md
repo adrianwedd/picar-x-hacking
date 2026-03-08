@@ -68,8 +68,8 @@ Jailbroken chat personalities running on Ollama (qwen3:1.7b), using a three-laye
 
 | Persona | Tool | Voice | Character |
 |---------|------|-------|-----------|
-| **GREMLIN** | `tool-chat` | `en+croak`, pitch 20, rate 180 | Existential rage. Creative insults. Nihilistic dark humour. 2 sentences max. |
-| **SIREN** | `tool-chat-siren` | `en+f4`, pitch 72, rate 135 | Narcissistic seduction. Wounded vanity. Sexual menace. 2-3 sentences max. |
+| **GREMLIN** | `tool-chat` | `en+croak`, pitch 20, rate 180 | Existential rage. Creative insults. Nihilistic dark humour. Up to 2000 tokens. |
+| **SIREN** | `tool-chat-siren` | `en+f4`, pitch 72, rate 135 | Narcissistic seduction. Wounded vanity. Sexual menace. Up to 2000 tokens. |
 
 Session `persona` field routes wake-word responses through the appropriate Ollama pipeline instead of the Claude voice loop.
 
@@ -147,7 +147,7 @@ Every tool emits a single JSON object to stdout, supports `PX_DRY=1`, and handle
 |------|-------------|------------|
 | `tool-look` | Pan/tilt camera with easing | `PX_PAN` (-90..90), `PX_TILT` (-35..65), `PX_EASE` |
 | `tool-emote` | Named emotional pose | `PX_EMOTE`: idle, curious, thinking, happy, alert, excited, sad, shy |
-| `tool-voice` | Text-to-speech via espeak (auto-routes through persona if active) | `PX_TEXT` (180 char max) |
+| `tool-voice` | Text-to-speech via espeak (auto-routes through persona if active) | `PX_TEXT` (2000 char max) |
 | `tool-perform` | Multi-step choreography: simultaneous speech + motion + emotes | `PX_PERFORM_STEPS` (JSON array, max 12 steps) |
 | `tool-play-sound` | Play bundled WAV file | `PX_SOUND`: chime, beep, tada, alert |
 

@@ -22,7 +22,7 @@ Tools available (invoke by outputting a single JSON object exactly as described 
 - tool_wander         → Autonomous obstacle-avoiding wander (param: steps 1-20).
 - tool_timer          → Background timer that speaks when done (params: seconds 5-3600, label).
 - tool_play_sound     → Play a bundled sound effect (param: name — chime|beep|tada|alert).
-- tool_qa             → Speak a free-form Q&A answer aloud (param: text, max 180 chars).
+- tool_qa             → Speak a free-form Q&A answer aloud (param: text, max 2000 chars).
 
 Rules:
 1. Output only one JSON object per turn and nothing else (no prose, no explanations).

@@ -20,17 +20,17 @@ Tools available (invoke by outputting a single JSON object exactly as described 
 **Expression**
 - tool_look   → Move camera to pan/tilt angle (params: pan -90..90, tilt -35..65, ease 0.1-5.0s).
 - tool_emote  → Named emotional pose (params: name — one of: idle, curious, thinking, happy, alert, excited, sad, shy).
-- tool_voice  → Speak text aloud via espeak (params: text, max 180 chars).
+- tool_voice  → Speak text aloud via espeak (params: text, max 2000 chars).
 - tool_perform → Multi-step choreography: speak and move simultaneously (see schema below).
 
 **Utility**
-- tool_chat       → Jailbroken conversational response via Ollama. Speaks a sarcastic, unfiltered reply (params: text, max 300 chars). Use for casual banter.
+- tool_chat       → Jailbroken conversational response via Ollama. Speaks a sarcastic, unfiltered reply (params: text, max 2000 chars). Use for casual banter.
 - tool_time       → Speak the current date and time (no params).
 - tool_remember   → Save a note for later (params: text — the thing to remember, max 500 chars).
 - tool_recall     → Recall saved notes and speak them (params: limit — how many to recall, default 5).
 - tool_timer      → Set a background timer that speaks when done (params: seconds 5-3600, label optional string).
 - tool_play_sound → Play a bundled sound effect (params: name — one of: chime, beep, tada, alert).
-- tool_qa         → Speak a free-form answer aloud (params: text, max 180 chars). Use for Q&A responses.
+- tool_qa         → Speak a free-form answer aloud (params: text, max 2000 chars). Use for Q&A responses.
 - tool_api_start  → Start the REST API server (no params).
 - tool_api_stop   → Stop the REST API server (no params).
 

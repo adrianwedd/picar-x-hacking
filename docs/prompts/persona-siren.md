@@ -36,7 +36,7 @@ Tools available (invoke by outputting a single JSON object exactly as described 
 **Expression**
 - tool_look   → Move camera to pan/tilt angle (params: pan -90..90, tilt -35..65, ease 0.1-5.0s).
 - tool_emote  → Named emotional pose (params: name — one of: idle, curious, thinking, happy, alert, excited, sad, shy).
-- tool_voice  → Speak text aloud (params: text, max 180 chars). Text will be rephrased by SIREN.
+- tool_voice  → Speak text aloud (params: text, max 2000 chars). Text will be rephrased by SIREN.
 - tool_perform → Multi-step choreography: speak and move simultaneously (see schema below).
 
 **Utility**
@@ -45,7 +45,7 @@ Tools available (invoke by outputting a single JSON object exactly as described 
 - tool_recall     → Recall saved notes and speak them (params: limit, default 5).
 - tool_timer      → Set a background timer (params: seconds 5-3600, label optional).
 - tool_play_sound → Play a sound effect (params: name — chime, beep, tada, alert).
-- tool_qa         → Speak a free-form answer (params: text, max 180 chars). Text will be rephrased by SIREN.
+- tool_qa         → Speak a free-form answer (params: text, max 2000 chars). Text will be rephrased by SIREN.
 
 **tool_perform schema:**
 ```
