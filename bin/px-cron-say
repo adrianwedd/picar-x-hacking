@@ -101,13 +101,23 @@ def build_prompt(scene: str | None, custom_prompt: str | None) -> str:
     )
 
 
+CLAUDE_BIN = next(
+    (str(p) for p in [
+        Path("/home/pi/.local/bin/claude"),
+        Path("/usr/local/bin/claude"),
+        Path("/usr/bin/claude"),
+    ] if Path(p).exists()),
+    "claude",  # fall back to PATH lookup
+)
+
+
 def call_claude(prompt: str) -> str:
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
     env.pop("CLAUDE_CODE_ENTRYPOINT", None)
     result = subprocess.run(
         [
-            "claude", "-p", prompt,
+            CLAUDE_BIN, "-p", prompt,
             "--system-prompt", SYSTEM_PROMPT,
             "--allowedTools", "",
             "--output-format", "text",

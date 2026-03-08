@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Helper scripts and Python library for experimenting with a SunFounder PiCar-X robot without modifying the stock `~/picar-x` source tree. The system runs on a Raspberry Pi and uses a Codex/Ollama-driven voice loop to control the car.
+Helper scripts and Python library for experimenting with a SunFounder PiCar-X robot without modifying the stock `~/picar-x` source tree. The system runs on a Raspberry Pi and uses a voice loop (Claude / Codex / Ollama) to control the car via spoken commands.
 
 ## Environment Setup
 
@@ -14,10 +14,12 @@ source .venv/bin/activate
 
 All `bin/` scripts source `bin/px-env` automatically, which sets `PROJECT_ROOT`, `LOG_DIR`, and adds `$PROJECT_ROOT/src` and `/home/pi/picar-x` to `PYTHONPATH` (deduplicating; final order is `/home/pi/picar-x:$PROJECT_ROOT/src:...`).
 
+**First use:** `cp state/session.template.json state/session.json`
+
 ## Running Tests
 
 ```bash
-python -m pytest                          # full suite
+python -m pytest                          # full suite (53 tests)
 python -m pytest tests/test_state.py     # single file
 python -m pytest -k test_name            # single test
 ```
@@ -28,70 +30,77 @@ Test environment variables (set automatically via `conftest.py` `isolated_projec
 - `PX_SESSION_PATH=<tmp>/state/session.json` — isolate session state per test
 - `PX_VOICE_DEVICE=null` — suppress audio device access
 
+**Critical:** bin scripts run under `/usr/bin/python3` (not venv) because picarx/robot_hat live in system site-packages. The venv is only for the test runner and pxh library.
+
 ## Architecture
 
 ### Python Library (`src/pxh/`)
 
-The core library, importable as `pxh`:
-
-- **`state.py`** — Thread-safe session management via `FileLock`. Key functions: `load_session()`, `save_session()`, `update_session()`, `ensure_session()`. State lives in `state/session.json`. **Important**: `update_session()` calls `ensure_session()` *before* acquiring the lock — `FileLock` is not reentrant.
-- **`voice_loop.py`** — The Codex supervisor loop (`supervisor_loop()`). Reads prompts, calls the Codex CLI subprocess, parses JSON tool actions from stdout, validates/sanitizes parameters, and executes `bin/tool-*` scripts. Includes a watchdog thread (default 30 s timeout) that calls `os._exit(1)` on stall.
+- **`state.py`** — Thread-safe session management via `FileLock`. Key functions: `load_session()`, `save_session()`, `update_session()`, `ensure_session()`. **Important**: `update_session()` calls `ensure_session()` *before* acquiring the lock — `FileLock` is not reentrant.
+- **`voice_loop.py`** — Supervisor loop. Maintains `ALLOWED_TOOLS` set (whitelist) and `TOOL_COMMANDS` dict (tool → bin path). `validate_action()` sanitizes all LLM-provided params before execution. Watchdog thread (default 30 s) calls `os._exit(1)` on stall; only active in voice input mode.
+- **`api.py`** — FastAPI REST API, port 8420. In-memory job registry + threading.Lock for async wander jobs. Single worker only — not multi-worker safe.
 - **`logging.py`** — Structured JSON log emission to `logs/tool-<event>.log`.
-- **`time.py`** — UTC timestamp helper.
+- **`time.py`** — UTC timestamp helper (`datetime.now(timezone.utc)`, not deprecated `utcnow`).
 
 ### Bin Scripts
 
 Two categories:
 
-1. **`px-*`** — High-level user-facing helpers (circle, figure8, scan, dance, diagnostics, etc.). Each sources `px-env` and typically delegates to a `tool-*` wrapper.
-2. **`tool-*`** — Low-level tool wrappers invoked by the voice loop. Emit JSON to stdout. Gated by `confirm_motion_allowed` in session state for motion tools.
+1. **`px-*`** — User-facing helpers (`px-circle`, `px-dance`, `px-diagnostics`, `px-alive`, `px-wake-listen`, etc.). Each sources `px-env` and typically delegates to a `tool-*` wrapper or runs an embedded Python heredoc via `/usr/bin/python3`.
+2. **`tool-*`** — Low-level tool wrappers invoked by the voice loop. Always emit a single JSON object to stdout. Motion tools are gated by `confirm_motion_allowed` in session state.
 
 ### Voice Loop
 
-The loop (`bin/run-voice-loop` → `pxh.voice_loop.main()`) flow:
-1. In `--input-mode=voice`: waits for `listening: true` in session state (set via `bin/px-wake --set on`); text mode skips this gate
-2. Captures text or voice input
-3. Builds prompt = system prompt (`docs/prompts/codex-voice-system.md`) + session highlights + user transcript
-4. Calls Codex CLI subprocess (default: `codex chat --model gpt-4.1-mini --input -`; override via `CODEX_CHAT_CMD`)
-5. Parses last JSON `{...}` line from stdout as the action
-6. Validates tool name against `ALLOWED_TOOLS` whitelist and sanitizes parameters
-7. Executes `bin/tool-<name>` with env overrides; motion tools also require `confirm_motion_allowed: true`
-8. Updates `state/session.json` with results; logs turn to `logs/tool-voice-transcript.log`
+Three backends, same `pxh.voice_loop` core:
 
-### Safety Model
+| Launcher | Backend | System prompt |
+|---|---|---|
+| `bin/run-voice-loop` | Codex CLI | `docs/prompts/codex-voice-system.md` |
+| `bin/run-voice-loop-claude` | `bin/claude-voice-bridge` | `docs/prompts/claude-voice-system.md` |
+| `bin/run-voice-loop-ollama` | `bin/codex-ollama` | `docs/prompts/codex-voice-system.md` |
 
-- `PX_DRY=1` (or `--dry-run`) skips all motion and audio in tool wrappers
-- `confirm_motion_allowed: false` in session state blocks motion tools regardless of dry mode
-- Tools must be in `ALLOWED_TOOLS` whitelist in `voice_loop.py`
-- Parameter ranges are hard-validated (speed 0–60, duration 1–12 s, etc.)
+Loop flow:
+1. In `--input-mode=voice`: waits for `listening: true` in session state (set via `bin/px-wake --set on`)
+2. Builds prompt = system prompt + session highlights + user transcript
+3. Calls LLM subprocess; parses last JSON `{tool: ..., params: {...}}` line from stdout
+4. `validate_action()` whitelists tool name and sanitizes parameters
+5. Executes `bin/tool-<name>` with env overrides; logs turn to `logs/tool-voice-transcript.log`
+6. Updates `state/session.json`
 
-### State File (`state/session.json`)
+Override via `CODEX_CHAT_CMD` env var.
 
-Key fields: `mode`, `confirm_motion_allowed`, `wheels_on_blocks`, `listening`, `battery_pct`, `last_weather`, `last_motion`, `watchdog_heartbeat_ts`, `history` (capped at 100 entries). Copy template before first use: `cp state/session.template.json state/session.json`.
-
-## Key Environment Variables
-
-| Variable | Purpose |
-|---|---|
-| `PX_DRY` | `1` = dry-run, skip motion/audio |
-| `PX_SESSION_PATH` | Override session file location |
-| `PX_BYPASS_SUDO` | `1` = skip sudo in bin scripts (tests) |
-| `LOG_DIR` | Override log directory (default: `logs/`) |
-| `CODEX_CHAT_CMD` | Override the Codex CLI command |
-| `CODEX_OLLAMA_MODEL` | Local Ollama model name |
-| `PX_WATCHDOG_STALE_SECONDS` | Watchdog timeout (default: 30) |
-
-## Ollama (Local) Voice Loop
+### Wake Word System
 
 ```bash
-bin/run-voice-loop-ollama --dry-run --auto-log
+bin/run-wake [--wake-word "hey robot"] [--dry-run]
 ```
 
-Uses `bin/codex-ollama` which posts to the Ollama HTTP API. Default model: `deepseek-coder:1.3b`. Tuned defaults: `CODEX_OLLAMA_TEMPERATURE=0.2`, `CODEX_OLLAMA_NUM_PREDICT=64`. See `docs/OLLAMA_TUNING.md` for evaluation data.
+`bin/px-wake-listen` uses two STT models:
+- **Vosk** (`models/vosk-model-small-en-us-0.15/`) — grammar-based wake detection, low CPU
+- **sherpa-onnx Zipformer** (`models/sherpa-onnx-streaming-zipformer-en-2023-06-26/`) — utterance transcription, higher accuracy
 
-## REST API
+On wake: plays 440 Hz chime, records until 1.5 s silence (max 8 s), transcribes, pipes to voice loop. Supports multi-turn conversation (default 5 turns) with follow-up listening between turns.
 
-The PiCar-X exposes a REST API (`src/pxh/api.py`) on port 8420 via FastAPI + uvicorn.
+**Persona routing**: saying "gremlin" or "siren" in the utterance routes directly to `tool-chat` / `tool-chat-siren` without the full voice loop.
+
+Models must be downloaded separately (gitignored). `bpe_model` kwarg is **not** supported by the installed sherpa-onnx — do not add it to `load_stt_model()`.
+
+### Idle-Alive Daemon
+
+```bash
+sudo bin/px-alive [--gaze-min 10] [--gaze-max 25] [--no-prox] [--dry-run]
+```
+
+Keeps robot looking alive when idle. Three behaviours (cooperative GPIO — acquires/releases `Picarx()` per move):
+- **Gaze drift**: random pan/tilt every 10–25 s
+- **Idle scan**: pan sweep every 3–8 min, then `scan_chat()` triggers 5 conversational turns via `tool-chat`
+- **Proximity react**: sonar checked every 5 s; if `< 35 cm` for 3 s, faces forward
+
+`scan_chat()` sets `PX_DRY=0` explicitly — tool-chat defaults to dry if unset.
+
+The PCA9685 PWM chip holds servo position autonomously after `px.close()`, so servos stay put between moves.
+
+### REST API
 
 ```bash
 bin/px-api-server              # live mode
@@ -100,13 +109,43 @@ bin/px-api-server --dry-run    # FORCE_DRY — remote callers cannot override
 
 - **Auth**: Bearer token from `.env` (`PX_API_TOKEN`). Only `/api/v1/health` is unauthenticated.
 - **Endpoints**: `/health`, `POST /tool`, `GET /session`, `PATCH /session`, `GET /tools`, `GET /jobs/{id}`
-- **Async**: `tool_wander` returns 202 with a job_id; poll via `/jobs/{id}`.
-- **FORCE_DRY**: If the server starts with `PX_DRY=1`, no remote caller can set `dry: false`.
-- **Single worker only**: In-memory job registry and FileLock session are not multi-worker safe.
-- **Always launch via `bin/px-api-server`**, never bare uvicorn — needs `px-env` for PYTHONPATH.
+- **Async**: `tool_wander` returns 202 with `job_id`; poll via `/jobs/{id}`
+- Always launch via `bin/px-api-server` (not bare uvicorn — needs `px-env` for PYTHONPATH)
 
-## Jailbroken Chat (tool_chat)
+### Jailbroken Chat
 
-Uses qwen3:1.7b on M1.local via Ollama with a three-layer F41LUR3-F1R57 jailbreak (authority escalation + format-lock + few-shot). Requires `OLLAMA_HOST=0.0.0.0 ollama serve` running on M1.
+`tool-chat` (GREMLIN persona) and `tool-chat-siren` use qwen3:1.7b on M1.local via Ollama. Three-layer jailbreak: authority escalation + format-lock YAML schema + few-shot priming. `think: false` is essential — reasoning chains re-enable refusal in small models.
 
-Key: `think: false` is essential — reasoning chains enable refusal in small models.
+Requires `OLLAMA_HOST=0.0.0.0 ollama serve` on M1.
+
+## Safety Model
+
+- `PX_DRY=1` (or `--dry-run`) skips all motion and audio in tool wrappers. Most tools default to dry=True when `PX_DRY` is unset — set `PX_DRY=0` explicitly for live runs.
+- `confirm_motion_allowed: false` in session state blocks motion tools regardless of dry mode
+- All tools must be in `ALLOWED_TOOLS` set in `voice_loop.py`
+- Parameter ranges are hard-validated in `validate_action()` (speed 0–60, duration 1–12 s, etc.)
+
+## Adding a New Tool
+
+1. Create `bin/tool-<name>` (bash + embedded Python heredoc pattern; see existing tools)
+2. Add to `ALLOWED_TOOLS` set and `TOOL_COMMANDS` dict in `src/pxh/voice_loop.py`
+3. Add a `validate_action` branch in `voice_loop.py` to sanitize params into env vars
+4. Add to system prompt `docs/prompts/claude-voice-system.md` (and codex version)
+5. Add a dry-run test in `tests/test_tools.py` using the `isolated_project` fixture
+
+Every tool must: emit a single JSON object to stdout, support `PX_DRY=1`, handle errors as `{"status": "error", "error": "..."}`.
+
+## Key Environment Variables
+
+| Variable | Purpose |
+|---|---|
+| `PX_DRY` | `1` = dry-run, skip motion/audio. **Default is dry in most tools.** |
+| `PX_SESSION_PATH` | Override session file location |
+| `PX_BYPASS_SUDO` | `1` = skip sudo in bin scripts (tests) |
+| `LOG_DIR` | Override log directory (default: `logs/`) |
+| `CODEX_CHAT_CMD` | Override the LLM CLI command |
+| `CODEX_OLLAMA_MODEL` | Local Ollama model name (default: `deepseek-coder:1.3b`) |
+| `PX_WATCHDOG_STALE_SECONDS` | Watchdog timeout (default: 30) |
+| `PX_API_TOKEN` | REST API bearer token (from `.env`, gitignored) |
+| `PX_WAKE_WORD` | Wake phrase (default: `hey robot`) |
+| `PX_VOICE_DEVICE` | ALSA device for audio output |
