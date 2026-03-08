@@ -19,10 +19,10 @@ All `bin/` scripts source `bin/px-env` automatically, which sets `PROJECT_ROOT`,
 ## Running Tests
 
 ```bash
-python -m pytest                          # full suite (99 tests)
+python -m pytest                          # full suite (104 tests)
 python -m pytest tests/test_state.py     # single file
 python -m pytest -k test_name            # single test
-python -m pytest -m "not live"           # skip hardware tests (74 tests)
+python -m pytest -m "not live"           # skip hardware tests (79 tests)
 sudo .venv/bin/python -m pytest tests/test_tools_live.py -v -s  # live hardware tests
 ```
 
@@ -107,7 +107,7 @@ Keeps robot looking alive when idle. Holds a **persistent Picarx handle** to avo
 - **Proximity react**: sonar checked every 5 s; if `< 35 cm` for 3 s, faces forward
 - **I2C resilience**: catches `OSError` and backs off 30 s instead of crashing
 
-**GPIO exclusivity**: Only one process can hold the Picarx handle. When other tools need servos, they call `yield_alive` (defined in `px-env`), which sends SIGUSR1 to px-alive. px-alive catches it and exits cleanly; systemd restarts it after 15 s (`Restart=always`, `RestartSec=15`).
+**GPIO exclusivity**: Only one process can hold the Picarx handle. When other tools need servos, they call `yield_alive` (defined in `px-env`), which sends SIGUSR1 to px-alive. px-alive catches it and exits cleanly; systemd restarts it after 15 s (`Restart=on-failure`, `RestartSec=10`).
 
 The PCA9685 PWM chip holds servo position autonomously after process exit, so servos stay put between restarts.
 
@@ -157,13 +157,14 @@ Requires `OLLAMA_HOST=0.0.0.0 ollama serve` on M1.
 
 ### Systemd Services
 
-Three services run at boot:
+Two services run at boot:
 
 | Service | Script | User | Restart |
 |---------|--------|------|---------|
-| `px-alive` | `bin/px-alive` | root | always, 15 s |
-| `px-mind` | `bin/px-mind` | pi | on-failure, 30 s |
-| `px-wake-listen` | `bin/run-wake` | pi | on-failure |
+| `px-alive` | `bin/px-alive` | root | on-failure, 10 s |
+| `px-wake-listen` | `bin/px-wake-listen` | pi | on-failure, 10 s |
+
+`px-mind` is run manually (`bin/px-mind`), not as a systemd service.
 
 ## Safety Model
 

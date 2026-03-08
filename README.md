@@ -34,7 +34,7 @@ The robot listens for wake words, thinks in Ollama, speaks through espeak, sees 
            │                            │                            │
     ┌──────▼──────┐  ┌─────────────────▼────────────────┐  ┌───────▼───────┐
     │  tool-*     │  │         px-env                    │  │  REST API     │
-    │  26 tools   │  │  PYTHONPATH · LOG_DIR · venv      │  │  :8420        │
+    │  27 tools   │  │  PYTHONPATH · LOG_DIR · venv      │  │  :8420        │
     │  JSON out   │  │  yield_alive() · PX_VOICE_DEVICE  │  │  Bearer auth  │
     └──────┬──────┘  └──────────────────────────────────┘  └───────────────┘
            │
@@ -57,8 +57,8 @@ The robot listens for wake words, thinks in Ollama, speaks through espeak, sees 
 
 **Cognitive Loop (`px-mind`)** — The subconscious. Runs continuously in the background:
 - **Layer 1 — Awareness** (every 30s, no LLM): sonar + session state + time of day. Detects transitions: *someone appeared*, *long silence*, *time period changed*.
-- **Layer 2 — Reflection** (on transition or every 5min): Ollama generates a thought with mood, suggested action, and salience score.
-- **Layer 3 — Expression** (60s cooldown): dispatches to tools — describe the scene, perform a routine, speak, look around, remember something important.
+- **Layer 2 — Reflection** (on transition or every 2min): Ollama generates a thought with mood, suggested action, and salience score.
+- **Layer 3 — Expression** (30s cooldown): dispatches to tools — describe the scene, perform a routine, speak, look around, remember something important.
 
 **Idle-Alive (`px-alive`)** — The autonomic nervous system. Keeps the robot looking alive when nothing else is happening: random gaze drifts every 10–25s, pan sweeps every 3–8min, proximity reaction when objects are closer than 35cm. Holds a persistent Picarx handle; yields GPIO via SIGUSR1 when tools need the servos.
 
@@ -113,9 +113,9 @@ sudo .venv/bin/python -m pytest tests/ -m live -v
 ### Services (Auto-start on Boot)
 
 ```bash
-sudo systemctl status picar-boot-health    # Post-boot diagnostics + motor reset
 sudo systemctl status px-alive             # Idle gaze drift daemon
 sudo systemctl status px-wake-listen       # Wake word listener
+# bin/boot-health exists for post-boot diagnostics but has no systemd unit yet
 ```
 
 ---
@@ -368,7 +368,7 @@ Live tests auto-skip if the Robot HAT MCU (`0x14`) isn't reachable on the I2C bu
 | `PX_PERSONA` | Active persona (`vixen` / `gremlin`) | from session |
 | `PX_CHAT_TEMPERATURE` | GREMLIN sampling temperature | `0.9` |
 | `PX_VIXEN_TEMPERATURE` | VIXEN sampling temperature | `0.9` |
-| `OLLAMA_HOST` | Ollama server for jailbroken chat | `http://M1.local:11434` |
+| `PX_OLLAMA_HOST` | Ollama server for jailbroken chat | `http://M1.local:11434` |
 
 ---
 
