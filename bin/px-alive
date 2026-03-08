@@ -11,7 +11,8 @@ source "$SCRIPT_DIR/px-env"
 """Idle-alive daemon: keeps the robot looking alive with organic servo motion.
 
 Behaviours (no wheels):
-  - Gaze drift: pick a new random look direction every 10-25 s, ease there.
+  - Face tracking: when Vilib detects a face, proportional pan/tilt to follow it.
+  - Gaze drift: when no face, pick a new random look direction every 10-25 s.
   - Slow scan:  every 3-8 min, sweep pan left→right (idle scanning).
   - Proximity:  if ultrasonic < threshold for 3 s, turn to face nearest object.
 
@@ -40,6 +41,14 @@ PROX_CHECK_S = 5.0    # how often to actually open Picarx for sonar
 PAN_RANGE    = (-65, 65)
 TILT_RANGE   = (-15, 35)
 EASE_SPEED   = 20     # steps per second
+
+# Face tracking
+FACE_TRACK_GAIN_PAN  = 0.15   # proportional gain for pan (higher = faster response)
+FACE_TRACK_GAIN_TILT = 0.12   # proportional gain for tilt
+FACE_FRAME_W         = 640    # Vilib camera frame width
+FACE_FRAME_H         = 480    # Vilib camera frame height
+FACE_DEADZONE        = 40     # pixels from center before tracking kicks in
+FACE_LOST_TIMEOUT    = 3.0    # seconds without face before returning to gaze drift
 def log(msg: str) -> None:
     ts = dt.datetime.now().isoformat(timespec="seconds")
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -104,6 +113,52 @@ def do_ease(from_pan: int, from_tilt: int, to_pan: int, to_tilt: int, duration: 
 I2C_BACKOFF_S = 30     # seconds to wait after an I2C failure before retrying
 
 
+def start_face_detection(retries: int = 2) -> bool:
+    """Start Vilib camera + face detection. Returns True if successful."""
+    for attempt in range(retries + 1):
+        try:
+            from vilib import Vilib
+            Vilib.camera_start(vflip=False, hflip=False)
+            Vilib.face_detect_switch(True)
+            log("face detection started (Vilib)")
+            return True
+        except Exception as exc:
+            log(f"face detection attempt {attempt+1} failed: {exc}")
+            # Camera may be held by a stale process — wait and retry
+            try:
+                from vilib import Vilib
+                Vilib.camera_close()
+            except Exception:
+                pass
+            if attempt < retries:
+                time.sleep(3)
+    log("face detection unavailable — falling back to random gaze")
+    return False
+
+
+def stop_face_detection() -> None:
+    """Stop Vilib camera."""
+    try:
+        from vilib import Vilib
+        Vilib.camera_close()
+    except Exception:
+        pass
+
+
+def get_face() -> tuple[int, int] | None:
+    """Return (x, y) pixel coords of detected face, or None if no face."""
+    try:
+        from vilib import Vilib
+        n = Vilib.detect_obj_parameter.get("human_n", 0)
+        if n > 0:
+            x = Vilib.detect_obj_parameter.get("human_x", FACE_FRAME_W // 2)
+            y = Vilib.detect_obj_parameter.get("human_y", FACE_FRAME_H // 2)
+            return (int(x), int(y))
+    except Exception:
+        pass
+    return None
+
+
 def idle_loop(args) -> None:
     cur_pan, cur_tilt = 0, 0
     next_gaze = time.monotonic() + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
@@ -111,6 +166,13 @@ def idle_loop(args) -> None:
     next_prox = time.monotonic() + PROX_CHECK_S
     prox_near_since: float | None = None
     i2c_ok_after: float = 0.0  # monotonic time after which I2C retries are allowed
+    face_tracking = not args.no_face
+    face_active = False
+    face_last_seen: float = 0.0  # monotonic time of last face detection
+
+    # Start face detection if enabled
+    if face_tracking:
+        face_active = start_face_detection()
 
     # Keep a persistent Picarx instance to avoid GPIO pin leak on repeated
     # Picarx() construction (reset_mcu claims GPIO5 and close() doesn't
@@ -169,8 +231,42 @@ def idle_loop(args) -> None:
                     else:
                         prox_near_since = None
 
+                # --- Face tracking (overrides gaze drift when a face is detected) ---
+                face_tracked = False
+                if face_active:
+                    face = get_face()
+                    if face is not None:
+                        fx, fy = face
+                        face_last_seen = now
+
+                        # Error from center (pixels)
+                        err_x = fx - FACE_FRAME_W // 2
+                        err_y = fy - FACE_FRAME_H // 2
+
+                        if abs(err_x) > FACE_DEADZONE or abs(err_y) > FACE_DEADZONE:
+                            # Proportional adjustment (invert x: face left of frame → pan right)
+                            new_pan = cur_pan - int(err_x * FACE_TRACK_GAIN_PAN)
+                            new_tilt = cur_tilt - int(err_y * FACE_TRACK_GAIN_TILT)
+                            new_pan = max(PAN_RANGE[0], min(PAN_RANGE[1], new_pan))
+                            new_tilt = max(TILT_RANGE[0], min(TILT_RANGE[1], new_tilt))
+
+                            if new_pan != cur_pan or new_tilt != cur_tilt:
+                                p = get_px()
+                                p.set_cam_pan_angle(new_pan)
+                                p.set_cam_tilt_angle(new_tilt)
+                                cur_pan, cur_tilt = new_pan, new_tilt
+
+                        face_tracked = True
+                        # Defer gaze/scan while tracking a face
+                        next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
+                        next_scan = now + random.uniform(SCAN_MIN_S, SCAN_MAX_S)
+
+                    elif face_last_seen > 0 and (now - face_last_seen) < FACE_LOST_TIMEOUT:
+                        # Recently lost face — hold position, don't drift yet
+                        face_tracked = True
+
                 # --- Slow idle scan (physical sweep only — proactive speech is handled by px-mind) ---
-                if now >= next_scan:
+                if not face_tracked and now >= next_scan:
                     log("idle scan: sweeping pan")
                     angles = list(range(PAN_RANGE[0], PAN_RANGE[1] + 1, 15)) + \
                              list(range(PAN_RANGE[1], PAN_RANGE[0] - 1, -15))
@@ -185,8 +281,8 @@ def idle_loop(args) -> None:
                     next_scan = now + random.uniform(SCAN_MIN_S, SCAN_MAX_S)
                     next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
 
-                # --- Gaze drift ---
-                elif now >= next_gaze:
+                # --- Gaze drift (only when not tracking a face) ---
+                elif not face_tracked and now >= next_gaze:
                     target_pan  = random.randint(*PAN_RANGE)
                     target_tilt = random.randint(*TILT_RANGE)
                     duration    = random.uniform(0.8, 2.2)
@@ -206,6 +302,8 @@ def idle_loop(args) -> None:
             time.sleep(0.5)
     finally:
         drop_px()
+        if face_active:
+            stop_face_detection()
 
 
 def main(argv) -> int:
@@ -219,6 +317,8 @@ def main(argv) -> int:
                         help="Proximity threshold in cm to trigger reaction")
     parser.add_argument("--no-prox",    action="store_true",
                         help="Disable proximity sensing")
+    parser.add_argument("--no-face",    action="store_true",
+                        help="Disable camera face tracking")
     parser.add_argument("--dry-run",    action="store_true",
                         help="Log planned actions without moving servos")
     args = parser.parse_args(argv)
@@ -270,6 +370,8 @@ def main(argv) -> int:
         log(f"fatal: {exc}")
         return 1
     finally:
+        if not args.no_face:
+            stop_face_detection()
         PID_FILE.unlink(missing_ok=True)
         log("stopped")
     return 0
