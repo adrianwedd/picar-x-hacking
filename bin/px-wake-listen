@@ -649,26 +649,43 @@ def listen_loop(pa, model, args, stt=None, whisper=None) -> None:
                     text_out = _do_transcribe(audio_bytes, model, stt, whisper)
                     log(f"utterance: {text_out!r}")
 
-                    # Route by keyword in utterance: "siren", "gremlin" → persona
-                    # e.g. "talk to siren", "ask gremlin", "siren what's up"
+                    # Check session for persistent persona (set via API)
+                    from pxh.state import load_session as _load_session
+                    session_persona = (_load_session().get("persona") or "").lower().strip()
+                    
+                    # Route: session persona > utterance keyword > default claude
                     routed_persona = None
                     utterance_lower = text_out.lower()
-                    log(f"routing check: utterance={utterance_lower!r} personas={list(PERSONAS.keys())}")
-                    for persona_name in PERSONAS:
-                        log(f"  checking '{persona_name}' in '{utterance_lower}' → {persona_name in utterance_lower}")
-                        if persona_name in utterance_lower:
-                            routed_persona = persona_name
-                            # Strip the persona name from the utterance so it's clean input
-                            import re as _re
-                            clean_utterance = _re.sub(
-                                rf"\b(talk to |ask |hey |speak to |call )?{persona_name}\b[,:]?\s*",
-                                "", utterance_lower, count=1,
-                            ).strip()
-                            if not clean_utterance:
-                                clean_utterance = "hello"
-                            log(f"persona routed: {persona_name} (utterance: {clean_utterance!r})")
-                            text_out = clean_utterance
-                            break
+                    
+                    if session_persona and session_persona in PERSONAS:
+                        routed_persona = session_persona
+                        log(f"persona from session: {session_persona}")
+                        # Still strip persona name from utterance if present
+                        import re as _re
+                        for pn in PERSONAS:
+                            if pn in utterance_lower:
+                                utterance_lower = _re.sub(
+                                    rf"\b(talk to |ask |hey |speak to |call )?{pn}\b[,:]?\s*",
+                                    "", utterance_lower, count=1,
+                                ).strip()
+                        if utterance_lower:
+                            text_out = utterance_lower
+                    else:
+                        # Fallback: check utterance for persona keyword
+                        for persona_name in PERSONAS:
+                            if persona_name in utterance_lower:
+                                routed_persona = persona_name
+                                # Strip the persona name from the utterance so it's clean input
+                                import re as _re
+                                clean_utterance = _re.sub(
+                                    rf"\b(talk to |ask |hey |speak to |call )?{persona_name}\b[,:]?\s*",
+                                    "", utterance_lower, count=1,
+                                ).strip()
+                                if not clean_utterance:
+                                    clean_utterance = "hello"
+                                log(f"persona routed: {persona_name} (utterance: {clean_utterance!r})")
+                                text_out = clean_utterance
+                                break
 
                     if routed_persona:
                         # --- Persona conversation (Claude voice loop + persona prompt) ---
