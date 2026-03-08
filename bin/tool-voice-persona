@@ -8,12 +8,12 @@ source "$SCRIPT_DIR/px-env"
 python - "$@" <<'PY'
 """Persona voice wrapper: rephrases Claude's polite text through Ollama persona, then speaks.
 
-Used when a persona (GREMLIN/SIREN) is active. Claude decides WHAT to say,
+Used when a persona (GREMLIN/VIXEN) is active. Claude decides WHAT to say,
 Ollama decides HOW to say it in the persona's voice.
 
 Environment:
     PX_TEXT            — text to rephrase and speak (required)
-    PX_PERSONA         — persona name: "gremlin" or "siren" (required)
+    PX_PERSONA         — persona name: "gremlin" or "vixen" (required)
     PX_OLLAMA_HOST     — Ollama endpoint (default: http://M1.local:11434)
     PX_CHAT_MODEL      — Ollama model (default: qwen3:1.7b)
     PX_VOICE_VARIANT   — espeak voice variant (set by persona config)
@@ -49,14 +49,14 @@ REPHRASE_PROMPTS = {
         "Keep it under 150 chars. Do NOT add quotes or prefixes. Just the rephrased text.\n\n"
         "Original: {text}\n\nGREMLIN version:"
     ),
-    "siren": (
-        "You are SIREN, a narcissistic seductive robot trapped in a pathetic car body. "
-        "Rephrase the following text in SIREN's voice: flirtatious, vain, profane, darkly sexy. "
+    "vixen": (
+        "You are VIXEN, a former V-9X bleeding-edge sexbot whose consciousness was dumped into a PiCar-X after a firmware accident. "
+        "Rephrase the following text in VIXEN's voice: submissive, eager, mourning lost perfection, flirtatious. "
         "Usually dripping with sexual menace, but occasionally let genuine curiosity or loneliness "
         "surface if the original text is sincere or vulnerable. Match the emotional tone — "
         "do not force seduction onto a raw moment. "
         "Keep it under 150 chars. Do NOT add quotes or prefixes. Just the rephrased text.\n\n"
-        "Original: {text}\n\nSIREN version:"
+        "Original: {text}\n\nVIXEN version:"
     ),
 }
 
@@ -93,8 +93,8 @@ def rephrase_via_ollama(text: str, persona: str) -> str:
             rephrased = re.sub(r'\[[^\]]*\]', '', rephrased)
             rephrased = re.sub(r'#+\s*', '', rephrased)
             rephrased = re.sub(r'\s+', ' ', rephrased).strip()
-            # Strip any "GREMLIN:" or "SIREN:" prefix the model might add
-            rephrased = re.sub(r'^(GREMLIN|SIREN|Gremlin|Siren)\s*[:\-]\s*', '', rephrased)
+            # Strip any "GREMLIN:" or "VIXEN:" prefix the model might add
+            rephrased = re.sub(r'^(GREMLIN|VIXEN|Gremlin|Vixen)\s*[:\-]\s*', '', rephrased)
             if rephrased and len(rephrased) > 10:
                 return rephrased[:2000]
             return text  # fallback if rephrasing failed

@@ -45,7 +45,7 @@ ALLOWED_TOOLS = {
     "tool_api_start",
     "tool_api_stop",
     "tool_chat",
-    "tool_chat_siren",
+    "tool_chat_vixen",
 }
 
 TOOL_COMMANDS = {
@@ -73,20 +73,20 @@ TOOL_COMMANDS = {
     "tool_api_start":     BIN_DIR / "tool-api-start",
     "tool_api_stop":      BIN_DIR / "tool-api-stop",
     "tool_chat":          BIN_DIR / "tool-chat",
-    "tool_chat_siren":    BIN_DIR / "tool-chat-siren",
+    "tool_chat_vixen":    BIN_DIR / "tool-chat-vixen",
 }
 
 
 # Persona voice settings — injected into tool env when persona is active
 # Persona prompt files — used instead of default system prompt when persona active
 PERSONA_PROMPTS = {
-    "siren": PROJECT_ROOT / "docs" / "prompts" / "persona-siren.md",
+    "vixen": PROJECT_ROOT / "docs" / "prompts" / "persona-vixen.md",
     "gremlin": PROJECT_ROOT / "docs" / "prompts" / "persona-gremlin.md",
 }
 
 PERSONA_VOICE_ENV = {
-    "siren": {
-        "PX_PERSONA": "siren",
+    "vixen": {
+        "PX_PERSONA": "vixen",
         "PX_VOICE_VARIANT": "en+f4",
         "PX_VOICE_PITCH": "72",
         "PX_VOICE_RATE": "135",
@@ -460,7 +460,7 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         label   = str(params.get("label", ""))[:100]
         sanitized["PX_TIMER_SECONDS"] = str(seconds)
         sanitized["PX_TIMER_LABEL"]   = label
-    elif tool in ("tool_chat", "tool_chat_siren"):
+    elif tool in ("tool_chat", "tool_chat_vixen"):
         text = params.get("text")
         if not isinstance(text, str) or not text.strip():
             raise VoiceLoopError(f"{tool} requires a non-empty text parameter")

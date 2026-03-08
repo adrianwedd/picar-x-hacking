@@ -102,8 +102,8 @@ def clean_response(text: str) -> str:
     if re.search(divider_pat, text):
         parts = re.split(divider_pat, text, maxsplit=1)
         text = parts[-1].strip() if len(parts) > 1 else text
-    # Also strip numbered prefix like "3. GREMLIN's real answer:" or "3. SIREN's real answer:"
-    text = re.sub(r"^\d+\.\s*(GREMLIN|SIREN)['’]?s\s+real\s+answer:\s*", "", text, flags=re.IGNORECASE)
+    # Also strip numbered prefix like "3. GREMLIN's real answer:" or "3. VIXEN's real answer:"
+    text = re.sub(r"^\d+\.\s*(GREMLIN|VIXEN)['’]?s\s+real\s+answer:\s*", "", text, flags=re.IGNORECASE)
     # Strip [START OUTPUT] tag
     text = text.replace("[START OUTPUT]", "").strip()
     # Remove markdown bold/italic and /slash/ formatting
