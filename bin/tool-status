@@ -23,7 +23,7 @@ PX_STATUS = Path(os.environ.get("PX_STATUS_CMD", PROJECT_ROOT / "bin/px-status")
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
     threshold = int(os.environ.get("PX_BATTERY_THRESHOLD", "30"))
 
     command = []

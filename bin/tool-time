@@ -40,7 +40,7 @@ def spoken_time() -> str:
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
     text = spoken_time()
 
     update_session(

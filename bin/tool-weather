@@ -199,7 +199,7 @@ def error_summary(payload: Dict[str, Any]) -> str:
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
     urls = candidate_urls()
 
     if dry_mode:

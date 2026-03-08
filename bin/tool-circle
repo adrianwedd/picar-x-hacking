@@ -31,7 +31,7 @@ def clamp(value: float, minimum: float, maximum: float) -> float:
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
     session = load_session()
     if not dry_mode and not session.get("confirm_motion_allowed", False):
         payload = {

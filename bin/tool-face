@@ -39,7 +39,7 @@ def run_tool(path: Path, extra_env: dict) -> dict:
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
 
     if dry_mode:
         angle = 0

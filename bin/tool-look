@@ -22,7 +22,7 @@ PX_LOOK = Path(os.environ.get("PX_LOOK_CMD", PROJECT_ROOT / "bin/px-look"))
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
 
     try:
         pan  = int(float(os.environ.get("PX_PAN",  "0")))

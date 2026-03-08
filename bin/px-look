@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/px-env"
 
+yield_alive
+
 /usr/bin/python3 - "$@" <<'PY'
 """Move the PiCar-X camera pan/tilt servos to a target angle, with easing."""
 import argparse

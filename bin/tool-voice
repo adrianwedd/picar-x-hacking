@@ -51,7 +51,7 @@ def main() -> int:
             print(result.stdout, end="")
             return result.returncode
     
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
     payload = {
         "status": "ok",
         "dry": dry_mode,

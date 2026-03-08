@@ -22,7 +22,7 @@ TOOL_VOICE   = PROJECT_ROOT / "bin" / "tool-voice"
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
 
     text = os.environ.get("PX_TEXT", "").strip()
     if not text:

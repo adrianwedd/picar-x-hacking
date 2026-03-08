@@ -31,7 +31,7 @@ def clamp(v, lo, hi):
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
 
     try:
         seconds = int(clamp(float(os.environ.get("PX_TIMER_SECONDS", "60")), 5, 3600))

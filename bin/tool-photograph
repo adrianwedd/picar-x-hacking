@@ -23,7 +23,7 @@ PHOTOS_DIR   = PROJECT_ROOT / "photos"
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
 
     try:
         timestamp = dt.datetime.now().strftime("%Y%m%dT%H%M%S")

@@ -22,7 +22,7 @@ PX_SONAR = Path(os.environ.get("PX_SONAR_CMD", PROJECT_ROOT / "bin/px-sonar"))
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
 
     command = []
     if os.environ.get("PX_BYPASS_SUDO", "0") != "1":

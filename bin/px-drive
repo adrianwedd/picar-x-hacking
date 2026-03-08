@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/px-env"
 
+yield_alive
+
 /usr/bin/python3 - "$@" <<'PY'
 """Drive the robot forward or backward for a fixed duration with optional steering."""
 import argparse

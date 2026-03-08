@@ -24,7 +24,7 @@ VALID_EMOTES = {"idle", "curious", "thinking", "happy", "alert", "excited", "sad
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
     name = os.environ.get("PX_EMOTE", "idle").lower()
 
     if name not in VALID_EMOTES:

@@ -39,7 +39,7 @@ def load_notes(limit: int) -> list[str]:
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
     try:
         limit = int(os.environ.get("PX_RECALL_LIMIT", "5"))
         limit = max(1, min(limit, 20))

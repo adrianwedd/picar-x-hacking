@@ -135,6 +135,13 @@ def idle_loop(args) -> None:
             release_px(px)
             px = None
 
+    def _on_yield(sig, _frame):
+        log("SIGUSR1: tool needs GPIO — stopping so it can run")
+        drop_px()
+        sys.exit(0)
+
+    signal.signal(signal.SIGUSR1, _on_yield)
+
     log(f"idle loop started (persistent Picarx handle, sonar every {PROX_CHECK_S:.0f}s)")
 
     try:

@@ -24,7 +24,7 @@ MAX_STEPS = 12
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
     steps_json = os.environ.get("PX_PERFORM_STEPS", "")
 
     if not steps_json:

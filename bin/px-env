@@ -36,6 +36,20 @@ if [[ -d "$PROJECT_ROOT/.venv" && -z "${VIRTUAL_ENV:-}" ]]; then
     source "$PROJECT_ROOT/.venv/bin/activate"
 fi
 
+# Signal px-alive to release its Picarx/GPIO handle so a tool can use servos.
+# Usage: yield_alive  (call before opening Picarx in any tool script)
+yield_alive() {
+    local pid_file="$LOG_DIR/px-alive.pid"
+    if [[ -f "$pid_file" ]]; then
+        local pid
+        pid=$(<"$pid_file")
+        if [[ -d "/proc/$pid" ]]; then
+            kill -USR1 "$pid" 2>/dev/null || true
+            sleep 1  # wait for px-alive to release GPIO handle
+        fi
+    fi
+}
+
 mkdir -p "$LOG_DIR"
 
 # Default audio output: HifiBerry DAC via robot_hat ALSA plug device.

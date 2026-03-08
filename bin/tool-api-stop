@@ -24,7 +24,7 @@ PID_FILE     = LOG_DIR / "px-api-server.pid"
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
 
     if not PID_FILE.exists():
         payload = {"status": "not_running"}

@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 PX_STOP = Path(os.environ.get("PX_STOP_CMD", PROJECT_ROOT / "bin/px-stop"))
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
 
     if dry_mode:
         payload = {

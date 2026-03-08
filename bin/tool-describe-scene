@@ -78,7 +78,7 @@ def call_claude_vision(image_path: Path) -> str:
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
 
     if dry_mode:
         description = "A dry-run scene with a robot on a table."

@@ -148,7 +148,7 @@ Requires `OLLAMA_HOST=0.0.0.0 ollama serve` on M1.
 
 ## Safety Model
 
-- `PX_DRY=1` (or `--dry-run`) skips all motion and audio in tool wrappers. Most tools default to dry=True when `PX_DRY` is unset — set `PX_DRY=0` explicitly for live runs.
+- `PX_DRY=1` (or `--dry-run`) skips all motion and audio in tool wrappers. Tools default to **live** when `PX_DRY` is unset — set `PX_DRY=1` explicitly for dry runs.
 - `confirm_motion_allowed: false` in session state blocks motion tools regardless of dry mode
 - All tools must be in `ALLOWED_TOOLS` set in `voice_loop.py`
 - Parameter ranges are hard-validated in `validate_action()` (speed 0–60, duration 1–12 s, etc.)

@@ -25,7 +25,7 @@ API_LOG      = LOG_DIR / "px-api-server.log"
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
 
     # Check if already running
     if PID_FILE.exists():

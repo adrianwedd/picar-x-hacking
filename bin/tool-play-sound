@@ -24,7 +24,7 @@ ALLOWED_SOUNDS = {"chime", "beep", "tada", "alert"}
 
 
 def main() -> int:
-    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+    dry_mode = os.environ.get("PX_DRY", "0") != "0"
 
     name = os.environ.get("PX_SOUND", "").strip().lower()
     if not name:
