@@ -616,13 +616,20 @@ def expression(thought: dict, dry: bool) -> None:
     env = os.environ.copy()
     env["PX_DRY"] = "1" if dry else "0"
 
-    # Inject persona voice settings so tool-voice routes through Ollama rephrasing
+    # Inject persona voice settings so tool-voice uses the right espeak voice.
+    # For thought-generated text (greet/comment/scan/look_at), the reflection
+    # prompt already produces persona-voiced text — skip Ollama rephrase to
+    # avoid double "FUCK YEAH!" or other duplication.
+    # For weather_comment, the raw weather data needs rephrasing.
     session = load_session()
     persona = (session.get("persona") or "").lower().strip()
+    needs_rephrase = action in ("weather_comment",)
     if persona and persona in PERSONA_VOICE_ENV:
         for k, v in PERSONA_VOICE_ENV[persona].items():
             env[k] = v
-        log(f"expressing: action={action} persona={persona}")
+        if not needs_rephrase:
+            env["_PX_VOICE_PERSONA_DONE"] = "1"  # skip Ollama rephrase
+        log(f"expressing: action={action} persona={persona} rephrase={needs_rephrase}")
     else:
         log(f"expressing: action={action}")
 

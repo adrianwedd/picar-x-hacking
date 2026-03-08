@@ -19,10 +19,10 @@ All `bin/` scripts source `bin/px-env` automatically, which sets `PROJECT_ROOT`,
 ## Running Tests
 
 ```bash
-python -m pytest                          # full suite (104 tests)
+python -m pytest                          # full suite (107 tests)
 python -m pytest tests/test_state.py     # single file
 python -m pytest -k test_name            # single test
-python -m pytest -m "not live"           # skip hardware tests (79 tests)
+python -m pytest -m "not live"           # skip hardware tests (82 tests)
 sudo .venv/bin/python -m pytest tests/test_tools_live.py -v -s  # live hardware tests
 ```
 

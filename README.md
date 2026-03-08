@@ -34,7 +34,7 @@ The robot listens for wake words, thinks in Ollama, speaks through espeak, sees 
            │                            │                            │
     ┌──────▼──────┐  ┌─────────────────▼────────────────┐  ┌───────▼───────┐
     │  tool-*     │  │         px-env                    │  │  REST API     │
-    │  27 tools   │  │  PYTHONPATH · LOG_DIR · venv      │  │  :8420        │
+    │  26 tools   │  │  PYTHONPATH · LOG_DIR · venv      │  │  :8420        │
     │  JSON out   │  │  yield_alive() · PX_VOICE_DEVICE  │  │  Bearer auth  │
     └──────┬──────┘  └──────────────────────────────────┘  └───────────────┘
            │
@@ -95,7 +95,7 @@ source .venv/bin/activate
 # 4. Dry-run a tool to verify the setup
 PX_DRY=1 bin/tool-status
 
-# 5. Run tests (79 dry-run, no hardware needed)
+# 5. Run tests (82 dry-run, no hardware needed)
 python -m pytest tests/
 
 # 6. Live test (requires hardware + sudo)
@@ -315,7 +315,7 @@ Every tool must: emit a single JSON object to stdout, support `PX_DRY=1`, handle
 ```bash
 # Dry-run tests (no hardware needed)
 source .venv/bin/activate
-python -m pytest tests/                           # 79 tests
+python -m pytest tests/                           # 82 tests
 python -m pytest tests/test_tools.py -v           # 33 tool dry-run tests
 python -m pytest tests/test_api.py -v             # 26 REST API tests
 
@@ -323,7 +323,7 @@ python -m pytest tests/test_api.py -v             # 26 REST API tests
 sudo .venv/bin/python -m pytest tests/ -m live -v  # 25 live tests
 
 # Everything
-sudo .venv/bin/python -m pytest tests/ -v          # 104 tests total
+sudo .venv/bin/python -m pytest tests/ -v          # 107 tests total
 ```
 
 Tests use the `isolated_project` fixture from `conftest.py`, which creates temporary directories for `LOG_DIR` and `PX_SESSION_PATH`, sets `PX_BYPASS_SUDO=1` and `PX_VOICE_DEVICE=null`.
@@ -376,14 +376,14 @@ Live tests auto-skip if the Robot HAT MCU (`0x14`) isn't reachable on the I2C bu
 
 ```
 picar-x-hacking/
-├── bin/                          # 64 scripts
+├── bin/                          # 63 scripts
 │   ├── px-env                    # Environment bootstrap (sourced by all scripts)
 │   ├── px-alive                  # Idle gaze daemon (systemd)
 │   ├── px-mind                   # Cognitive loop daemon
 │   ├── px-wake-listen            # Wake word listener (systemd)
 │   ├── px-api-server             # REST API launcher
 │   ├── px-{circle,drive,look,…}  # Hardware control scripts
-│   ├── tool-{voice,look,drive,…} # Voice loop tool wrappers (27 tools)
+│   ├── tool-{voice,look,drive,…} # Voice loop tool wrappers (26 tools)
 │   ├── run-voice-loop{,-claude,-ollama}  # Voice backend launchers
 │   ├── boot-health               # Post-boot diagnostics (systemd)
 │   └── claude-voice-bridge       # Claude stdin adapter
@@ -393,7 +393,7 @@ picar-x-hacking/
 │   ├── api.py                    # FastAPI REST API
 │   ├── logging.py                # Structured JSON logging
 │   └── time.py                   # UTC timestamp helper
-├── tests/                        # 104 tests
+├── tests/                        # 107 tests
 │   ├── test_tools.py             # 33 dry-run tool tests
 │   ├── test_tools_live.py        # 25 live hardware tests
 │   ├── test_api.py               # 26 REST API tests
