@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+markers = [
+    "live: tests that require PiCar-X hardware (run with sudo, deselect with -m 'not live')",
+]
