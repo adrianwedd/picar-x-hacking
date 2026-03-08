@@ -18,6 +18,10 @@ ExecStartPre=/bin/sleep 3
 ExecStart=/home/pi/picar-x-hacking/bin/px-wake-listen
 Restart=on-failure
 RestartSec=10
+# Kill entire process group (bash + python child) on stop
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=5
 StandardOutput=journal
 StandardError=journal
 
