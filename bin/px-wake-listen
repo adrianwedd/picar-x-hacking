@@ -79,6 +79,17 @@ PERSONA_WAKE = {f"hey {name}": cfg["chat_tool"] for name, cfg in PERSONAS.items(
 DEFAULT_VOICE_CMD = str(PROJECT_ROOT / "bin" / "run-voice-loop-claude")
 DEFAULT_STT_MODEL = str(PROJECT_ROOT / "models" / "sherpa-onnx-streaming-zipformer-en-2023-06-26")
 
+def _find_whisper_model() -> str:
+    """Auto-detect the faster-whisper-base.en snapshot directory."""
+    base = PROJECT_ROOT / "models" / "whisper" / "models--Systran--faster-whisper-base.en" / "snapshots"
+    if base.exists():
+        snaps = sorted(base.iterdir())
+        if snaps:
+            return str(snaps[-1])
+    return ""
+
+DEFAULT_WHISPER_MODEL = _find_whisper_model()
+
 
 def log(msg: str) -> None:
     ts = dt.datetime.now().isoformat(timespec="seconds")
@@ -240,6 +251,48 @@ def transcribe_sherpa(stt, audio_bytes: bytes) -> str:
     return stt.get_result(stream).strip()
 
 
+def load_whisper_model(model_dir: str):
+    """Load faster-whisper model for utterance transcription. Returns None if unavailable.
+
+    faster-whisper was trained on diverse global English data and handles
+    Australian/British/Irish accents significantly better than the US-English
+    Zipformer. Uses int8 quantisation for CPU efficiency (~5 s load, ~1-2 s RTF).
+    """
+    try:
+        from faster_whisper import WhisperModel
+        path = Path(model_dir)
+        if not path.exists():
+            return None
+        model = WhisperModel(str(path), device="cpu", compute_type="int8")
+        return model
+    except Exception as exc:
+        try:
+            import datetime as _dt
+            print(f"{_dt.datetime.now().isoformat(timespec='seconds')} [wake] Whisper load error: {exc}", flush=True)
+        except Exception:
+            pass
+        return None
+
+
+def transcribe_whisper(whisper, audio_bytes: bytes) -> str:
+    """Transcribe 44100 Hz PCM using faster-whisper (resampled to 16kHz).
+
+    Whisper handles Australian English well due to diverse multilingual training data.
+    Passing language='en' skips language detection and improves speed + accuracy.
+    """
+    import numpy as np
+    resampled, _ = audioop.ratecv(audio_bytes, 2, 1, MIC_RATE, VOSK_RATE, None)
+    samples = np.frombuffer(resampled, dtype=np.int16).astype(np.float32) / 32768.0
+    segments, _info = whisper.transcribe(
+        samples,
+        language="en",
+        beam_size=3,
+        vad_filter=True,      # skip leading/trailing silence
+        vad_parameters={"min_silence_duration_ms": 300},
+    )
+    return " ".join(s.text.strip() for s in segments).strip()
+
+
 def _alive_pid() -> int | None:
     """Return px-alive PID if running, else None."""
     try:
@@ -337,11 +390,20 @@ def record_utterance(stream, max_s: float, silence_s: float) -> bytes:
     return b"".join(captured)
 
 
-def record_followup(stream, model, stt=None) -> str:
+def _do_transcribe(audio_bytes: bytes, model, stt=None, whisper=None) -> str:
+    """Transcribe audio using the best available backend: whisper > sherpa > vosk."""
+    if whisper is not None:
+        return transcribe_whisper(whisper, audio_bytes)
+    if stt is not None:
+        return transcribe_sherpa(stt, audio_bytes)
+    return transcribe(model, audio_bytes)
+
+
+def record_followup(stream, model, stt=None, whisper=None) -> str:
     """Wait up to FOLLOWUP_TIMEOUT_S for speech onset, then record and transcribe.
 
-    Uses sherpa-onnx (stt) if available, otherwise falls back to Vosk model.
-    Returns transcribed text, or '' if no speech detected within timeout.
+    Uses faster-whisper if available (best AU accent support), then sherpa-onnx,
+    then Vosk. Returns transcribed text, or '' if no speech detected within timeout.
     """
     timeout_chunks = int(FOLLOWUP_TIMEOUT_S * MIC_RATE / CHUNK)
     # Phase 1: wait for speech onset
@@ -352,15 +414,13 @@ def record_followup(stream, model, stt=None) -> str:
             onset = [data]
             rest = record_utterance(stream, FOLLOWUP_MAX_S, FOLLOWUP_SILENCE_S)
             audio = b"".join(onset) + rest
-            if stt is not None:
-                return transcribe_sherpa(stt, audio)
-            return transcribe(model, audio)
+            return _do_transcribe(audio, model, stt, whisper)
     return ""  # timeout — no speech
 
 
 def run_persona_conversation(persona_name: str, initial_text: str, dry: bool,
                              stream, model, aplay_device: str, max_turns: int,
-                             voice_cmd: str, stt=None) -> None:
+                             voice_cmd: str, stt=None, whisper=None) -> None:
     """Run a multi-turn conversation using Claude voice loop with a persona prompt.
 
     Uses the full Claude tool-calling pipeline but with an alternate system
@@ -432,7 +492,7 @@ def run_persona_conversation(persona_name: str, initial_text: str, dry: bool,
             flush_stream(stream)
             play_chime_followup(aplay_device)
             log("persona conversation: listening for follow-up...")
-            follow_text = record_followup(stream, model, stt)
+            follow_text = record_followup(stream, model, stt, whisper)
 
             if not follow_text:
                 log("persona conversation: silence — ending")
@@ -466,7 +526,7 @@ def run_persona_conversation(persona_name: str, initial_text: str, dry: bool,
 
 
 def run_conversation(initial_text: str, voice_cmd: str, dry: bool,
-                     stream, model, aplay_device: str, max_turns: int, stt=None) -> None:
+                     stream, model, aplay_device: str, max_turns: int, stt=None, whisper=None) -> None:
     """Run a multi-turn conversation. Blocks wake detection for its duration."""
     if not initial_text:
         log("empty transcript — skipping")
@@ -505,7 +565,7 @@ def run_conversation(initial_text: str, voice_cmd: str, dry: bool,
 
             # Listen for follow-up
             log("conversation: listening for follow-up...")
-            follow_text = record_followup(stream, model, stt)
+            follow_text = record_followup(stream, model, stt, whisper)
 
             if not follow_text:
                 log("conversation: silence — ending")
@@ -533,7 +593,7 @@ def run_conversation(initial_text: str, voice_cmd: str, dry: bool,
             _restart_alive()
 
 
-def listen_loop(pa, model, args, stt=None) -> None:
+def listen_loop(pa, model, args, stt=None, whisper=None) -> None:
     """Main listen loop: wake-word detect → conversation → return to listening."""
     import vosk
     import pyaudio
@@ -580,10 +640,7 @@ def listen_loop(pa, model, args, stt=None) -> None:
                     audio_bytes = record_utterance(stream, MAX_RECORD_S, SILENCE_S)
                     chunks_n = len(audio_bytes) // (CHUNK * 2)
                     log(f"captured {chunks_n} chunks ({chunks_n * CHUNK / MIC_RATE:.1f}s)")
-                    if stt is not None:
-                        text_out = transcribe_sherpa(stt, audio_bytes)
-                    else:
-                        text_out = transcribe(model, audio_bytes)
+                    text_out = _do_transcribe(audio_bytes, model, stt, whisper)
                     log(f"utterance: {text_out!r}")
 
                     # Route by keyword in utterance: "siren", "gremlin" → persona
@@ -610,13 +667,13 @@ def listen_loop(pa, model, args, stt=None) -> None:
                         run_persona_conversation(
                             routed_persona, text_out, args.dry_run,
                             stream, model, args.aplay_device, args.convo_turns,
-                            args.voice_cmd, stt,
+                            args.voice_cmd, stt, whisper,
                         )
                     else:
                         # --- Standard Claude conversation ---
                         run_conversation(
                             text_out, args.voice_cmd, args.dry_run,
-                            stream, model, args.aplay_device, args.convo_turns, stt,
+                            stream, model, args.aplay_device, args.convo_turns, stt, whisper,
                         )
 
                     # Reset wake recognizer after conversation ends
@@ -636,7 +693,9 @@ def main(argv) -> int:
     parser.add_argument("--model-dir",     default=DEFAULT_MODEL,
                         help="Path to Vosk model directory (wake word grammar)")
     parser.add_argument("--stt-model-dir", default=DEFAULT_STT_MODEL,
-                        help="Path to sherpa-onnx Zipformer model directory for utterance STT")
+                        help="Path to sherpa-onnx Zipformer model directory for utterance STT (fallback)")
+    parser.add_argument("--whisper-model", default=DEFAULT_WHISPER_MODEL,
+                        help="Path to faster-whisper model snapshot dir (preferred STT, best AU accent support)")
     parser.add_argument("--mic",           default="USB",
                         help="Substring to match in mic device name (default: USB)")
     parser.add_argument("--aplay-device",  default="",
@@ -687,18 +746,32 @@ def main(argv) -> int:
     model = vosk.Model(str(model_path))
     log("Vosk model loaded")
 
-    # Load sherpa-onnx STT model for utterance transcription (better accuracy)
-    stt = None
-    stt_path = Path(args.stt_model_dir)
-    if stt_path.exists():
-        log(f"loading STT model {stt_path} ...")
-        stt = load_stt_model(args.stt_model_dir)
-        if stt is not None:
-            log("STT model loaded (sherpa-onnx Zipformer)")
+    # Load faster-whisper (preferred: best AU accent + diverse English support)
+    whisper = None
+    if args.whisper_model:
+        log(f"loading Whisper model {args.whisper_model} ...")
+        whisper = load_whisper_model(args.whisper_model)
+        if whisper is not None:
+            log("Whisper model loaded (faster-whisper base.en — AU accent support)")
         else:
-            log("STT model load failed — falling back to Vosk for transcription")
-    else:
-        log(f"STT model dir not found ({stt_path}) — using Vosk fallback")
+            log("Whisper model load failed — will try sherpa-onnx")
+
+    # Load sherpa-onnx as fallback if whisper unavailable
+    stt = None
+    if whisper is None:
+        stt_path = Path(args.stt_model_dir)
+        if stt_path.exists():
+            log(f"loading STT model {stt_path} ...")
+            stt = load_stt_model(args.stt_model_dir)
+            if stt is not None:
+                log("STT model loaded (sherpa-onnx Zipformer)")
+            else:
+                log("STT model load failed — falling back to Vosk for transcription")
+        else:
+            log(f"STT model dir not found ({stt_path}) — using Vosk fallback")
+
+    backend = "faster-whisper" if whisper else ("sherpa-onnx" if stt else "vosk")
+    log(f"STT backend: {backend}")
 
     # PyAudio init spams ALSA warnings to stderr — suppress at the fd level
     import ctypes
@@ -714,7 +787,7 @@ def main(argv) -> int:
     except Exception:
         pa = pyaudio.PyAudio()
     try:
-        listen_loop(pa, model, args, stt)
+        listen_loop(pa, model, args, stt, whisper)
     except KeyboardInterrupt:
         pass
     except Exception as exc:
