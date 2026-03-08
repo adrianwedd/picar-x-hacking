@@ -129,10 +129,19 @@ def call_ollama(user_text: str) -> dict:
         return {"error": str(exc)}
 
 
+# GREMLIN voice: croaky, low-pitched, slightly fast — distinct from default Claude voice
+GREMLIN_VOICE_VARIANT = os.environ.get("PX_GREMLIN_VOICE", "en+croak")
+GREMLIN_VOICE_PITCH   = os.environ.get("PX_GREMLIN_PITCH", "20")
+GREMLIN_VOICE_RATE    = os.environ.get("PX_GREMLIN_RATE", "180")
+
+
 def speak(text: str, dry: bool) -> int:
-    """Pipe text through tool-voice."""
+    """Pipe text through tool-voice with GREMLIN voice settings."""
     env = os.environ.copy()
     env["PX_TEXT"] = text
+    env["PX_VOICE_VARIANT"] = GREMLIN_VOICE_VARIANT
+    env["PX_VOICE_PITCH"] = GREMLIN_VOICE_PITCH
+    env["PX_VOICE_RATE"] = GREMLIN_VOICE_RATE
     if dry:
         env["PX_DRY"] = "1"
     result = subprocess.run(
