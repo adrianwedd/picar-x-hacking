@@ -47,8 +47,8 @@ def test_px_alive_dry_run_logs_gaze(isolated_project):
     assert "dry gaze" in content, f"no gaze events in log: {content[:300]}"
 
 
-def test_px_alive_dry_run_scan_chat(isolated_project):
-    """Dry-run should log a simulated scan+chat session without calling tool-chat."""
+def test_px_alive_dry_run_scan_sweep(isolated_project):
+    """Dry-run should log a simulated idle scan sweep."""
     env = isolated_project["env"].copy()
     log_dir = isolated_project["log_dir"]
     env["PX_LOG_FILE"] = str(log_dir / "px-alive.log")
@@ -56,10 +56,7 @@ def test_px_alive_dry_run_scan_chat(isolated_project):
 
     run_alive([], env)
     content = (log_dir / "px-alive.log").read_text()
-    # Dry run logs scan simulation
     assert "simulating idle scan" in content
-    # scan_chat dry-run logs per-turn skips
-    assert "scan chat dry turn" in content
 
 
 def test_px_alive_dry_run_no_pid_leftover(isolated_project):
