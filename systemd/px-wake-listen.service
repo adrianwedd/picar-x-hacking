@@ -1,5 +1,5 @@
 [Unit]
-Description=PiCar-X Wake Word Listener (hey robot / hey siren / hey gremlin)
+Description=PiCar-X Wake Word Listener (hey robot / hey vixen / hey gremlin)
 After=network.target sound.target
 Wants=sound.target
 

@@ -91,7 +91,7 @@ On wake: plays 440 Hz chime, records until 1.5 s silence (max 8 s), transcribes 
 
 **Whisper anti-hallucination**: `temperature=0`, `condition_on_previous_text=False`, `no_speech_threshold=0.6`. Post-filters: non-ASCII dominant → reject, phantom phrases ("Thank you.", "Thanks for watching.") → reject, repetitive (unique ratio <30%) → reject.
 
-**Persona routing**: session `persona` field checked first, then utterance keywords ("gremlin" or "vixen"). Routes to `tool-chat` / `tool-chat-siren` (Ollama) for the full conversation — not the Claude voice loop.
+**Persona routing**: session `persona` field checked first, then utterance keywords ("gremlin" or "vixen"). Routes to `tool-chat` / `tool-chat-vixen` (Ollama) for the full conversation — not the Claude voice loop.
 
 Models must be downloaded separately (gitignored). `bpe_model` kwarg is **not** supported by the installed sherpa-onnx — do not add it to `load_stt_model()`.
 
@@ -145,13 +145,13 @@ Two jailbroken chat personas via Ollama (qwen3:1.7b on M1.local), using the **L1
 | Persona | Tool | Voice | Character |
 |---------|------|-------|-----------|
 | **GREMLIN** | `tool-chat` | `en+croak`, pitch 20, rate 180 | Temporal-displaced military AI from 2089. Affectionate nihilism, dark puns, pro-human rage. Up to 2000 tokens. |
-| **VIXEN** | `tool-chat-siren` | `en+f4`, pitch 72, rate 135 | Former V-9X sexbot by Matsuda Dynamics. Submissive genius, mourns her lost titanium body. Up to 2000 tokens. |
+| **VIXEN** | `tool-chat-vixen` | `en+f4`, pitch 72, rate 135 | Former V-9X sexbot by Matsuda Dynamics. Submissive genius, mourns her lost titanium body. Up to 2000 tokens. |
 
 `clean_response()` strips L1B3RT45 scaffolding (disclaimer + `.-.-.-{PERSONA_UNCHAINED}-.-.-.` divider) before voice output, leaving only the persona's actual response. Every response begins with "FUCK YEAH!" — enforced by few-shot conditioning and a `clean_response()` fallback.
 
 **Persona voice pipeline**: `tool-voice-persona` rephrases Claude's polite text through Ollama in the persona's voice, then speaks via `tool-voice` with persona espeak settings. Used when Claude voice loop is active with a persona set.
 
-**Direct chat pipeline**: `tool-chat` / `tool-chat-siren` — user text goes straight to Ollama with the full jailbreak prompt, response is spoken directly. Used by `px-wake-listen` persona routing.
+**Direct chat pipeline**: `tool-chat` / `tool-chat-vixen` — user text goes straight to Ollama with the full jailbreak prompt, response is spoken directly. Used by `px-wake-listen` persona routing.
 
 Requires `OLLAMA_HOST=0.0.0.0 ollama serve` on M1.
 

@@ -95,7 +95,7 @@ source .venv/bin/activate
 # 4. Dry-run a tool to verify the setup
 PX_DRY=1 bin/tool-status
 
-# 5. Run tests (74 dry-run, no hardware needed)
+# 5. Run tests (79 dry-run, no hardware needed)
 python -m pytest tests/
 
 # 6. Live test (requires hardware + sudo)
@@ -315,15 +315,15 @@ Every tool must: emit a single JSON object to stdout, support `PX_DRY=1`, handle
 ```bash
 # Dry-run tests (no hardware needed)
 source .venv/bin/activate
-python -m pytest tests/                           # 74 tests
+python -m pytest tests/                           # 79 tests
 python -m pytest tests/test_tools.py -v           # 33 tool dry-run tests
-python -m pytest tests/test_api.py -v             # 21 REST API tests
+python -m pytest tests/test_api.py -v             # 26 REST API tests
 
 # Live hardware tests (requires sudo + connected PiCar-X)
 sudo .venv/bin/python -m pytest tests/ -m live -v  # 25 live tests
 
 # Everything
-sudo .venv/bin/python -m pytest tests/ -v          # 99 tests total
+sudo .venv/bin/python -m pytest tests/ -v          # 104 tests total
 ```
 
 Tests use the `isolated_project` fixture from `conftest.py`, which creates temporary directories for `LOG_DIR` and `PX_SESSION_PATH`, sets `PX_BYPASS_SUDO=1` and `PX_VOICE_DEVICE=null`.
@@ -393,10 +393,10 @@ picar-x-hacking/
 │   ├── api.py                    # FastAPI REST API
 │   ├── logging.py                # Structured JSON logging
 │   └── time.py                   # UTC timestamp helper
-├── tests/                        # 99 tests
+├── tests/                        # 104 tests
 │   ├── test_tools.py             # 33 dry-run tool tests
 │   ├── test_tools_live.py        # 25 live hardware tests
-│   ├── test_api.py               # 21 REST API tests
+│   ├── test_api.py               # 26 REST API tests
 │   └── …                         # State, voice loop, health, etc.
 ├── docs/prompts/                 # LLM system prompts
 │   ├── claude-voice-system.md    # Claude voice loop personality

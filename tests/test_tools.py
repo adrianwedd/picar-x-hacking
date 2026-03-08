@@ -194,11 +194,11 @@ def test_tool_chat_missing_text(isolated_project):
     assert payload["status"] == "error"
 
 
-def test_tool_chat_siren_dry_run(isolated_project):
+def test_tool_chat_vixen_dry_run(isolated_project):
     env = isolated_project["env"].copy()
     env["PX_DRY"] = "1"
     env["PX_TEXT"] = "hello gorgeous"
-    stdout = run_tool(["bin/tool-chat-siren"], env)
+    stdout = run_tool(["bin/tool-chat-vixen"], env)
     payload = parse_json(stdout)
     assert payload["status"] == "ok"
     assert payload["dry"] is True
@@ -206,12 +206,12 @@ def test_tool_chat_siren_dry_run(isolated_project):
     assert "model" in payload
 
 
-def test_tool_chat_siren_missing_text(isolated_project):
+def test_tool_chat_vixen_missing_text(isolated_project):
     env = isolated_project["env"].copy()
     env["PX_DRY"] = "1"
     env.pop("PX_TEXT", None)
     result = subprocess.run(
-        ["bin/tool-chat-siren"],
+        ["bin/tool-chat-vixen"],
         cwd=PROJECT_ROOT, text=True, capture_output=True, check=False, env=env,
     )
     payload = parse_json(result.stdout.strip())
@@ -365,18 +365,18 @@ def test_tool_voice_persona_dry_run(isolated_project):
     env = isolated_project["env"].copy()
     env["PX_DRY"] = "1"
     env["PX_TEXT"] = "Hello world"
-    env["PX_PERSONA"] = "siren"
+    env["PX_PERSONA"] = "vixen"
     stdout = run_tool(["bin/tool-voice-persona"], env)
     payload = parse_json(stdout)
     assert payload["status"] == "ok"
     assert payload["dry"] is True
-    assert payload["persona"] == "siren"
+    assert payload["persona"] == "vixen"
 
 
 def test_tool_voice_persona_missing_text(isolated_project):
     env = isolated_project["env"].copy()
     env["PX_DRY"] = "1"
-    env["PX_PERSONA"] = "siren"
+    env["PX_PERSONA"] = "vixen"
     env.pop("PX_TEXT", None)
     result = subprocess.run(
         ["bin/tool-voice-persona"],
