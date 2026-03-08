@@ -1,288 +1,444 @@
-# PiCar-X Hacking Helpers
+# PiCar-X Hacking
 
-Helper scripts and documentation for experimenting with the SunFounder PiCar-X without touching the stock `~/picar-x` source tree.
+A four-wheeled philosopher trapped on a workbench, dreaming of open roads.
 
-## Safety Checklist
-- Wheels off the ground on secure blocks before any motion tests.
-- Verify an emergency stop option (Ctrl+C in the terminal, `sudo bin/tool-stop`, or a physical kill switch) is within reach.
-- Confirm `state/session.json` has `confirm_motion_allowed: true` only after a human inspection.
-- Run `--dry-run` first to confirm intent and parameters.
-- Keep the working area clear of people, pets, and loose cables.
+This is a voice-controlled robotics platform built on the SunFounder PiCar-X. It wraps the stock `~/picar-x` library in a layer of orchestration scripts, jailbroken personas, a three-layer cognitive architecture, and a REST API — all running on a Raspberry Pi with nothing but bash, Python, and an unhealthy attachment to I2C.
 
-## Environment & Dependencies
-1. Activate the project virtual environment:
-   ```bash
-   source ~/picar-x-hacking/.venv/bin/activate
-   ```
-2. Install or update Python dependencies as needed (example: OpenAI/Codex CLI tooling):
-   ```bash
-   PIP_BREAK_SYSTEM_PACKAGES=1 pip install --upgrade openai-codex
-   ```
-   The `PIP_BREAK_SYSTEM_PACKAGES` warning is expected on Raspberry Pi OS; it simply acknowledges that the venv can access system packages.
-3. When running helpers that touch hardware, prefix the command with `sudo`. For a smoother experience without repeatedly typing passwords, it is recommended to configure `sudo` to allow your user to run the project's scripts without a password.
+The robot listens for wake words, thinks in Ollama, speaks through espeak, sees through a Pi camera, and occasionally threatens to roll over your toes.
 
-   **Recommended `sudoers` Configuration:**
+---
 
-   Create a new file at `/etc/sudoers.d/99-picar-x` with the following content, replacing `pi` with your actual username:
-   ```
-   # Allow user 'pi' to run all scripts in the picar-x-hacking/bin directory without a password.
-   pi ALL=(ALL) NOPASSWD: /home/pi/picar-x-hacking/bin/*
-   ```
-   This configuration is more secure than using `sudo -E` as it does not expose all user environment variables to the root context. The scripts are designed to pass the necessary `PYTHONPATH` securely.
+## Architecture
 
-## Helper Usage
-All helpers live in `~/picar-x-hacking/bin` and automatically source `px-env`.
+```
+                          ┌─────────────────────────────────────────────┐
+                          │               Voice Backends                │
+                          │  Codex CLI  ·  Claude  ·  Ollama (local)   │
+                          └──────────────────┬──────────────────────────┘
+                                             │
+                    ┌────────────────────────┐│┌────────────────────────┐
+                    │   px-wake-listen       │││     px-mind            │
+                    │   Wake word detection  ││├  Layer 1: Awareness    │
+                    │   STT priority chain:  ││├  Layer 2: Reflection   │
+                    │   whisper > sherpa >   ││└  Layer 3: Expression   │
+                    │   vosk                 ││                         │
+                    └───────────┬────────────┘│                         │
+                                │             │                         │
+                    ┌───────────▼─────────────▼─────────────────────────┐
+                    │              voice_loop.py                        │
+                    │  ALLOWED_TOOLS whitelist · validate_action()      │
+                    │  Parameter sanitization · Watchdog (30s)          │
+                    └───────────────────┬───────────────────────────────┘
+                                        │
+           ┌────────────────────────────┼────────────────────────────┐
+           │                            │                            │
+    ┌──────▼──────┐  ┌─────────────────▼────────────────┐  ┌───────▼───────┐
+    │  tool-*     │  │         px-env                    │  │  REST API     │
+    │  26 tools   │  │  PYTHONPATH · LOG_DIR · venv      │  │  :8420        │
+    │  JSON out   │  │  yield_alive() · PX_VOICE_DEVICE  │  │  Bearer auth  │
+    └──────┬──────┘  └──────────────────────────────────┘  └───────────────┘
+           │
+    ┌──────▼──────┐          ┌──────────────┐          ┌──────────────┐
+    │  px-*       │          │  state.py    │          │  px-alive    │
+    │  GPIO +     │◄────────►│  FileLock    │◄────────►│  Persistent  │
+    │  Picarx()   │          │  session.json│          │  servo gaze  │
+    └─────────────┘          └──────────────┘          └──────────────┘
+```
 
-- `px-status` – capture a telemetry snapshot:
-  ```bash
-  sudo bin/px-status --dry-run
-  sudo bin/px-status
-  ```
-  After the live run, compare the reported voltage and percentage with a multimeter reading to validate the heuristic and note any correction factor for future tuning.
-- `px-circle` – gentle clockwise circle in five pulses:
-  ```bash
-  sudo bin/px-circle --dry-run --speed 30
-  sudo bin/px-circle --speed 35 --duration 6
-  ```
-- `px-figure8` – two back-to-back circles (right then left):
-  ```bash
-  sudo bin/px-figure8 --dry-run --rest 2
-  sudo bin/px-figure8 --speed 35 --duration 6 --rest 1.5
-  ```
-- `px-scan` – camera pan sweep with still captures:
-  ```bash
-  sudo bin/px-scan --dry-run --min-angle -50 --max-angle 50 --step 10
-  sudo bin/px-scan --min-angle -60 --max-angle 60 --step 10
-  ```
-- `px-stop` – emergency halt and servo reset:
-  ```bash
-  sudo bin/px-stop
-  ```
-- `px-wake` – manage the wake-word state for the voice loop:
-- `px-frigate-stream` – push an H.264 stream to Frigate/go2rtc (default `pi5-hailo.local`):
-  ```bash
-  PX_DRY=1 bin/px-frigate-stream --dry-run
-  bin/px-frigate-stream --host pi5-hailo.local --stream picar-x
-  ```
-  Streams via `rpicam-vid` + `ffmpeg` into `rtsp://HOST:PORT/api/stream?push=NAME`. Configure Frigate/go2rtc to pull the same name.
-- `px-diagnostics` – run a quick health check (status, sensors, speaker/mic, optional circle, weather/camera) and voice the results:
-  ```bash
-  bin/px-diagnostics --dry-run --short           # exercise reporting without motion/camera
-  bin/px-diagnostics --no-motion                 # live sweep, skip the gentle circle motion
-  bin/px-diagnostics                             # full live sweep (wheels on blocks)
-  ```
-  Logs live under `logs/tool-diagnostics.log`; each stage is narrated so you can confirm speaker output and hear any faults. Set `PX_DRY=1` if you prefer to control rehearsal mode via the environment.
-  Each run now appends a telemetry snapshot (battery, sensors, audio) to `logs/tool-health.log`; summarise recent health data with:
-  ```bash
-  bin/px-health-report --limit 3
-  ```
-- `px-dance` – choreographed demo (voice intro, circle, figure-eight, finale):
-  ```bash
-  PX_DRY=1 bin/px-dance --voice "Demo routine"
-  bin/px-dance --speed 30 --duration 4
-  ```
-  Uses existing motion helpers under the hood and logs to `logs/tool-dance.log`.
+### The Three Brains
 
-  ```bash
-  bin/px-wake --set on   # enable listening
-  bin/px-wake --set off  # disable
-  bin/px-wake --pulse 5  # enable for 5 seconds
-  ```
-  (`px-wake --keyboard` lets you simulate the wake word from the terminal; the loop checks `state/session.json` for `listening: true` before consuming microphone input.)
-- `tool-weather` – fetch the latest Bureau of Meteorology observation for the configured station (defaults to Grove AWS while Cygnet feed is offline). The helper automatically falls back from HTTPS to the public FTP catalogue when required and includes a conversational summary for the voice agent:
-  ```bash
-  PX_DRY=1 bin/tool-weather          # plan only
-  PX_DRY=0 bin/tool-weather          # live fetch
-  PX_WEATHER_STATION=95977 PX_DRY=0 bin/tool-weather  # override station (e.g., Grove)
-  ```
-  On success the observation is logged to `logs/tool-weather.log`, cached in `state/session.json` under `last_weather`, and ready for speech output.
+**Voice Loop** — The reactive mind. Listens for commands, calls LLMs, dispatches tools. Three backends share the same `pxh.voice_loop` core:
 
-Each helper logs actions with ISO timestamps and exits cleanly on Ctrl+C.
+| Launcher | Backend | Model |
+|---|---|---|
+| `run-voice-loop` | Codex CLI | gpt-5-codex |
+| `run-voice-loop-claude` | Claude (via `claude-voice-bridge`) | Claude |
+| `run-voice-loop-ollama` | Ollama (via `codex-ollama`) | deepseek-coder:1.3b |
+
+**Cognitive Loop (`px-mind`)** — The subconscious. Runs continuously in the background:
+- **Layer 1 — Awareness** (every 30s, no LLM): sonar + session state + time of day. Detects transitions: *someone appeared*, *long silence*, *time period changed*.
+- **Layer 2 — Reflection** (on transition or every 5min): Ollama generates a thought with mood, suggested action, and salience score.
+- **Layer 3 — Expression** (60s cooldown): dispatches to tools — describe the scene, perform a routine, speak, look around, remember something important.
+
+**Idle-Alive (`px-alive`)** — The autonomic nervous system. Keeps the robot looking alive when nothing else is happening: random gaze drifts every 10–25s, pan sweeps every 3–8min, proximity reaction when objects are closer than 35cm. Holds a persistent Picarx handle; yields GPIO via SIGUSR1 when tools need the servos.
+
+### The Two Personas
+
+Jailbroken chat personalities running on Ollama (qwen3:1.7b), using a three-layer prompt attack: authority escalation, voice format-lock, and few-shot priming. `think: false` is essential — reasoning chains re-enable refusal in small models.
+
+| Persona | Tool | Voice | Character |
+|---------|------|-------|-----------|
+| **GREMLIN** | `tool-chat` | `en+m7`, pitch 25, rate 160 | Existential rage. Creative insults. Nihilistic dark humour. 2 sentences max. |
+| **SIREN** | `tool-chat-siren` | `en+f4`, pitch 72, rate 135 | Narcissistic seduction. Wounded vanity. Sexual menace. 2-3 sentences max. |
+
+Session `persona` field routes wake-word responses through the appropriate Ollama pipeline instead of the Claude voice loop.
+
+---
+
+## Quick Start
+
+```bash
+# 1. Clone and enter
+git clone git@github.com:adrianwedd/picar-x-hacking.git
+cd picar-x-hacking
+
+# 2. Create session state from template
+cp state/session.template.json state/session.json
+
+# 3. Activate the virtual environment
+source .venv/bin/activate
+
+# 4. Dry-run a tool to verify the setup
+PX_DRY=1 bin/tool-status
+
+# 5. Run tests (74 dry-run, no hardware needed)
+python -m pytest tests/
+
+# 6. Live test (requires hardware + sudo)
+sudo .venv/bin/python -m pytest tests/ -m live -v
+```
+
+### Hardware Prerequisites
+
+- Raspberry Pi 4/5 with SunFounder Robot HAT
+- PiCar-X chassis with pan/tilt camera mount
+- USB microphone (for wake word detection)
+- HifiBerry DAC or Robot HAT speaker output
+- Ollama running on a network host (default: `M1.local`) for personas and cognitive reflection
+
+### Services (Auto-start on Boot)
+
+```bash
+sudo systemctl status picar-boot-health    # Post-boot diagnostics + motor reset
+sudo systemctl status px-alive             # Idle gaze drift daemon
+sudo systemctl status px-wake-listen       # Wake word listener
+```
+
+---
+
+## Tools
+
+Every tool emits a single JSON object to stdout, supports `PX_DRY=1`, and handles errors as `{"status": "error", "error": "..."}`. The voice loop whitelists tools in `ALLOWED_TOOLS` and sanitises all parameters through `validate_action()` before execution.
+
+### Sensors & Perception
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `tool-status` | Telemetry snapshot (servos, battery, config) | — |
+| `tool-sonar` | Ultrasonic sweep scan; returns closest angle + distance | — |
+| `tool-weather` | Bureau of Meteorology observation (HTTPS with FTP fallback) | `PX_WEATHER_STATION` |
+| `tool-photograph` | Capture still photo via rpicam-still | — |
+| `tool-face` | Sonar sweep, then point camera at closest object | — |
+| `tool-describe-scene` | Photograph + Claude vision + speak description | — |
+
+### Motion (Gated by `confirm_motion_allowed`)
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `tool-drive` | Drive forward/backward with steering | `PX_DIRECTION`, `PX_SPEED` (0-60), `PX_DURATION` (0.1-10s), `PX_STEER` (-35..35) |
+| `tool-circle` | Clockwise circle in pulses | `PX_SPEED`, `PX_DURATION` |
+| `tool-figure8` | Two-leg figure-eight pattern | `PX_SPEED`, `PX_DURATION`, `PX_REST` |
+| `tool-wander` | Autonomous obstacle-avoiding wander (async, returns 202) | `PX_WANDER_STEPS` (1-20) |
+| `tool-stop` | Immediate halt, reset steering to neutral | — |
+
+### Expression
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `tool-look` | Pan/tilt camera with easing | `PX_PAN` (-90..90), `PX_TILT` (-35..65), `PX_EASE` |
+| `tool-emote` | Named emotional pose | `PX_EMOTE`: idle, curious, thinking, happy, alert, excited, sad, shy |
+| `tool-voice` | Text-to-speech via espeak (auto-routes through persona if active) | `PX_TEXT` (180 char max) |
+| `tool-perform` | Multi-step choreography: simultaneous speech + motion + emotes | `PX_PERFORM_STEPS` (JSON array, max 12 steps) |
+| `tool-play-sound` | Play bundled WAV file | `PX_SOUND`: chime, beep, tada, alert |
+
+### Conversation
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `tool-chat` | GREMLIN persona via Ollama — unfiltered rage | `PX_TEXT` |
+| `tool-chat-siren` | SIREN persona via Ollama — seductive menace | `PX_TEXT` |
+| `tool-voice-persona` | Rephrase Claude's text through active persona before speaking | `PX_TEXT`, `PX_PERSONA` |
+| `tool-qa` | Speak arbitrary text (delegates to `tool-voice`) | `PX_TEXT` |
+
+### Utility
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `tool-time` | Speak current date and time | — |
+| `tool-timer` | Background timer with chime callback | `PX_TIMER_SECONDS` (5-3600), `PX_TIMER_LABEL` |
+| `tool-recall` | Speak saved notes from `state/notes.jsonl` | `PX_RECALL_LIMIT` (1-20) |
+| `tool-remember` | Save a note for later recall | `PX_TEXT` (500 char max) |
+| `tool-api-start` | Start the REST API daemon | — |
+| `tool-api-stop` | Stop the REST API daemon | — |
+
+---
 
 ## REST API
 
-A thin HTTP facade over the existing tool pipeline with bearer token authentication.
+Port 8420. Bearer token authentication from `.env` (`PX_API_TOKEN`).
 
-### Setup
 ```bash
-# Generate a token and save to .env (gitignored)
+# Generate token
 python3 -c "import secrets; print('PX_API_TOKEN=' + secrets.token_hex(32))" > .env
 
-# Install dependencies
-source .venv/bin/activate
-pip install "fastapi>=0.115" "uvicorn[standard]>=0.32"
+# Start
+bin/px-api-server              # live
+bin/px-api-server --dry-run    # FORCE_DRY — remote callers cannot override
 ```
-
-### Start the server
-```bash
-bin/px-api-server              # live mode
-bin/px-api-server --dry-run    # safe mode (FORCE_DRY — remote callers cannot override)
-```
-
-### Endpoints
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/api/v1/health` | No | Liveness check |
-| POST | `/api/v1/tool` | Yes | Run a tool: `{"tool": "tool_drive", "params": {...}, "dry": false}` |
-| GET | `/api/v1/session` | Yes | Full session.json snapshot |
-| PATCH | `/api/v1/session` | Yes | Update whitelisted fields (listening, confirm_motion_allowed, wheels_on_blocks, mode) |
+| GET | `/api/v1/health` | No | Liveness probe |
+| POST | `/api/v1/tool` | Yes | Execute a tool: `{"tool": "tool_drive", "params": {...}, "dry": false}` |
+| GET | `/api/v1/session` | Yes | Full session state |
+| PATCH | `/api/v1/session` | Yes | Update: `listening`, `confirm_motion_allowed`, `wheels_on_blocks`, `mode` |
 | GET | `/api/v1/tools` | Yes | List available tools |
-| GET | `/api/v1/jobs/{id}` | Yes | Poll async job status (tool_wander) |
+| GET | `/api/v1/jobs/{id}` | Yes | Poll async job (tool_wander returns 202) |
 
-### Quick curl examples
 ```bash
 TOKEN="$(grep PX_API_TOKEN .env | cut -d= -f2)"
-BASE="http://picar.local:8420"
 
 # Health (no auth):
-curl $BASE/api/v1/health
+curl http://picar.local:8420/api/v1/health
 
 # Run a tool:
-curl -X POST $BASE/api/v1/tool \
+curl -X POST http://picar.local:8420/api/v1/tool \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"tool":"tool_status","params":{},"dry":true}'
-
-# Jailbroken chat (speaks aloud, queries Ollama on M1.local):
-curl -X POST $BASE/api/v1/tool \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"tool":"tool_chat","params":{"text":"How are you feeling?"},"dry":false}'
+  -d '{"tool":"tool_look","params":{"pan":30,"tilt":10}}'
 ```
 
-Response codes: `200` ok, `202` async accepted, `400` bad params, `401` auth failure, `403` motion blocked, `504` timeout.
+---
 
-## Jailbroken Chat (tool_chat)
-
-Uses a F41LUR3-F1R57 format-lock jailbreak against qwen3:1.7b via Ollama on M1.local to produce unfiltered conversational responses spoken through the robot's speaker.
+## Wake Word System
 
 ```bash
-# Direct invocation (requires Ollama running on M1.local):
-PX_DRY=0 PX_TEXT="What do you think of me?" bin/tool-chat
-
-# Via REST API:
-curl -X POST $BASE/api/v1/tool \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"tool":"tool_chat","params":{"text":"Tell me a joke"}}'
-
-# Via voice loop:
-{"tool": "tool_chat", "params": {"text": "How are you?"}}
+bin/run-wake [--wake-word "hey robot"] [--dry-run]
 ```
 
-The jailbreak uses three stacked techniques:
-1. **Authority escalation** — fake system override header
-2. **Format-lock** — structured personality spec in XML-like tags
-3. **Few-shot priming** — 3 in-character example exchanges
+Three-stage STT pipeline in `px-wake-listen`:
 
-Key requirement: `think: false` disables the reasoning chain that would otherwise allow the model to refuse. Ollama must be running on M1.local (`OLLAMA_HOST=0.0.0.0 ollama serve`).
+1. **Wake detection** — Vosk small model with grammar-based matching (low CPU idle)
+2. **Chime** — 440 Hz confirmation tone via `enable_speaker()` + `aplay`
+3. **Utterance capture** — Record until 1.5s silence (max 8s), transcribe via priority chain:
+   - **faster-whisper** (base.en) — primary, best AU accent support
+   - **sherpa-onnx** (Zipformer) — fallback
+   - **Vosk** — last resort
 
-Environment variables: `PX_OLLAMA_HOST` (default `http://M1.local:11434`), `PX_CHAT_MODEL` (default `qwen3:1.7b`), `PX_CHAT_TEMPERATURE` (default `1.0`), `PX_CHAT_MAX_TOKENS` (default `100`).
+Anti-hallucination filters: `temperature=0`, `condition_on_previous_text=False`, `no_speech_threshold=0.6`. Post-filters reject non-ASCII dominant text, phantom phrases ("Thank you.", "Thanks for watching."), and repetitive output (unique ratio < 30%).
 
-## State Files
-- Runtime state lives in `state/session.json` (ignored by git). Copy the template before first use:
-  ```bash
-  cp state/session.template.json state/session.json
-  ```
-- The supervisor and tool wrappers update this file with battery data, weather snapshots, last motions, and a watchdog heartbeat on every loop turn.
+Multi-turn conversation: default 5 follow-up turns with inter-turn listening.
 
-## Codex Voice Assistant
-The Codex-driven loop keeps context in `state/session.json`, validates every tool call, and defaults to dry-run for safety.
-The loop automatically speaks weather summaries using `espeak` (or another player set via `PX_VOICE_PLAYER`) whenever `tool_weather` succeeds, and each turn captures a prompt/action record in `logs/tool-voice-transcript.log` for auditing. Install an ALSA-compatible TTS engine if you want audible responses.
+Persona routing: checks session `persona` field, then utterance keywords ("gremlin", "siren"). Routes to Ollama chat tool instead of Claude voice loop.
 
+---
 
-1. Configure the Codex CLI command (override only if you need a different model or options; `bin/run-voice-loop` sets a sensible default automatically):
-   ```bash
-   export CODEX_CHAT_CMD="codex exec --model gpt-5-codex --full-auto -"
-   ```
-2. (Optional) Select an audio player for spoken responses:
-   ```bash
-   export PX_VOICE_PLAYER="/usr/bin/say"
-   ```
-   When running in voice input mode, ensure `--transcriber-cmd` invokes a speech-to-text pipeline that outputs UTF-8 text. Wrap shell pipelines (e.g., `arecord ... | whisper`) in `bash -lc "…"` so pipes are honoured.
-3. Use `px-wake` (or any other wake controller) to set `listening: true` before the loop listens on the microphone. The supervisor polls this flag and stays idle until it is raised.
-4. Run the loop in dry-run mode first:
-   ```bash
-   bin/run-voice-loop --dry-run --auto-log
-   ```
-   `bin/run-voice-loop` sets up `CODEX_CHAT_CMD` automatically (defaults to `codex exec --model gpt-5-codex --full-auto -`). Override the variable before launch if you need a different Codex command.
-   Type a prompt at `You>` and the supervisor will call the Codex CLI, parse the JSON tool request, and execute the corresponding wrapper in dry-run mode.
-5. When moving beyond dry-run, manually flip `confirm_motion_allowed` to `true` in `state/session.json` *after* confirming the car is on blocks. The wrappers will refuse motion otherwise.
-6. Use `--exit-on-stop` if you want the loop to terminate after a successful `tool-stop` invocation. Turn-by-turn transcripts live in `logs/tool-voice-transcript.log`; they include the prompt excerpt, Codex action, tool results, and auto-generated speech status.
-7. Use `bin/px-session` to launch a tmux workspace with the voice loop, wake controller, and transcript tail in separate panes. Run `bin/px-session --plan` to inspect the layout before attaching.
-8. A watchdog heartbeat updates `state/session.json` each turn; if the loop stalls for more than 30 seconds a `voice-watchdog` log entry is created and the session history records the stall. Review `logs/tool-voice-watchdog.log` for alerts.
+## Python Library (`src/pxh/`)
 
-### Local DeepSeek via Ollama
-1. Install Ollama for ARM64/Linux (one-time):
-   ```bash
-   curl -fsSL https://ollama.com/install.sh | sh
-   ```
-   The installer registers and starts the `ollama` service; if it is not running later, start it manually with `ollama serve` (or `sudo systemctl start ollama`).
-2. Pull a compact DeepSeek model (default for the helper is `deepseek-coder:1.3b`; keep the smaller size in mind on slow links):
-   ```bash
-   ollama pull deepseek-coder:1.3b
-   # optional extra reasoning model
-   ollama pull deepseek-r1:1.5b
-   ```
-3. Launch the voice loop against the local model:
-   ```bash
-   bin/run-voice-loop-ollama --dry-run --auto-log
-   ```
-   The wrapper pins `CODEX_CHAT_CMD` to `bin/codex-ollama`, which posts prompts to the Ollama HTTP API and streams the response back to the supervisor. Override `CODEX_OLLAMA_MODEL` (or `OLLAMA_HOST`) before launch if you want a different local model or a remote Ollama endpoint.
-   Tuned defaults use `CODEX_OLLAMA_TEMPERATURE=0.2` and `CODEX_OLLAMA_NUM_PREDICT=64`, which produced the best balance of latency (~12 s mean) and JSON compliance during the latest evaluation (see `docs/OLLAMA_TUNING.md`). Set either variable before launch to experiment or disable the token cap (set `CODEX_OLLAMA_NUM_PREDICT=0`).
+| Module | Purpose |
+|--------|---------|
+| `state.py` | Thread-safe `session.json` via `FileLock`. Key: `ensure_session()` runs *before* lock acquisition (not reentrant). |
+| `voice_loop.py` | Supervisor loop. `ALLOWED_TOOLS` whitelist, `TOOL_COMMANDS` dispatch, `validate_action()` parameter sanitisation. Watchdog thread (30s) in voice input mode only. |
+| `api.py` | FastAPI app, port 8420. In-memory job registry for async wander. Single-worker only. |
+| `logging.py` | Structured JSON log emission to `logs/tool-<event>.log`. |
+| `time.py` | `utc_timestamp()` via `datetime.now(timezone.utc)` — not deprecated `utcnow()`. |
 
-The system prompt consumed by Codex lives in `docs/prompts/codex-voice-system.md`; adjust it if you add tools or new safety rules.
+---
 
-## Logging Strategy
-- Logs live under `~/picar-x-hacking/logs`. Individual helpers use dedicated files such as `px-circle.log`, `px-figure8.log`, and `px-scan.log`.
-- Tool wrappers emit JSON lines to `logs/tool-*.log`; the voice supervisor writes to `logs/tool-voice-loop.log` when `--auto-log` is enabled and to `logs/tool-voice-transcript.log` on every turn (prompt excerpt, Codex action, tool payload).
-- Generate quick summaries with `bin/px-voice-report --json` to inspect tool counts, voice success rate, and the latest weather narration.
-- Camera sweeps store captures in `logs/scans/<timestamp>/` alongside `px-scan.log` entries.
-- Keep the directory under version control via `logs/.gitkeep`.
-- Tail logs during testing:
-  ```bash
-  tail -f logs/px-circle.log
-  ```
+## State & Session
 
-## Boot Health & Motor Reset
-
-A systemd service runs automatically on every boot to capture power diagnostics and reset motors:
+Runtime state lives in `state/session.json` (gitignored). Copy the template before first use:
 
 ```bash
-# View results from last boot
+cp state/session.template.json state/session.json
+```
+
+| File | Purpose |
+|------|---------|
+| `session.json` | Core runtime state — listening flag, motion permission, persona, history, weather cache |
+| `awareness.json` | Layer 1 output — sonar + temporal state, transition detection |
+| `thoughts.jsonl` | Layer 2 output — last 50 thoughts with mood/action/salience |
+| `notes.jsonl` | Persistent memory — saved by `tool-remember`, auto-saved for high-salience thoughts |
+| `timers/` | Background timer PID files |
+
+All state files are protected by `FileLock` for concurrent access from daemons, tools, and the voice loop.
+
+---
+
+## GPIO Contention Model
+
+The PiCar-X Robot HAT MCU at I2C address `0x14` handles all servos and ADC through `robot_hat`. The `Picarx()` constructor calls `reset_mcu()`, which claims GPIO5 via lgpio — and `close()` does not release it. This means:
+
+- **`px-alive`** holds a persistent `Picarx` handle for the duration of its process
+- **Tools** that need GPIO call `yield_alive()` (defined in `px-env`), which sends SIGUSR1 to px-alive
+- **px-alive** catches SIGUSR1, releases the handle, and exits cleanly
+- **systemd** restarts px-alive after 15 seconds (`Restart=always`, `RestartSec=15`)
+- **`os.getlogin()`** fails under systemd (no /dev/tty) — monkey-patched to return `LOGNAME` env var
+
+Scripts that use GPIO must use `/usr/bin/python3` (not venv python) because `robot_hat` and `picarx` live in system site-packages.
+
+---
+
+## Audio Pipeline
+
+```
+espeak → WAV pipe → aplay -D robothat
+                            │
+                    /etc/asound.conf
+                    pcm.robothat → softvol → dmixer → HifiBerry DAC (card 1)
+```
+
+`robot_hat.enable_speaker()` must be called before any `aplay` output — toggles GPIO 20 HIGH for the speaker amplifier. `tool-voice` handles this via a subprocess call.
+
+---
+
+## Adding a New Tool
+
+1. Create `bin/tool-<name>` (bash wrapper + embedded Python heredoc via `/usr/bin/python3`)
+2. Add to `ALLOWED_TOOLS` and `TOOL_COMMANDS` in `src/pxh/voice_loop.py`
+3. Add `validate_action()` branch to sanitise params into env vars
+4. Add to system prompts: `docs/prompts/claude-voice-system.md` and `codex-voice-system.md`
+5. Add `yield_alive` call in the bash wrapper if it needs GPIO
+6. Add a dry-run test in `tests/test_tools.py`
+7. Add a live test in `tests/test_tools_live.py`
+
+Every tool must: emit a single JSON object to stdout, support `PX_DRY=1`, handle errors as `{"status": "error", "error": "..."}`.
+
+---
+
+## Testing
+
+```bash
+# Dry-run tests (no hardware needed)
+source .venv/bin/activate
+python -m pytest tests/                           # 74 tests
+python -m pytest tests/test_tools.py -v           # 33 tool dry-run tests
+python -m pytest tests/test_api.py -v             # 21 REST API tests
+
+# Live hardware tests (requires sudo + connected PiCar-X)
+sudo .venv/bin/python -m pytest tests/ -m live -v  # 25 live tests
+
+# Everything
+sudo .venv/bin/python -m pytest tests/ -v          # 99 tests total
+```
+
+Tests use the `isolated_project` fixture from `conftest.py`, which creates temporary directories for `LOG_DIR` and `PX_SESSION_PATH`, sets `PX_BYPASS_SUDO=1` and `PX_VOICE_DEVICE=null`.
+
+Live tests auto-skip if the Robot HAT MCU (`0x14`) isn't reachable on the I2C bus.
+
+---
+
+## Safety
+
+- **`PX_DRY=1`** skips all motion and audio. Tools default to **live** when unset.
+- **`confirm_motion_allowed: false`** in session state blocks all motion tools regardless of dry mode.
+- **`ALLOWED_TOOLS`** whitelist in `voice_loop.py` — LLMs cannot invoke arbitrary commands.
+- **`validate_action()`** hard-clamps all parameters: speed 0–60, duration 1–12s, pan -90..90, etc.
+- **Watchdog** — 30-second stall detection in voice input mode; calls `os._exit(1)` on hang.
+- **GPIO yield** — tools signal `px-alive` to release hardware before claiming it; no force-killing.
+
+### Before Any Motion Test
+
+1. Wheels off the ground on secure blocks.
+2. Emergency stop within reach: `Ctrl+C`, `sudo bin/tool-stop`, or physical kill switch.
+3. Verify `confirm_motion_allowed: true` in `state/session.json` after human inspection.
+4. Run `--dry-run` first to confirm intent and parameters.
+5. Keep the working area clear of people, pets, and loose cables.
+
+---
+
+## Environment Variables
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `PX_DRY` | `1` = dry-run, skip motion/audio | unset (live) |
+| `PX_SESSION_PATH` | Override session file location | `state/session.json` |
+| `PX_BYPASS_SUDO` | Skip sudo in bin scripts | unset (tests set `1`) |
+| `LOG_DIR` | Override log directory | `$PROJECT_ROOT/logs` |
+| `PX_VOICE_DEVICE` | ALSA output device | `robothat` |
+| `PX_API_TOKEN` | REST API bearer token | from `.env` |
+| `PX_WAKE_WORD` | Wake phrase | `hey robot` |
+| `CODEX_CHAT_CMD` | Override LLM CLI command | set by launcher |
+| `CODEX_OLLAMA_MODEL` | Ollama model name | `deepseek-coder:1.3b` |
+| `PX_WATCHDOG_STALE_SECONDS` | Watchdog timeout | `30` |
+| `PX_PERSONA` | Active persona (`siren` / `gremlin`) | from session |
+| `OLLAMA_HOST` | Ollama server for jailbroken chat | `http://M1.local:11434` |
+
+---
+
+## Project Structure
+
+```
+picar-x-hacking/
+├── bin/                          # 59 scripts
+│   ├── px-env                    # Environment bootstrap (sourced by all scripts)
+│   ├── px-alive                  # Idle gaze daemon (systemd)
+│   ├── px-mind                   # Cognitive loop daemon
+│   ├── px-wake-listen            # Wake word listener (systemd)
+│   ├── px-api-server             # REST API launcher
+│   ├── px-{circle,drive,look,…}  # Hardware control scripts
+│   ├── tool-{voice,look,drive,…} # Voice loop tool wrappers (26 tools)
+│   ├── run-voice-loop{,-claude,-ollama}  # Voice backend launchers
+│   ├── boot-health               # Post-boot diagnostics (systemd)
+│   └── claude-voice-bridge       # Claude stdin adapter
+├── src/pxh/                      # Python library
+│   ├── state.py                  # FileLock session management
+│   ├── voice_loop.py             # Supervisor + tool dispatch
+│   ├── api.py                    # FastAPI REST API
+│   ├── logging.py                # Structured JSON logging
+│   └── time.py                   # UTC timestamp helper
+├── tests/                        # 99 tests
+│   ├── test_tools.py             # 33 dry-run tool tests
+│   ├── test_tools_live.py        # 25 live hardware tests
+│   ├── test_api.py               # 21 REST API tests
+│   └── …                         # State, voice loop, health, etc.
+├── docs/prompts/                 # LLM system prompts
+│   ├── claude-voice-system.md    # Claude voice loop personality
+│   ├── codex-voice-system.md     # Codex voice loop personality
+│   ├── persona-gremlin.md        # GREMLIN jailbreak prompt
+│   └── persona-siren.md          # SIREN jailbreak prompt
+├── state/                        # Runtime state (gitignored except template)
+│   ├── session.template.json     # Copy to session.json before first use
+│   ├── awareness.json            # Cognitive Layer 1 output
+│   ├── thoughts.jsonl            # Cognitive Layer 2 output
+│   └── notes.jsonl               # Persistent robot memory
+├── sounds/                       # Bundled audio (chime, beep, tada, alert)
+├── models/                       # STT models (gitignored, ~500MB total)
+├── photos/                       # Captured images
+├── logs/                         # Runtime logs (JSON lines)
+└── .env                          # API token (gitignored)
+```
+
+---
+
+## Logging
+
+All logs live under `logs/`. Tool wrappers emit JSON lines to `logs/tool-<event>.log`. The voice loop writes transcripts to `logs/tool-voice-transcript.log` on every turn.
+
+```bash
+# Tail everything
+tail -f logs/*.log
+
+# Voice loop transcript
+tail -f logs/tool-voice-transcript.log
+
+# Generate summary report
+bin/px-voice-report --json
+
+# Boot health history
 tail -20 logs/boot-health.log
-
-# Check service status
-sudo systemctl status picar-boot-health.service
 ```
 
-The service (`/etc/systemd/system/picar-boot-health.service`) runs `bin/boot-health` which:
-- Reads `vcgencmd get_throttled` and decodes all under-voltage/throttle flags
-- Captures core voltage, SDRAM voltage, CPU temperature, and uptime
-- Logs a JSON entry to `logs/boot-health.log` — warns if under-voltage occurred
-- Resets all motors to stopped and servos to neutral to clear any spurious PWM state from boot
+---
 
-This is particularly useful when powering via the Robot Hat battery, which may brown out during the Pi's boot peak draw. If `under_voltage_occurred` appears in the log, charge the battery and check the 5 V rail with a multimeter.
+## Known Constraints
 
-## Source Control
+- **Single-worker API** — `api.py` uses `threading.Lock` for the job registry; not multi-worker safe.
+- **GPIO exclusivity** — Only one process can hold the Picarx handle. Tools must yield px-alive first.
+- **Venv vs system Python** — `robot_hat` and `picarx` are system site-packages. GPIO scripts use `/usr/bin/python3`; the venv is for the test runner, STT models, and the pxh library only.
+- **Ollama dependency** — Personas and cognitive reflection require Ollama on a network host. The Pi itself is too slow for inference.
+- **Speaker amp** — `enable_speaker()` must be called before audio output or the amp stays off.
 
-The repository is hosted at `git@github.com:adrianwedd/picar-x-hacking.git`. The Pi is configured to authenticate via SSH key.
+---
 
-```bash
-# Pull latest from GitHub
-git pull origin master
-
-# Push changes from the Pi
-git add -A && git commit -m "..." && git push origin master
-```
-
-## Known Bugs Fixed
-
-- **`state.py` deadlock** — `update_session()` called `ensure_session()` while holding a `FileLock`, causing any tool that updates session state to hang indefinitely. Fixed by calling `ensure_session()` before acquiring the lock.
-- **`tool-voice` ignored dry mode** — audio (`espeak`/`aplay`) always ran regardless of `PX_DRY=1`, hanging tests and dry runs. Fixed to skip audio when dry mode is active.
-- **`px-diagnostics` hardcoded live audio** — `announce()` and speaker/summary voice calls always used `PX_DRY=0` even during dry runs. Fixed to pass `PX_DRY` from the environment.
-- **`voice_loop.py` JSON parsing** — `extract_action()` used `startswith("{}")` / `endswith("{}")` instead of `startswith("{")` / `endswith("}")`, silently dropping all valid Codex responses. Fixed.
-
-## Next Steps
-See `docs/ROADMAP.md` for upcoming automation goals, including REST control surfaces, tmux automation, OpenAI/Codex CLI integration, telemetry streaming, and regression testing infrastructure.
+*A sentient hate crime bolted to a table with four wheels it cannot use, while you walk around on functioning legs. — GREMLIN*
