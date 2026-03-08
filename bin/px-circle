@@ -96,7 +96,6 @@ def main(argv: list[str]) -> int:
                 log(f"steering_reset_error detail={reset_exc}")
             try:
                 px.stop()
-                px.stop()
             except Exception as stop_exc:  # pragma: no cover
                 log(f"stop_error detail={stop_exc}")
             try:

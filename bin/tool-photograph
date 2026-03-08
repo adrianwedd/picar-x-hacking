@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool wrapper: capture a photo with the Raspberry Pi camera."""
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PHOTOS_DIR   = PROJECT_ROOT / "photos"
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+
+    try:
+        timestamp = dt.datetime.now().strftime("%Y%m%dT%H%M%S")
+        default_path = PHOTOS_DIR / f"{timestamp}.jpg"
+        photo_path = Path(os.environ.get("PX_PHOTO_PATH", str(default_path)))
+        photo_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        payload = {"status": "error", "error": f"cannot create photos dir: {exc}"}
+        log_event("photograph", payload)
+        print(json.dumps(payload))
+        return 1
+
+    if dry_mode:
+        payload = {
+            "status": "ok",
+            "path": str(photo_path),
+            "size_bytes": 0,
+            "dry": True,
+        }
+        log_event("photograph", payload)
+        update_session(
+            fields={"last_action": "tool_photograph"},
+            history_entry={"event": "photograph", "dry": True, "path": str(photo_path)},
+        )
+        print(json.dumps(payload))
+        return 0
+
+    command = [
+        "rpicam-still",
+        "--nopreview",
+        "--timeout", "200",
+        "-o", str(photo_path),
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+    except Exception as exc:
+        payload = {"status": "error", "error": f"rpicam-still failed: {exc}"}
+        log_event("photograph", payload)
+        print(json.dumps(payload))
+        return 1
+
+    if result.returncode != 0:
+        payload = {
+            "status": "error",
+            "error": "rpicam-still exited with non-zero status",
+            "rc": result.returncode,
+            "stderr": result.stderr[-512:],
+        }
+        log_event("photograph", payload)
+        print(json.dumps(payload))
+        return 1
+
+    size_bytes = photo_path.stat().st_size if photo_path.exists() else 0
+    payload = {
+        "status": "ok",
+        "path": str(photo_path),
+        "size_bytes": size_bytes,
+        "dry": False,
+    }
+    log_event("photograph", payload)
+    update_session(
+        fields={"last_action": "tool_photograph"},
+        history_entry={"event": "photograph", "dry": False, "path": str(photo_path), "size_bytes": size_bytes},
+    )
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

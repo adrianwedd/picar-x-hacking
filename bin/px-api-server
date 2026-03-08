@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# px-api-server — launch the PiCar-X REST API via uvicorn.
+#
+# Usage:
+#   bin/px-api-server                    # live mode
+#   bin/px-api-server --dry-run          # force PX_DRY=1
+#   bin/px-api-server --port 9000        # custom port
+#
+# Always launch via this script (not bare uvicorn) so px-env sets up
+# PROJECT_ROOT, PYTHONPATH, LOG_DIR, PX_VOICE_DEVICE, etc.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+# Load .env if present (PX_API_TOKEN lives here)
+ENV_FILE="$PROJECT_ROOT/.env"
+if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+fi
+
+HOST="${PX_API_HOST:-0.0.0.0}"
+PORT="${PX_API_PORT:-8420}"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)  export PX_DRY=1;  shift ;;
+        --port)     PORT="$2";        shift 2 ;;
+        --host)     HOST="$2";        shift 2 ;;
+        *)          echo "Unknown argument: $1" >&2; exit 1 ;;
+    esac
+done
+
+# Guard: token must be set
+if [[ -z "${PX_API_TOKEN:-}" ]]; then
+    echo "FATAL: PX_API_TOKEN is not set. Add it to $ENV_FILE" >&2
+    exit 1
+fi
+
+echo "Starting PiCar-X API on $HOST:$PORT (dry=${PX_DRY:-0})"
+exec uvicorn pxh.api:app \
+    --host "$HOST" \
+    --port "$PORT" \
+    --workers 1 \
+    --log-level info

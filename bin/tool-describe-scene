@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool wrapper: photograph the scene then describe it using Claude vision."""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+PROJECT_ROOT      = Path(os.environ["PROJECT_ROOT"])
+TOOL_PHOTOGRAPH   = PROJECT_ROOT / "bin" / "tool-photograph"
+TOOL_VOICE        = PROJECT_ROOT / "bin" / "tool-voice"
+
+FALLBACK_DESCRIPTION = "I couldn't see anything right now."
+CLAUDE_TIMEOUT = 30
+
+
+def run_tool(path: Path, extra_env: dict) -> tuple[int, dict]:
+    env = os.environ.copy()
+    env.update(extra_env)
+    result = subprocess.run(
+        [str(path)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    try:
+        payload = json.loads(result.stdout.strip().splitlines()[-1])
+    except (json.JSONDecodeError, IndexError):
+        payload = {"status": "error", "stderr": result.stderr[-256:]}
+    return result.returncode, payload
+
+
+def call_claude_vision(image_path: Path) -> str:
+    """Ask Claude to describe the image. Returns description string."""
+    # Unset Claude Code env vars so the CLI runs as plain claude (not code mode)
+    env = os.environ.copy()
+    env.pop("CLAUDECODE", None)
+    env.pop("CLAUDE_CODE_ENTRYPOINT", None)
+
+    try:
+        result = subprocess.run(
+            [
+                "claude", "-p",
+                "Describe what you see in this image briefly in 2 sentences.",
+                "--image", str(image_path),
+                "--allowedTools", "",
+                "--output-format", "text",
+                "--no-session-persistence",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=CLAUDE_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return FALLBACK_DESCRIPTION
+    except Exception:
+        return FALLBACK_DESCRIPTION
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return FALLBACK_DESCRIPTION
+
+    return result.stdout.strip()[:300]
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+
+    if dry_mode:
+        description = "A dry-run scene with a robot on a table."
+        payload = {
+            "status": "ok",
+            "path": None,
+            "description": description,
+            "dry": True,
+        }
+        log_event("describe_scene", payload)
+        update_session(
+            fields={"last_action": "tool_describe_scene"},
+            history_entry={"event": "describe_scene", "dry": True},
+        )
+        print(json.dumps(payload))
+        return 0
+
+    # Step 1: capture photo
+    rc_photo, photo_result = run_tool(TOOL_PHOTOGRAPH, {})
+    if photo_result.get("status") != "ok":
+        payload = {
+            "status": "error",
+            "error": "photo capture failed",
+            "photo": photo_result,
+        }
+        log_event("describe_scene", payload)
+        print(json.dumps(payload))
+        return 1
+
+    photo_path = Path(photo_result.get("path", ""))
+    if not photo_path.exists():
+        payload = {"status": "error", "error": f"photo file missing: {photo_path}"}
+        log_event("describe_scene", payload)
+        print(json.dumps(payload))
+        return 1
+
+    # Step 2: describe with Claude vision
+    description = call_claude_vision(photo_path)
+
+    # Step 3: speak the description
+    env = os.environ.copy()
+    env["PX_TEXT"] = description[:180]
+    subprocess.run([str(TOOL_VOICE)], capture_output=True, text=True, check=False, env=env)
+
+    payload = {
+        "status": "ok",
+        "path": str(photo_path),
+        "description": description,
+        "dry": False,
+    }
+    log_event("describe_scene", payload)
+    update_session(
+        fields={"last_action": "tool_describe_scene"},
+        history_entry={"event": "describe_scene", "dry": False, "description": description[:80]},
+    )
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

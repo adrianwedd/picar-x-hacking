@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Background timer: sleep for PX_TIMER_SECONDS then speak completion."""
+from __future__ import annotations
+
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+PROJECT_ROOT   = Path(os.environ.get("PROJECT_ROOT", Path(__file__).resolve().parent.parent))
+STATE_DIR      = PROJECT_ROOT / "state"
+TIMERS_DIR     = STATE_DIR / "timers"
+TOOL_VOICE     = PROJECT_ROOT / "bin" / "tool-voice"
+TIMER_ID       = os.environ.get("PX_TIMER_ID", "")
+PID_FILE: Path = TIMERS_DIR / f"{TIMER_ID}.pid" if TIMER_ID else Path("/dev/null")
+
+
+def cleanup_pid() -> None:
+    if TIMER_ID and PID_FILE != Path("/dev/null"):
+        try:
+            PID_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _shutdown(sig, _frame) -> None:
+    cleanup_pid()
+    sys.exit(0)
+
+
+signal.signal(signal.SIGTERM, _shutdown)
+signal.signal(signal.SIGINT, _shutdown)
+
+
+def main() -> int:
+    try:
+        seconds = float(os.environ.get("PX_TIMER_SECONDS", "60"))
+        if not (5 <= seconds <= 3600):
+            seconds = max(5.0, min(3600.0, seconds))
+    except (ValueError, TypeError):
+        seconds = 60.0
+
+    label = os.environ.get("PX_TIMER_LABEL", "").strip()
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+
+    # Write PID file
+    if TIMER_ID:
+        try:
+            TIMERS_DIR.mkdir(parents=True, exist_ok=True)
+            PID_FILE.write_text(str(os.getpid()))
+        except OSError:
+            pass
+
+    try:
+        if not dry_mode:
+            time.sleep(seconds)
+
+        # Speak completion message
+        message = f"Timer done! {label}" if label else "Timer done!"
+        env = os.environ.copy()
+        env["PX_TEXT"] = message[:180]
+        subprocess.run([str(TOOL_VOICE)], capture_output=True, check=False, env=env)
+
+        result = {"status": "ok", "seconds": seconds, "label": label, "dry": dry_mode}
+        print(json.dumps(result))
+        return 0
+    finally:
+        cleanup_pid()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool wrapper: start the API server as a background daemon."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+LOG_DIR      = Path(os.environ.get("LOG_DIR", PROJECT_ROOT / "logs"))
+PID_FILE     = LOG_DIR / "px-api-server.pid"
+API_SERVER   = PROJECT_ROOT / "bin" / "px-api-server"
+API_LOG      = LOG_DIR / "px-api-server.log"
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+
+    # Check if already running
+    if PID_FILE.exists():
+        try:
+            pid = int(PID_FILE.read_text().strip())
+            os.kill(pid, 0)  # signal 0 = check existence
+            payload = {"status": "already_running", "pid": pid}
+            log_event("api-start", payload)
+            print(json.dumps(payload))
+            return 0
+        except (ProcessLookupError, PermissionError, ValueError):
+            PID_FILE.unlink(missing_ok=True)
+
+    if dry_mode:
+        payload = {"status": "ok", "dry": True, "message": "would start API server"}
+        log_event("api-start", payload)
+        print(json.dumps(payload))
+        return 0
+
+    cmd = [str(API_SERVER)]
+    with open(API_LOG, "a") as log_fh:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+
+    PID_FILE.write_text(str(proc.pid))
+
+    update_session(
+        fields={"last_action": "tool_api_start"},
+        history_entry={"event": "api_start", "pid": proc.pid, "dry": False},
+    )
+
+    payload = {"status": "ok", "pid": proc.pid, "log": str(API_LOG)}
+    log_event("api-start", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

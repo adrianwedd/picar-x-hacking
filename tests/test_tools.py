@@ -83,6 +83,94 @@ def test_tool_weather_dry_run(isolated_project):
     assert payload["status"] == "dry-run"
     assert "Dry-run" in payload["summary"]
 
+def test_tool_photograph_dry_run(isolated_project):
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    stdout = run_tool(["bin/tool-photograph"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload["dry"] is True
+    assert payload["size_bytes"] == 0
+
+
+def test_tool_qa_dry_run(isolated_project):
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_TEXT"] = "The sky is blue."
+    stdout = run_tool(["bin/tool-qa"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload["dry"] is True
+
+
+def test_tool_play_sound_dry_run(isolated_project):
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_SOUND"] = "chime"
+    stdout = run_tool(["bin/tool-play-sound"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload["sound"] == "chime"
+    assert payload["dry"] is True
+
+
+def test_tool_play_sound_invalid_name(isolated_project):
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_SOUND"] = "explosion"
+    result = subprocess.run(
+        ["bin/tool-play-sound"],
+        cwd=PROJECT_ROOT, text=True, capture_output=True, check=False, env=env,
+    )
+    payload = parse_json(result.stdout.strip())
+    assert payload["status"] == "error"
+
+
+def test_tool_face_dry_run(isolated_project):
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    stdout = run_tool(["bin/tool-face"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload["dry"] is True
+    assert payload["angle"] == 0
+
+
+def test_tool_describe_scene_dry_run(isolated_project):
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    stdout = run_tool(["bin/tool-describe-scene"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload["dry"] is True
+    assert len(payload["description"]) > 0
+
+
+def test_tool_timer_dry_run(isolated_project):
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_TIMER_SECONDS"] = "10"
+    env["PX_TIMER_LABEL"] = "pasta"
+    stdout = run_tool(["bin/tool-timer"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload["seconds"] == 10
+    assert payload["label"] == "pasta"
+    assert "timer_id" in payload
+    assert "pid" in payload
+
+
+def test_tool_wander_dry_run(isolated_project):
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_WANDER_STEPS"] = "2"
+    stdout = run_tool(["bin/tool-wander"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload["steps"] == 2
+    assert payload["dry"] is True
+
+
 def test_px_wake_set_and_pulse(isolated_project):
     env = isolated_project["env"]
     session_path = isolated_project["session_path"]

@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool wrapper: set a background timer that speaks when done."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import uuid
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+from pxh.time import utc_timestamp
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+PX_TIMER     = PROJECT_ROOT / "bin" / "px-timer"
+TOOL_VOICE   = PROJECT_ROOT / "bin" / "tool-voice"
+STATE_DIR    = PROJECT_ROOT / "state"
+TIMERS_JSONL = STATE_DIR / "timers.jsonl"
+
+
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def main() -> int:
+    dry_mode = os.environ.get("PX_DRY", "1") != "0"
+
+    try:
+        seconds = int(clamp(float(os.environ.get("PX_TIMER_SECONDS", "60")), 5, 3600))
+        label   = str(os.environ.get("PX_TIMER_LABEL", ""))[:100].strip()
+    except (ValueError, TypeError) as exc:
+        payload = {"status": "error", "error": str(exc)}
+        log_event("timer", payload)
+        print(json.dumps(payload))
+        return 1
+
+    timer_id = str(uuid.uuid4())[:8]
+
+    env = os.environ.copy()
+    env["PX_TIMER_SECONDS"] = str(seconds)
+    env["PX_TIMER_LABEL"]   = label
+    env["PX_TIMER_ID"]      = timer_id
+
+    try:
+        proc = subprocess.Popen(
+            [str(PX_TIMER)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=env,
+        )
+    except Exception as exc:
+        payload = {"status": "error", "error": f"px-timer launch failed: {exc}"}
+        log_event("timer", payload)
+        print(json.dumps(payload))
+        return 1
+
+    pid = proc.pid
+
+    # Record timer in timers.jsonl
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        record = {
+            "id": timer_id,
+            "label": label,
+            "seconds": seconds,
+            "started_at": utc_timestamp(),
+            "pid": pid,
+        }
+        with TIMERS_JSONL.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except OSError:
+        pass  # Non-fatal — timer is already running
+
+    # Confirm immediately (non-blocking)
+    confirm_text = f"Timer set for {seconds} seconds"
+    if label:
+        confirm_text += f", {label}"
+    confirm_env = os.environ.copy()
+    confirm_env["PX_TEXT"] = confirm_text[:180]
+    subprocess.run([str(TOOL_VOICE)], capture_output=True, check=False, env=confirm_env)
+
+    payload = {
+        "status": "ok",
+        "timer_id": timer_id,
+        "seconds": seconds,
+        "label": label,
+        "pid": pid,
+        "dry": dry_mode,
+    }
+    log_event("timer", payload)
+    update_session(
+        fields={"last_action": "tool_timer"},
+        history_entry={"event": "timer", "timer_id": timer_id, "seconds": seconds, "label": label},
+    )
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

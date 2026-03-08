@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+/usr/bin/python3 - "$@" <<'PY'
+"""Autonomous wander: drive forward, avoid obstacles with sonar, repeat."""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import random
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+LOG_DIR  = Path(os.environ.get("LOG_DIR",  Path.cwd() / "logs"))
+LOG_FILE = Path(os.environ.get("PX_LOG_FILE", LOG_DIR / "px-wander.log"))
+PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", Path(__file__).resolve().parent.parent))
+
+OBSTACLE_THRESHOLD_CM = 25.0
+FORWARD_SPEED = 30
+FORWARD_DURATION = 1.0
+TURN_DURATION = 0.8
+TURN_SPEED = 25
+
+
+def log(msg: str) -> None:
+    ts = dt.datetime.now().isoformat(timespec="seconds")
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with LOG_FILE.open("a", encoding="utf-8") as f:
+        f.write(f"{ts} {msg}\n")
+    print(f"{ts} {msg}", file=sys.stderr)
+
+
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def run_px(name: str, args_list: list[str], dry_run: bool) -> dict:
+    cmd = [str(PROJECT_ROOT / "bin" / name)] + args_list
+    if dry_run:
+        cmd.append("--dry-run")
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    try:
+        return json.loads(result.stdout.strip().splitlines()[-1])
+    except (json.JSONDecodeError, IndexError):
+        return {"status": "error", "returncode": result.returncode}
+
+
+def sonar_closest(dry_run: bool) -> float:
+    """Return closest obstacle in cm (-1 if unavailable)."""
+    d = run_px("px-sonar", [], dry_run)
+    return float(d.get("closest_cm", -1))
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description="Autonomous wander loop")
+    parser.add_argument("--steps",    type=int,   default=int(os.environ.get("PX_WANDER_STEPS", "5")))
+    parser.add_argument("--dry-run",  action="store_true")
+    args = parser.parse_args(argv)
+
+    steps = int(clamp(args.steps, 1, 20))
+    dry   = args.dry_run
+
+    px = None
+
+    def _shutdown(sig, _frame):
+        log(f"received signal {sig} — stopping")
+        if px is not None:
+            try:
+                px.stop()
+                px.set_dir_servo_angle(0)
+                px.close()
+            except Exception:
+                pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
+    if not dry:
+        try:
+            from picarx import Picarx
+            px = Picarx()
+        except Exception as exc:
+            log(f"picarx import error: {exc}")
+            print(json.dumps({"status": "error", "error": str(exc)}))
+            return 1
+
+    log(f"wander start steps={steps} dry={dry}")
+
+    try:
+        for step in range(steps):
+            log(f"step {step + 1}/{steps}")
+
+            # Check for obstacle before driving
+            closest_cm = sonar_closest(dry)
+            log(f"sonar closest_cm={closest_cm}")
+
+            if closest_cm > 0 and closest_cm < OBSTACLE_THRESHOLD_CM:
+                log(f"obstacle at {closest_cm} cm — turning")
+                turn_angle = random.choice([-30, 30])
+                if not dry and px is not None:
+                    px.set_dir_servo_angle(turn_angle)
+                    px.forward(TURN_SPEED)
+                    time.sleep(TURN_DURATION)
+                    px.stop()
+                    px.set_dir_servo_angle(0)
+                else:
+                    time.sleep(0.1)
+            else:
+                # Drive forward
+                if not dry and px is not None:
+                    px.set_dir_servo_angle(0)
+                    px.forward(FORWARD_SPEED)
+                    time.sleep(FORWARD_DURATION)
+                    px.stop()
+                else:
+                    time.sleep(0.1)
+
+        result = {"status": "ok", "steps": steps, "dry": dry}
+        print(json.dumps(result))
+        log(f"wander complete steps={steps}")
+        return 0
+
+    except KeyboardInterrupt:
+        log("aborted by keyboard interrupt")
+        return 130
+    except Exception as exc:
+        log(f"runtime error: {exc}")
+        print(json.dumps({"status": "error", "error": str(exc)}))
+        return 1
+    finally:
+        if px is not None:
+            try:
+                px.stop()
+                px.set_dir_servo_angle(0)
+                px.close()
+            except Exception:
+                pass
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY

@@ -35,23 +35,41 @@ ALLOWED_TOOLS = {
     "tool_time",
     "tool_remember",
     "tool_recall",
+    "tool_photograph",
+    "tool_qa",
+    "tool_play_sound",
+    "tool_face",
+    "tool_describe_scene",
+    "tool_wander",
+    "tool_timer",
+    "tool_api_start",
+    "tool_api_stop",
 }
 
 TOOL_COMMANDS = {
-    "tool_status":   BIN_DIR / "tool-status",
-    "tool_circle":   BIN_DIR / "tool-circle",
-    "tool_figure8":  BIN_DIR / "tool-figure8",
-    "tool_stop":     BIN_DIR / "tool-stop",
-    "tool_voice":    BIN_DIR / "tool-voice",
-    "tool_weather":  BIN_DIR / "tool-weather",
-    "tool_look":     BIN_DIR / "tool-look",
-    "tool_emote":    BIN_DIR / "tool-emote",
-    "tool_sonar":    BIN_DIR / "tool-sonar",
-    "tool_perform":  BIN_DIR / "tool-perform",
-    "tool_drive":    BIN_DIR / "tool-drive",
-    "tool_time":     BIN_DIR / "tool-time",
-    "tool_remember": BIN_DIR / "tool-remember",
-    "tool_recall":   BIN_DIR / "tool-recall",
+    "tool_status":         BIN_DIR / "tool-status",
+    "tool_circle":         BIN_DIR / "tool-circle",
+    "tool_figure8":        BIN_DIR / "tool-figure8",
+    "tool_stop":           BIN_DIR / "tool-stop",
+    "tool_voice":          BIN_DIR / "tool-voice",
+    "tool_weather":        BIN_DIR / "tool-weather",
+    "tool_look":           BIN_DIR / "tool-look",
+    "tool_emote":          BIN_DIR / "tool-emote",
+    "tool_sonar":          BIN_DIR / "tool-sonar",
+    "tool_perform":        BIN_DIR / "tool-perform",
+    "tool_drive":          BIN_DIR / "tool-drive",
+    "tool_time":           BIN_DIR / "tool-time",
+    "tool_remember":       BIN_DIR / "tool-remember",
+    "tool_recall":         BIN_DIR / "tool-recall",
+    "tool_photograph":     BIN_DIR / "tool-photograph",
+    "tool_qa":             BIN_DIR / "tool-qa",
+    "tool_play_sound":     BIN_DIR / "tool-play-sound",
+    "tool_face":           BIN_DIR / "tool-face",
+    "tool_describe_scene": BIN_DIR / "tool-describe-scene",
+    "tool_wander":         BIN_DIR / "tool-wander",
+    "tool_timer":          BIN_DIR / "tool-timer",
+    "tool_api_start":     BIN_DIR / "tool-api-start",
+    "tool_api_stop":      BIN_DIR / "tool-api-stop",
 }
 
 
@@ -285,7 +303,9 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
     params = action.get("params", {})
     sanitized: Dict[str, Any] = {}
 
-    if tool == "tool_circle":
+    if tool in ("tool_status", "tool_stop", "tool_weather"):
+        pass  # no params required
+    elif tool == "tool_circle":
         speed = int(float(params.get("speed", 30)))
         duration = float(params.get("duration", 6))
         if not (0 <= speed <= 60):
@@ -362,6 +382,35 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
     elif tool == "tool_recall":
         limit = int(clamp(float(params.get("limit", 5)), 1, 20))
         sanitized["PX_RECALL_LIMIT"] = str(limit)
+    elif tool == "tool_photograph":
+        pass  # no required params; PX_PHOTO_PATH is optional
+    elif tool == "tool_qa":
+        text = params.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise VoiceLoopError("tool_qa requires a non-empty text parameter")
+        if len(text) > 180:
+            text = text[:180]
+        sanitized["PX_TEXT"] = text
+    elif tool == "tool_play_sound":
+        name = str(params.get("name", "")).lower().strip()
+        allowed = {"chime", "beep", "tada", "alert"}
+        if name not in allowed:
+            raise VoiceLoopError(f"unknown sound '{name}'; allowed: {sorted(allowed)}")
+        sanitized["PX_SOUND"] = name
+    elif tool == "tool_face":
+        pass  # no params required
+    elif tool == "tool_describe_scene":
+        pass  # no params required
+    elif tool == "tool_wander":
+        steps = int(clamp(float(params.get("steps", 5)), 1, 20))
+        sanitized["PX_WANDER_STEPS"] = str(steps)
+    elif tool == "tool_timer":
+        seconds = int(clamp(float(params.get("seconds", 60)), 5, 3600))
+        label   = str(params.get("label", ""))[:100]
+        sanitized["PX_TIMER_SECONDS"] = str(seconds)
+        sanitized["PX_TIMER_LABEL"]   = label
+    elif tool in ("tool_api_start", "tool_api_stop"):
+        pass  # no params required
     else:
         if params:
             raise VoiceLoopError("unexpected parameters for tool")

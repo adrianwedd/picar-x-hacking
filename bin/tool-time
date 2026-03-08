@@ -53,7 +53,7 @@ def main() -> int:
     if not dry_mode:
         result = subprocess.run(
             [str(PROJECT_ROOT / "bin/tool-voice")],
-            env={**os.environ, "PX_TEXT": text, "PX_DRY": "0"},
+            env={**os.environ, "PX_TEXT": text},
             capture_output=True, text=True, check=False,
         )
         payload["voice_rc"] = result.returncode
