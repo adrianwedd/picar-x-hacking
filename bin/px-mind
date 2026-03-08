@@ -254,7 +254,7 @@ def fetch_weather(dry: bool) -> dict | None:
         return {"temp_C": 20, "summary": "Dry-run: mild and clear."}
     try:
         env = os.environ.copy()
-        env["PX_DRY"] = "1"  # don't speak it, just fetch
+        env["PX_DRY"] = "0"  # live fetch — tool-weather skips network on PX_DRY=1
         result = subprocess.run(
             [str(BIN_DIR / "tool-weather")],
             capture_output=True, text=True, check=False, env=env, timeout=15,
