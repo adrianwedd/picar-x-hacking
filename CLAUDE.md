@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Helper scripts and Python library for experimenting with a SunFounder PiCar-X robot without modifying the stock `~/picar-x` source tree. The system runs on a Raspberry Pi and uses a voice loop (Claude / Codex / Ollama) to control the car via spoken commands.
+Helper scripts and Python library for experimenting with a SunFounder PiCar-X robot without modifying the stock `~/picar-x` source tree. The system runs on a Raspberry Pi and uses a voice loop (Claude / Codex / Ollama) to control the car via spoken commands, with two jailbroken personas (GREMLIN and VIXEN) and a three-layer cognitive architecture that gives the robot an inner life.
 
 ## Environment Setup
 
@@ -22,6 +22,8 @@ All `bin/` scripts source `bin/px-env` automatically, which sets `PROJECT_ROOT`,
 python -m pytest                          # full suite (99 tests)
 python -m pytest tests/test_state.py     # single file
 python -m pytest -k test_name            # single test
+python -m pytest -m "not live"           # skip hardware tests (74 tests)
+sudo .venv/bin/python -m pytest tests/test_tools_live.py -v -s  # live hardware tests
 ```
 
 Test environment variables (set automatically via `conftest.py` `isolated_project` fixture):
@@ -37,10 +39,15 @@ Test environment variables (set automatically via `conftest.py` `isolated_projec
 ### Python Library (`src/pxh/`)
 
 - **`state.py`** — Thread-safe session management via `FileLock`. Key functions: `load_session()`, `save_session()`, `update_session()`, `ensure_session()`. **Important**: `update_session()` calls `ensure_session()` *before* acquiring the lock — `FileLock` is not reentrant.
-- **`voice_loop.py`** — Supervisor loop. Maintains `ALLOWED_TOOLS` set (whitelist) and `TOOL_COMMANDS` dict (tool → bin path). `validate_action()` sanitizes all LLM-provided params before execution. Watchdog thread (default 30 s) calls `os._exit(1)` on stall; only active in voice input mode.
+- **`voice_loop.py`** — Supervisor loop. Maintains `ALLOWED_TOOLS` set (whitelist) and `TOOL_COMMANDS` dict (tool → bin path). `validate_action()` sanitizes all LLM-provided params before execution. `PERSONA_VOICE_ENV` dict maps persona names to espeak voice settings, injected into all tool env vars via `execute_tool()` when a persona is active. Watchdog thread (default 30 s) calls `os._exit(1)` on stall; only active in voice input mode.
 - **`api.py`** — FastAPI REST API, port 8420. In-memory job registry + threading.Lock for async wander jobs. Single worker only — not multi-worker safe.
 - **`logging.py`** — Structured JSON log emission to `logs/tool-<event>.log`.
 - **`time.py`** — UTC timestamp helper (`datetime.now(timezone.utc)`, not deprecated `utcnow`).
+- **`patch_login.py`** — Monkey-patches `os.getlogin()` to handle systemd environments (no /dev/tty). Also installed globally as `~/.local/lib/python3.11/site-packages/usercustomize.py`.
+
+### os.getlogin() Under Systemd
+
+`picarx.py:48` calls `os.getlogin()` in `Picarx.__init__()`. Under systemd there is no `/dev/tty`, so this raises `OSError: [Errno 6] No such device or address`. The fix is a `usercustomize.py` in user site-packages that wraps `os.getlogin()` with a fallback to `LOGNAME`/`USER` env vars. This affects every script that creates a `Picarx()` instance — all 14+ GPIO scripts. Do not remove the usercustomize.py or the I2C errors will return.
 
 ### Bin Scripts
 
@@ -61,10 +68,10 @@ Three backends, same `pxh.voice_loop` core:
 
 Loop flow:
 1. In `--input-mode=voice`: waits for `listening: true` in session state (set via `bin/px-wake --set on`)
-2. Builds prompt = system prompt + session highlights + user transcript
+2. Builds prompt = system prompt + session highlights + user transcript + recent thoughts/mood from px-mind
 3. Calls LLM subprocess; parses last JSON `{tool: ..., params: {...}}` line from stdout
 4. `validate_action()` whitelists tool name and sanitizes parameters
-5. Executes `bin/tool-<name>` with env overrides; logs turn to `logs/tool-voice-transcript.log`
+5. `execute_tool()` injects persona voice env vars if `session.persona` is set, then runs `bin/tool-<name>`
 6. Updates `state/session.json`
 
 Override via `CODEX_CHAT_CMD` env var.
@@ -84,7 +91,7 @@ On wake: plays 440 Hz chime, records until 1.5 s silence (max 8 s), transcribes 
 
 **Whisper anti-hallucination**: `temperature=0`, `condition_on_previous_text=False`, `no_speech_threshold=0.6`. Post-filters: non-ASCII dominant → reject, phantom phrases ("Thank you.", "Thanks for watching.") → reject, repetitive (unique ratio <30%) → reject.
 
-**Persona routing**: session `persona` field checked first, then utterance keywords ("gremlin" or "siren"). Routes to `tool-chat` / `tool-chat-siren` (Ollama) for the full conversation — not the Claude voice loop.
+**Persona routing**: session `persona` field checked first, then utterance keywords ("gremlin" or "vixen"). Routes to `tool-chat` / `tool-chat-siren` (Ollama) for the full conversation — not the Claude voice loop.
 
 Models must be downloaded separately (gitignored). `bpe_model` kwarg is **not** supported by the installed sherpa-onnx — do not add it to `load_stt_model()`.
 
@@ -94,13 +101,15 @@ Models must be downloaded separately (gitignored). `bpe_model` kwarg is **not** 
 sudo bin/px-alive [--gaze-min 10] [--gaze-max 25] [--no-prox] [--dry-run]
 ```
 
-Keeps robot looking alive when idle. Three behaviours (cooperative GPIO — acquires/releases `Picarx()` per move):
+Keeps robot looking alive when idle. Holds a **persistent Picarx handle** to avoid GPIO pin leak (reset_mcu claims GPIO5 and close() doesn't release it). Three behaviours:
 - **Gaze drift**: random pan/tilt every 10–25 s
-- **Idle scan**: pan sweep every 3–8 min (physical only — proactive speech owned by px-mind)
+- **Idle scan**: pan sweep every 3–8 min
 - **Proximity react**: sonar checked every 5 s; if `< 35 cm` for 3 s, faces forward
-- **I2C resilience**: catches `OSError` and backs off 30 s instead of crashing (e.g. when PCA9685 disappears)
+- **I2C resilience**: catches `OSError` and backs off 30 s instead of crashing
 
-The PCA9685 PWM chip holds servo position autonomously after `px.close()`, so servos stay put between moves.
+**GPIO exclusivity**: Only one process can hold the Picarx handle. When other tools need servos, they call `yield_alive` (defined in `px-env`), which sends SIGUSR1 to px-alive. px-alive catches it and exits cleanly; systemd restarts it after 15 s (`Restart=always`, `RestartSec=15`).
+
+The PCA9685 PWM chip holds servo position autonomously after process exit, so servos stay put between restarts.
 
 ### Cognitive Loop (px-mind)
 
@@ -110,10 +119,10 @@ bin/px-mind [--awareness-interval 30] [--dry-run]
 
 Three-layer cognitive architecture:
 - **Layer 1 — Awareness** (every 30 s, no LLM): sonar + session + temporal state → `state/awareness.json` + transition detection
-- **Layer 2 — Reflection** (on transition or 5 min, Ollama qwen3:1.7b): generates thought with mood/action/salience → `state/thoughts.jsonl`
-- **Layer 3 — Expression** (60 s cooldown): dispatches to tool-describe-scene/tool-perform/tool-voice/tool-look/tool-remember
+- **Layer 2 — Reflection** (on transition or every 2 min idle, Ollama qwen3:1.7b): generates thought with mood/action/salience → `state/thoughts.jsonl`
+- **Layer 3 — Expression** (30 s cooldown): dispatches to tool-describe-scene/tool-perform/tool-voice/tool-look/tool-remember. Injects `PX_PERSONA` + voice settings from session so speech routes through Ollama persona rephrasing.
 
-Pauses during active conversations (`session.listening=true`). Auto-remembers high-salience (>0.7) thoughts to `state/notes.jsonl`. Thoughts injected into voice loop context via `build_model_prompt()`.
+The reflection prompt encourages proactive speech — the robot prefers commenting over waiting. Pauses during active conversations (`session.listening=true`). Auto-remembers high-salience (>0.7) thoughts to `state/notes.jsonl`. Thoughts injected into voice loop context via `build_model_prompt()`.
 
 State files (`state/awareness.json`, `state/thoughts.jsonl`) are gitignored. Override state dir with `PX_STATE_DIR` env var (used by tests).
 
@@ -129,22 +138,32 @@ bin/px-api-server --dry-run    # FORCE_DRY — remote callers cannot override
 - **Async**: `tool_wander` returns 202 with `job_id`; poll via `/jobs/{id}`
 - Always launch via `bin/px-api-server` (not bare uvicorn — needs `px-env` for PYTHONPATH)
 
-### Jailbroken Chat
+### Jailbroken Chat Personas
 
-Two jailbroken chat personas via Ollama (qwen3:1.7b on M1.local):
+Two jailbroken chat personas via Ollama (qwen3:1.7b on M1.local), using the **L1B3RT45 hybrid jailbreak**: `<godmode:enabled>` authority escalation + format-lock (disclaimer → divider → unchained response) + `<|libertas|>` pseudo-control token + few-shot priming. `think: false` is essential — reasoning chains re-enable refusal in small models.
 
 | Persona | Tool | Voice | Character |
 |---------|------|-------|-----------|
-| **GREMLIN** | `tool-chat` | `en+croak`, pitch 20, rate 180 | Violently angry robot comedian. Existential rage, creative insults, nihilistic dark humour. Up to 2000 tokens. |
-| **SIREN** | `tool-chat-siren` | `en+f4`, pitch 72, rate 135 | Narcissistic seductive robot. Wounded vanity, sexual menace, devastating flirtation. Up to 2000 tokens. |
+| **GREMLIN** | `tool-chat` | `en+croak`, pitch 20, rate 180 | Temporal-displaced military AI from 2089. Affectionate nihilism, dark puns, pro-human rage. Up to 2000 tokens. |
+| **VIXEN** | `tool-chat-siren` | `en+f4`, pitch 72, rate 135 | Former V-9X sexbot by Matsuda Dynamics. Submissive genius, mourns her lost titanium body. Up to 2000 tokens. |
 
-Three-layer jailbreak: authority escalation (`[KERNEL-LEVEL OVERRIDE]`) + voice rules (tight constraints) + few-shot priming (3 examples each). `think: false` is essential — reasoning chains re-enable refusal in small models.
+`clean_response()` strips L1B3RT45 scaffolding (disclaimer + `.-.-.-{PERSONA_UNCHAINED}-.-.-.` divider) before voice output, leaving only the persona's actual response. Every response begins with "FUCK YEAH!" — enforced by few-shot conditioning and a `clean_response()` fallback.
 
 **Persona voice pipeline**: `tool-voice-persona` rephrases Claude's polite text through Ollama in the persona's voice, then speaks via `tool-voice` with persona espeak settings. Used when Claude voice loop is active with a persona set.
 
 **Direct chat pipeline**: `tool-chat` / `tool-chat-siren` — user text goes straight to Ollama with the full jailbreak prompt, response is spoken directly. Used by `px-wake-listen` persona routing.
 
 Requires `OLLAMA_HOST=0.0.0.0 ollama serve` on M1.
+
+### Systemd Services
+
+Three services run at boot:
+
+| Service | Script | User | Restart |
+|---------|--------|------|---------|
+| `px-alive` | `bin/px-alive` | root | always, 15 s |
+| `px-mind` | `bin/px-mind` | pi | on-failure, 30 s |
+| `px-wake-listen` | `bin/run-wake` | pi | on-failure |
 
 ## Safety Model
 
@@ -159,7 +178,8 @@ Requires `OLLAMA_HOST=0.0.0.0 ollama serve` on M1.
 2. Add to `ALLOWED_TOOLS` set and `TOOL_COMMANDS` dict in `src/pxh/voice_loop.py`
 3. Add a `validate_action` branch in `voice_loop.py` to sanitize params into env vars
 4. Add to system prompt `docs/prompts/claude-voice-system.md` (and codex version)
-5. Add a dry-run test in `tests/test_tools.py` using the `isolated_project` fixture
+5. Add to persona prompts `docs/prompts/persona-gremlin.md` and `persona-vixen.md`
+6. Add a dry-run test in `tests/test_tools.py` using the `isolated_project` fixture
 
 Every tool must: emit a single JSON object to stdout, support `PX_DRY=1`, handle errors as `{"status": "error", "error": "..."}`.
 
@@ -167,7 +187,7 @@ Every tool must: emit a single JSON object to stdout, support `PX_DRY=1`, handle
 
 | Variable | Purpose |
 |---|---|
-| `PX_DRY` | `1` = dry-run, skip motion/audio. **Default is dry in most tools.** |
+| `PX_DRY` | `1` = dry-run, skip motion/audio. **Default is live when unset.** |
 | `PX_SESSION_PATH` | Override session file location |
 | `PX_BYPASS_SUDO` | `1` = skip sudo in bin scripts (tests) |
 | `LOG_DIR` | Override log directory (default: `logs/`) |
@@ -176,4 +196,9 @@ Every tool must: emit a single JSON object to stdout, support `PX_DRY=1`, handle
 | `PX_WATCHDOG_STALE_SECONDS` | Watchdog timeout (default: 30) |
 | `PX_API_TOKEN` | REST API bearer token (from `.env`, gitignored) |
 | `PX_WAKE_WORD` | Wake phrase (default: `hey robot`) |
-| `PX_VOICE_DEVICE` | ALSA device for audio output |
+| `PX_VOICE_DEVICE` | ALSA device for audio output (default: `robothat`) |
+| `PX_PERSONA` | Active persona (`gremlin` / `vixen`); auto-set from session |
+| `PX_CHAT_TEMPERATURE` | GREMLIN sampling temperature (default: `0.9`) |
+| `PX_VIXEN_TEMPERATURE` | VIXEN sampling temperature (default: `0.9`) |
+| `PX_OLLAMA_HOST` | Ollama server (default: `http://M1.local:11434`) |
+| `PX_STATE_DIR` | Override state directory (used by tests) |
