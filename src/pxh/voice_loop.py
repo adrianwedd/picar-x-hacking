@@ -346,6 +346,14 @@ def parse_tool_payload(raw: str) -> Optional[Dict[str, Any]]:
     except json.JSONDecodeError:
         return None
 
+def _num(value: Any, name: str) -> float:
+    """Convert param to float, raising VoiceLoopError on bad input."""
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        raise VoiceLoopError(f"invalid numeric value for {name}: {value!r}")
+
+
 def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
     tool = action.get("tool")
     if tool not in ALLOWED_TOOLS:
@@ -357,8 +365,8 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
     if tool in ("tool_status", "tool_stop", "tool_weather"):
         pass  # no params required
     elif tool == "tool_circle":
-        speed = int(float(params.get("speed", 30)))
-        duration = float(params.get("duration", 6))
+        speed = int(_num(params.get("speed", 30), "speed"))
+        duration = _num(params.get("duration", 6), "duration")
         if not (0 <= speed <= 60):
             raise VoiceLoopError("tool_circle speed out of range")
         if not (1 <= duration <= 12):
@@ -366,9 +374,9 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         sanitized["PX_SPEED"] = str(speed)
         sanitized["PX_DURATION"] = f"{duration:.2f}"
     elif tool == "tool_figure8":
-        speed = int(float(params.get("speed", 30)))
-        duration = float(params.get("duration", 6))
-        rest = float(params.get("rest", 1.5))
+        speed = int(_num(params.get("speed", 30), "speed"))
+        duration = _num(params.get("duration", 6), "duration")
+        rest = _num(params.get("rest", 1.5), "rest")
         if not (0 <= speed <= 60):
             raise VoiceLoopError("tool_figure8 speed out of range")
         if not (1 <= duration <= 12):
@@ -386,9 +394,9 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
             text = text[:2000]
         sanitized["PX_TEXT"] = text
     elif tool == "tool_look":
-        pan  = int(clamp(float(params.get("pan",  0)), -90, 90))
-        tilt = int(clamp(float(params.get("tilt", 0)), -35, 65))
-        ease = clamp(float(params.get("ease", 0.8)), 0.1, 5.0)
+        pan  = int(clamp(_num(params.get("pan",  0), "pan"), -90, 90))
+        tilt = int(clamp(_num(params.get("tilt", 0), "tilt"), -35, 65))
+        ease = clamp(_num(params.get("ease", 0.8), "ease"), 0.1, 5.0)
         sanitized["PX_PAN"]  = str(pan)
         sanitized["PX_TILT"] = str(tilt)
         sanitized["PX_EASE"] = f"{ease:.2f}"
@@ -416,9 +424,9 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         direction = str(params.get("direction", "forward")).lower()
         if direction not in ("forward", "backward"):
             raise VoiceLoopError(f"tool_drive direction must be 'forward' or 'backward'")
-        speed    = int(clamp(float(params.get("speed",    30)),  0,   60))
-        duration = clamp(float(params.get("duration", 1.0)),     0.1, 10.0)
-        steer    = int(clamp(float(params.get("steer",     0)), -35,  35))
+        speed    = int(clamp(_num(params.get("speed",    30), "speed"),  0,   60))
+        duration = clamp(_num(params.get("duration", 1.0), "duration"),     0.1, 10.0)
+        steer    = int(clamp(_num(params.get("steer",     0), "steer"), -35,  35))
         sanitized["PX_DIRECTION"] = direction
         sanitized["PX_SPEED"]     = str(speed)
         sanitized["PX_DURATION"]  = f"{duration:.2f}"
@@ -431,7 +439,7 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
             raise VoiceLoopError("tool_remember requires a non-empty 'text' parameter")
         sanitized["PX_NOTE"] = note.strip()[:500]
     elif tool == "tool_recall":
-        limit = int(clamp(float(params.get("limit", 5)), 1, 20))
+        limit = int(clamp(_num(params.get("limit", 5), "limit"), 1, 20))
         sanitized["PX_RECALL_LIMIT"] = str(limit)
     elif tool == "tool_photograph":
         pass  # no required params; PX_PHOTO_PATH is optional
@@ -453,10 +461,10 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
     elif tool == "tool_describe_scene":
         pass  # no params required
     elif tool == "tool_wander":
-        steps = int(clamp(float(params.get("steps", 5)), 1, 20))
+        steps = int(clamp(_num(params.get("steps", 5), "steps"), 1, 20))
         sanitized["PX_WANDER_STEPS"] = str(steps)
     elif tool == "tool_timer":
-        seconds = int(clamp(float(params.get("seconds", 60)), 5, 3600))
+        seconds = int(clamp(_num(params.get("seconds", 60), "seconds"), 5, 3600))
         label   = str(params.get("label", ""))[:100]
         sanitized["PX_TIMER_SECONDS"] = str(seconds)
         sanitized["PX_TIMER_LABEL"]   = label
