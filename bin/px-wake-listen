@@ -492,7 +492,8 @@ def listen_loop(pa, model, args, stt=None) -> None:
         frames_per_buffer=CHUNK,
     )
     stream.start_stream()
-    log(f"listening for wake word: '{wake_phrase}'")
+    all_phrases = [wake_phrase] + list(PERSONA_WAKE.keys())
+    log(f"listening for wake words: {', '.join(all_phrases)}")
 
     try:
         while True:
@@ -545,7 +546,7 @@ def listen_loop(pa, model, args, stt=None) -> None:
                     # Reset wake recognizer after conversation ends
                     wake_rec = vosk.KaldiRecognizer(model, VOSK_RATE, grammar)
                     resample_state = None
-                    log(f"listening for wake word: '{wake_phrase}'")
+                    log(f"listening for wake words: {', '.join(all_phrases)}")
 
     finally:
         stream.stop_stream()
@@ -575,7 +576,9 @@ def main(argv) -> int:
     # PID file
     PID_FILE.parent.mkdir(parents=True, exist_ok=True)
     PID_FILE.write_text(str(os.getpid()))
-    log(f"starting pid={os.getpid()} wake='{args.wake_word}' dry={args.dry_run}")
+    persona_phrases = ", ".join(f"'{p}'" for p in PERSONA_WAKE)
+    log(f"starting pid={os.getpid()} dry={args.dry_run}")
+    log(f"wake phrases: '{args.wake_word}' (claude), {persona_phrases} (personas)")
 
     def _shutdown(sig, _frame):
         log(f"signal {sig} — stopping")
