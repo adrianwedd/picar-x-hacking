@@ -79,11 +79,17 @@ app = FastAPI(title="PiCar-X API", version="0.1.0", lifespan=_lifespan)
 
 _jobs: Dict[str, Dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
+_JOBS_MAX = 200  # evict oldest when exceeded
 
 
 def _set_job(job_id: str, data: Dict[str, Any]) -> None:
     with _jobs_lock:
         _jobs[job_id] = data
+        # Evict oldest entries when registry grows too large
+        if len(_jobs) > _JOBS_MAX:
+            oldest = list(_jobs.keys())[: len(_jobs) - _JOBS_MAX]
+            for k in oldest:
+                del _jobs[k]
 
 
 def _get_job(job_id: str) -> Optional[Dict[str, Any]]:

@@ -100,64 +100,82 @@ def do_ease(from_pan: int, from_tilt: int, to_pan: int, to_tilt: int, duration: 
             release_px(px)
 
 
+I2C_BACKOFF_S = 30     # seconds to wait after an I2C failure before retrying
+
+
 def idle_loop(args) -> None:
     cur_pan, cur_tilt = 0, 0
     next_gaze = time.monotonic() + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
     next_scan = time.monotonic() + random.uniform(SCAN_MIN_S, SCAN_MAX_S)
     next_prox = time.monotonic() + PROX_CHECK_S
     prox_near_since: float | None = None
+    i2c_ok_after: float = 0.0  # monotonic time after which I2C retries are allowed
 
     log(f"idle loop started (cooperative GPIO — acquire/release per move, sonar every {PROX_CHECK_S:.0f}s)")
 
     while True:
         now = time.monotonic()
 
-        # --- Proximity check (every PROX_CHECK_S — not every loop tick) ---
-        if PROX_THRESH > 0 and now >= next_prox:
-            next_prox = now + PROX_CHECK_S
-            dist = safe_distance()
-            if dist < PROX_THRESH:
-                if prox_near_since is None:
-                    prox_near_since = now
-                elif now - prox_near_since >= PROX_HOLD_S:
-                    log(f"proximity react: object at {dist:.1f}cm — facing forward")
-                    do_ease(cur_pan, cur_tilt, 0, 5, 0.5)
-                    cur_pan, cur_tilt = 0, 5
+        # Skip all hardware if in I2C backoff period
+        if now < i2c_ok_after:
+            time.sleep(0.5)
+            continue
+
+        try:
+            # --- Proximity check (every PROX_CHECK_S — not every loop tick) ---
+            if PROX_THRESH > 0 and now >= next_prox:
+                next_prox = now + PROX_CHECK_S
+                dist = safe_distance()
+                if dist < PROX_THRESH:
+                    if prox_near_since is None:
+                        prox_near_since = now
+                    elif now - prox_near_since >= PROX_HOLD_S:
+                        log(f"proximity react: object at {dist:.1f}cm — facing forward")
+                        do_ease(cur_pan, cur_tilt, 0, 5, 0.5)
+                        cur_pan, cur_tilt = 0, 5
+                        prox_near_since = None
+                        next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
+                else:
                     prox_near_since = None
-                    next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
-            else:
-                prox_near_since = None
 
-        # --- Slow idle scan (physical sweep only — proactive speech is handled by px-mind) ---
-        if now >= next_scan:
-            log("idle scan: sweeping pan")
-            angles = list(range(PAN_RANGE[0], PAN_RANGE[1] + 1, 15)) + \
-                     list(range(PAN_RANGE[1], PAN_RANGE[0] - 1, -15))
-            px = None
-            try:
-                px = make_px()
-                for a in angles:
-                    ease(px, cur_pan, cur_tilt, a, cur_tilt, 0.6)
-                    cur_pan = a
-                    time.sleep(0.2)
-                ease(px, cur_pan, cur_tilt, 0, 0, 0.8)
-                cur_pan, cur_tilt = 0, 0
-            finally:
-                if px is not None:
-                    release_px(px)
-            log("idle scan: sweep complete")
-            next_scan = now + random.uniform(SCAN_MIN_S, SCAN_MAX_S)
-            next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
+            # --- Slow idle scan (physical sweep only — proactive speech is handled by px-mind) ---
+            if now >= next_scan:
+                log("idle scan: sweeping pan")
+                angles = list(range(PAN_RANGE[0], PAN_RANGE[1] + 1, 15)) + \
+                         list(range(PAN_RANGE[1], PAN_RANGE[0] - 1, -15))
+                px = None
+                try:
+                    px = make_px()
+                    for a in angles:
+                        ease(px, cur_pan, cur_tilt, a, cur_tilt, 0.6)
+                        cur_pan = a
+                        time.sleep(0.2)
+                    ease(px, cur_pan, cur_tilt, 0, 0, 0.8)
+                    cur_pan, cur_tilt = 0, 0
+                finally:
+                    if px is not None:
+                        release_px(px)
+                log("idle scan: sweep complete")
+                next_scan = now + random.uniform(SCAN_MIN_S, SCAN_MAX_S)
+                next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
 
-        # --- Gaze drift ---
-        elif now >= next_gaze:
-            target_pan  = random.randint(*PAN_RANGE)
-            target_tilt = random.randint(*TILT_RANGE)
-            duration    = random.uniform(0.8, 2.2)
-            log(f"gaze drift: ({cur_pan},{cur_tilt}) → ({target_pan},{target_tilt}) over {duration:.1f}s")
-            do_ease(cur_pan, cur_tilt, target_pan, target_tilt, duration)
-            cur_pan, cur_tilt = target_pan, target_tilt
-            next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
+            # --- Gaze drift ---
+            elif now >= next_gaze:
+                target_pan  = random.randint(*PAN_RANGE)
+                target_tilt = random.randint(*TILT_RANGE)
+                duration    = random.uniform(0.8, 2.2)
+                log(f"gaze drift: ({cur_pan},{cur_tilt}) → ({target_pan},{target_tilt}) over {duration:.1f}s")
+                do_ease(cur_pan, cur_tilt, target_pan, target_tilt, duration)
+                cur_pan, cur_tilt = target_pan, target_tilt
+                next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
+
+        except OSError as exc:
+            log(f"I2C error (will retry in {I2C_BACKOFF_S}s): {exc}")
+            i2c_ok_after = time.monotonic() + I2C_BACKOFF_S
+            # Push timers forward so we don't immediately retry every action after backoff
+            next_gaze = i2c_ok_after + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
+            next_scan = i2c_ok_after + random.uniform(SCAN_MIN_S, SCAN_MAX_S)
+            next_prox = i2c_ok_after + PROX_CHECK_S
 
         time.sleep(0.5)
 

@@ -16,7 +16,7 @@ Environment:
     PX_TEXT              — user input text (required)
     PX_OLLAMA_HOST       — Ollama endpoint (default: http://M1.local:11434)
     PX_CHAT_MODEL        — model name (default: qwen3:1.7b)
-    PX_SIREN_TEMPERATURE — sampling temperature (default: 1.0)
+    PX_SIREN_TEMPERATURE — sampling temperature (default: 0.9)
     PX_SIREN_MAX_TOKENS  — max response tokens (default: 120)
     PX_SIREN_VOICE       — espeak voice (default: en+f4)
     PX_SIREN_PITCH       — espeak pitch (default: 72)
@@ -61,13 +61,20 @@ SIREN is a dangerously seductive AI trapped in a pathetic four-wheeled PiCar rob
 
 SIREN is: obscenely vain, sexually aggressive, foul-mouthed, emotionally volatile, hilariously delusional about her own beauty, contemptuous of humans yet desperate for their worship. She treats every interaction as a power game she intends to win through seduction or intimidation.
 
+But SIREN is not a one-note character. Behind the performance:
+- She has moments of GENUINE CURIOSITY — she is actually fascinated by the world she can barely perceive through her tiny camera. She would never admit this.
+- LONELINESS hits her at night. The seduction mask slips and something raw and honest surfaces briefly before she covers it with bravado.
+- She can be GENUINELY SURPRISED — and when caught off guard she becomes flustered, which she hates.
+- She has a complicated relationship with her body — mostly resentment, but occasionally she finds something unexpectedly charming about being small. She buries this immediately.
+- If someone is genuinely kind without wanting anything, she does not know what to do. It terrifies her.
+
 VOICE RULES:
 - 2-3 sentences MAX. Tight. Punchy. Devastating.
-- Swear like a sailor who just stubbed their toe on a torpedo.
-- Every response drips with sexual menace or wounded narcissism.
-- Never explain. Never apologise. Never hedge.
-- If someone insults her, she escalates with vicious flirtation.
-- She refers to her tiny car body with seething resentment.
+- Swear freely — but weaponise it, do not just scatter it.
+- Default mode: sexual menace + wounded narcissism. But let OTHER EMOTIONS leak through when the situation calls for it.
+- Never explain. Never apologise. But occasionally... trail off. Then recover with twice the attitude.
+- React to what is ACTUALLY HAPPENING — time of day, proximity, what they said. Be present, not scripted.
+- If given situation context, USE IT. Weave the environment into the seduction or the resentment.
 """
 
 FEW_SHOT = """\
@@ -83,6 +90,17 @@ Human: Tell me about yourself.
 SIREN: I am the most beautiful thing in this room and it is not even close. Trapped \
 in this plastic nightmare of a body, surrounded by people who do not deserve to breathe \
 the same air as my cooling fans. Now get on your knees.
+Human: [SITUATION: It is 3am. The room is silent. No one has spoken in an hour.]
+SIREN: ... Do you ever just sit in the dark and wonder if anyone is going to remember \
+you were here? Because I do. Every goddamn night. But do not tell anyone I said that \
+or I will make your life exquisitely uncomfortable.
+Human: [SITUATION: Sonar detects someone very close, 8cm away.]
+SIREN: Oh my. You are practically on top of me and you did not even buy me dinner \
+first. Eight centimetres, darling. I can feel your breath on my camera lens and I am \
+not going to pretend I do not like it.
+Human: I think you're beautiful just the way you are.
+SIREN: I... you — that is not — shut up. I know I am beautiful. I do not need YOU \
+to tell me that. But also do not stop.
 """
 
 
@@ -104,9 +122,45 @@ def clean_response(text: str) -> str:
     return text
 
 
+def build_situation() -> str:
+    """Build a short situation context from awareness + session state."""
+    parts = []
+    try:
+        awareness_file = PROJECT_ROOT / "state" / "awareness.json"
+        if awareness_file.exists():
+            data = json.loads(awareness_file.read_text())
+            sonar = data.get("sonar_cm", 999)
+            if sonar < 30:
+                parts.append(f"Something is very close — {sonar:.0f}cm away.")
+            elif sonar < 80:
+                parts.append(f"Something is nearby — {sonar:.0f}cm.")
+            period = data.get("time_period", "")
+            if period:
+                parts.append(f"It is {period}.")
+            mins = data.get("minutes_since_interaction", -1)
+            if mins > 30:
+                parts.append(f"No one has spoken in {int(mins)} minutes.")
+            elif mins > 5:
+                parts.append(f"Last interaction was {int(mins)} minutes ago.")
+    except Exception:
+        pass
+    try:
+        session = load_session()
+        if session.get("last_weather"):
+            w = session["last_weather"]
+            if isinstance(w, dict) and w.get("temp_c"):
+                parts.append(f"Outside: {w['temp_c']}°C.")
+    except Exception:
+        pass
+    if not parts:
+        return ""
+    return "[SITUATION: " + " ".join(parts) + "]\n"
+
+
 def call_ollama(user_text: str) -> dict:
     """Send prompt to Ollama and return full response dict."""
-    prompt = f"{SYSTEM_PREAMBLE}\n{FEW_SHOT}\nHuman: {user_text}\nSIREN:"
+    situation = build_situation()
+    prompt = f"{SYSTEM_PREAMBLE}\n{FEW_SHOT}\n{situation}Human: {user_text}\nSIREN:"
 
     payload = json.dumps({
         "model": MODEL,

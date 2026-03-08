@@ -296,7 +296,33 @@ def transcribe_whisper(whisper, audio_bytes: bytes) -> str:
         no_speech_threshold=0.6,
         vad_filter=False,
     )
-    return " ".join(s.text.strip() for s in segments).strip()
+    text = " ".join(s.text.strip() for s in segments).strip()
+    # Strip non-ASCII chars (curly quotes, em-dashes are OK; CJK blocks are hallucination)
+    ascii_text = text.encode("ascii", "ignore").decode("ascii").strip()
+    if text != ascii_text:
+        # If stripping removed most of the content, it was hallucination
+        if len(ascii_text) < len(text) * 0.5:
+            log(f"whisper hallucination (non-ASCII dominant): {text!r}")
+            return ""
+        log(f"whisper stripped non-ASCII: {text!r} → {ascii_text!r}")
+        text = ascii_text
+    # Reject common Whisper phantom outputs on near-silence
+    PHANTOM_PHRASES = {
+        "thank you", "thank you.", "thanks for watching", "thanks for watching.",
+        "you", "the", "bye", "bye.", "so", "i'm sorry",
+        "subscribe", "like and subscribe",
+    }
+    if text.lower().strip(".!? ") in PHANTOM_PHRASES:
+        log(f"whisper hallucination (phantom): {text!r}")
+        return ""
+    # Reject repetitive hallucinations ("Okay. Okay. Okay. ...")
+    words = text.lower().split()
+    if len(words) >= 6:
+        unique_ratio = len(set(words)) / len(words)
+        if unique_ratio < 0.3:
+            log(f"whisper hallucination (repetitive): {text!r}")
+            return ""
+    return text
 
 
 def _alive_pid() -> int | None:
@@ -489,20 +515,10 @@ def run_persona_conversation(persona_name: str, initial_text: str, dry: bool,
 
             if any(phrase in follow_text.lower() for phrase in END_PHRASES):
                 log("persona conversation: end phrase — final turn")
-                if use_voice_loop:
-                    subprocess.run(
-                        [persona_voice_cmd, "--prompt", prompt_path, "--max-turns", "3"],
-                        input=follow_text,
-                        text=True,
-                        capture_output=False,
-                        env=env,
-                        check=False,
-                    )
-                else:
-                    env["PX_TEXT"] = follow_text
-                    subprocess.run(
-                        [cfg["chat_tool"]], capture_output=True, text=True, check=False, env=env,
-                    )
+                env["PX_TEXT"] = follow_text
+                subprocess.run(
+                    [cfg["chat_tool"]], capture_output=True, text=True, check=False, env=env,
+                )
                 break
 
             current_text = follow_text

@@ -44,6 +44,23 @@ def main() -> int:
 
     timer_id = str(uuid.uuid4())[:8]
 
+    if dry_mode:
+        payload = {
+            "status": "ok",
+            "timer_id": timer_id,
+            "seconds": seconds,
+            "label": label,
+            "pid": 0,
+            "dry": True,
+        }
+        log_event("timer", payload)
+        update_session(
+            fields={"last_action": "tool_timer"},
+            history_entry={"event": "timer", "timer_id": timer_id, "seconds": seconds, "label": label, "dry": True},
+        )
+        print(json.dumps(payload))
+        return 0
+
     env = os.environ.copy()
     env["PX_TIMER_SECONDS"] = str(seconds)
     env["PX_TIMER_LABEL"]   = label
@@ -93,7 +110,7 @@ def main() -> int:
         "seconds": seconds,
         "label": label,
         "pid": pid,
-        "dry": dry_mode,
+        "dry": False,
     }
     log_event("timer", payload)
     update_session(

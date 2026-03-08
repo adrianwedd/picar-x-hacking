@@ -17,20 +17,27 @@ def run_mind(extra_args, env):
     )
 
 
-def test_px_mind_dry_run_exits_zero(isolated_project):
+def _env_with_state(isolated_project):
+    """Return env dict with PX_STATE_DIR + log/pid paths pointing to tmp."""
     env = isolated_project["env"].copy()
+    state_dir = isolated_project["log_dir"].parent / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    env["PX_STATE_DIR"] = str(state_dir)
     env["PX_MIND_LOG"] = str(isolated_project["log_dir"] / "px-mind.log")
     env["PX_MIND_PID"] = str(isolated_project["log_dir"] / "px-mind.pid")
+    return env, state_dir
+
+
+def test_px_mind_dry_run_exits_zero(isolated_project):
+    env, _ = _env_with_state(isolated_project)
     result = run_mind([], env)
     assert result.returncode == 0, f"stderr: {result.stderr[:500]}"
 
 
 def test_px_mind_dry_run_creates_awareness(isolated_project):
-    env = isolated_project["env"].copy()
-    env["PX_MIND_LOG"] = str(isolated_project["log_dir"] / "px-mind.log")
-    env["PX_MIND_PID"] = str(isolated_project["log_dir"] / "px-mind.pid")
+    env, state_dir = _env_with_state(isolated_project)
     run_mind([], env)
-    awareness = Path(PROJECT_ROOT / "state" / "awareness.json")
+    awareness = state_dir / "awareness.json"
     assert awareness.exists()
     data = json.loads(awareness.read_text())
     assert "sonar_cm" in data
@@ -39,11 +46,9 @@ def test_px_mind_dry_run_creates_awareness(isolated_project):
 
 
 def test_px_mind_dry_run_creates_thoughts(isolated_project):
-    env = isolated_project["env"].copy()
-    env["PX_MIND_LOG"] = str(isolated_project["log_dir"] / "px-mind.log")
-    env["PX_MIND_PID"] = str(isolated_project["log_dir"] / "px-mind.pid")
+    env, state_dir = _env_with_state(isolated_project)
     run_mind([], env)
-    thoughts = Path(PROJECT_ROOT / "state" / "thoughts.jsonl")
+    thoughts = state_dir / "thoughts.jsonl"
     assert thoughts.exists()
     lines = thoughts.read_text().strip().splitlines()
     assert len(lines) >= 3  # dry-run does 3 cycles
@@ -55,10 +60,8 @@ def test_px_mind_dry_run_creates_thoughts(isolated_project):
 
 
 def test_px_mind_dry_run_logs(isolated_project):
-    env = isolated_project["env"].copy()
+    env, _ = _env_with_state(isolated_project)
     log_path = isolated_project["log_dir"] / "px-mind.log"
-    env["PX_MIND_LOG"] = str(log_path)
-    env["PX_MIND_PID"] = str(isolated_project["log_dir"] / "px-mind.pid")
     run_mind([], env)
     content = log_path.read_text()
     assert "starting pid=" in content
@@ -67,9 +70,7 @@ def test_px_mind_dry_run_logs(isolated_project):
 
 
 def test_px_mind_dry_run_no_pid_leftover(isolated_project):
-    env = isolated_project["env"].copy()
+    env, _ = _env_with_state(isolated_project)
     pid_file = isolated_project["log_dir"] / "px-mind.pid"
-    env["PX_MIND_LOG"] = str(isolated_project["log_dir"] / "px-mind.log")
-    env["PX_MIND_PID"] = str(pid_file)
     run_mind([], env)
     assert not pid_file.exists()

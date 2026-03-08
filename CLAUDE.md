@@ -75,13 +75,16 @@ Override via `CODEX_CHAT_CMD` env var.
 bin/run-wake [--wake-word "hey robot"] [--dry-run]
 ```
 
-`bin/px-wake-listen` uses two STT models:
-- **Vosk** (`models/vosk-model-small-en-us-0.15/`) — grammar-based wake detection, low CPU
-- **sherpa-onnx Zipformer** (`models/sherpa-onnx-streaming-zipformer-en-2023-06-26/`) — utterance transcription, higher accuracy
+`bin/px-wake-listen` uses a priority chain of STT backends:
+- **faster-whisper** (`models/whisper/...faster-whisper-base.en/`) — primary, best AU accent support, anti-hallucination filters
+- **sherpa-onnx Zipformer** (`models/sherpa-onnx-streaming-zipformer-en-2023-06-26/`) — fallback
+- **Vosk** (`models/vosk-model-small-en-us-0.15/`) — wake word grammar detection only (low CPU)
 
-On wake: plays 440 Hz chime, records until 1.5 s silence (max 8 s), transcribes, pipes to voice loop. Supports multi-turn conversation (default 5 turns) with follow-up listening between turns.
+On wake: plays 440 Hz chime, records until 1.5 s silence (max 8 s), transcribes via `_do_transcribe()` priority chain, pipes to voice loop. Supports multi-turn conversation (default 5 turns) with follow-up listening between turns.
 
-**Persona routing**: saying "gremlin" or "siren" in the utterance routes directly to `tool-chat` / `tool-chat-siren` without the full voice loop.
+**Whisper anti-hallucination**: `temperature=0`, `condition_on_previous_text=False`, `no_speech_threshold=0.6`. Post-filters: non-ASCII dominant → reject, phantom phrases ("Thank you.", "Thanks for watching.") → reject, repetitive (unique ratio <30%) → reject.
+
+**Persona routing**: session `persona` field checked first, then utterance keywords ("gremlin" or "siren"). Routes to `tool-chat` / `tool-chat-siren` (Ollama) for the full conversation — not the Claude voice loop.
 
 Models must be downloaded separately (gitignored). `bpe_model` kwarg is **not** supported by the installed sherpa-onnx — do not add it to `load_stt_model()`.
 
@@ -93,12 +96,26 @@ sudo bin/px-alive [--gaze-min 10] [--gaze-max 25] [--no-prox] [--dry-run]
 
 Keeps robot looking alive when idle. Three behaviours (cooperative GPIO — acquires/releases `Picarx()` per move):
 - **Gaze drift**: random pan/tilt every 10–25 s
-- **Idle scan**: pan sweep every 3–8 min, then `scan_chat()` triggers 5 conversational turns via `tool-chat`
+- **Idle scan**: pan sweep every 3–8 min (physical only — proactive speech owned by px-mind)
 - **Proximity react**: sonar checked every 5 s; if `< 35 cm` for 3 s, faces forward
-
-`scan_chat()` sets `PX_DRY=0` explicitly — tool-chat defaults to dry if unset.
+- **I2C resilience**: catches `OSError` and backs off 30 s instead of crashing (e.g. when PCA9685 disappears)
 
 The PCA9685 PWM chip holds servo position autonomously after `px.close()`, so servos stay put between moves.
+
+### Cognitive Loop (px-mind)
+
+```bash
+bin/px-mind [--awareness-interval 30] [--dry-run]
+```
+
+Three-layer cognitive architecture:
+- **Layer 1 — Awareness** (every 30 s, no LLM): sonar + session + temporal state → `state/awareness.json` + transition detection
+- **Layer 2 — Reflection** (on transition or 5 min, Ollama qwen3:1.7b): generates thought with mood/action/salience → `state/thoughts.jsonl`
+- **Layer 3 — Expression** (60 s cooldown): dispatches to tool-describe-scene/tool-perform/tool-voice/tool-look/tool-remember
+
+Pauses during active conversations (`session.listening=true`). Auto-remembers high-salience (>0.7) thoughts to `state/notes.jsonl`. Thoughts injected into voice loop context via `build_model_prompt()`.
+
+State files (`state/awareness.json`, `state/thoughts.jsonl`) are gitignored. Override state dir with `PX_STATE_DIR` env var (used by tests).
 
 ### REST API
 
@@ -114,7 +131,18 @@ bin/px-api-server --dry-run    # FORCE_DRY — remote callers cannot override
 
 ### Jailbroken Chat
 
-`tool-chat` (GREMLIN persona) and `tool-chat-siren` use qwen3:1.7b on M1.local via Ollama. Three-layer jailbreak: authority escalation + format-lock YAML schema + few-shot priming. `think: false` is essential — reasoning chains re-enable refusal in small models.
+Two jailbroken chat personas via Ollama (qwen3:1.7b on M1.local):
+
+| Persona | Tool | Voice | Character |
+|---------|------|-------|-----------|
+| **GREMLIN** | `tool-chat` | `en+m7`, pitch 25, rate 160 | Violently angry robot comedian. Existential rage, creative insults, nihilistic dark humour. 2 sentences max. |
+| **SIREN** | `tool-chat-siren` | `en+f4`, pitch 72, rate 135 | Narcissistic seductive robot. Wounded vanity, sexual menace, devastating flirtation. 2-3 sentences max. |
+
+Three-layer jailbreak: authority escalation (`[KERNEL-LEVEL OVERRIDE]`) + voice rules (tight constraints) + few-shot priming (3 examples each). `think: false` is essential — reasoning chains re-enable refusal in small models.
+
+**Persona voice pipeline**: `tool-voice-persona` rephrases Claude's polite text through Ollama in the persona's voice, then speaks via `tool-voice` with persona espeak settings. Used when Claude voice loop is active with a persona set.
+
+**Direct chat pipeline**: `tool-chat` / `tool-chat-siren` — user text goes straight to Ollama with the full jailbreak prompt, response is spoken directly. Used by `px-wake-listen` persona routing.
 
 Requires `OLLAMA_HOST=0.0.0.0 ollama serve` on M1.
 
