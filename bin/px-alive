@@ -59,12 +59,7 @@ def ease(px, from_pan: int, from_tilt: int, to_pan: int, to_tilt: int, duration:
 
 
 def make_px():
-    # os.getlogin() fails under systemd (no /dev/tty / utmp entry).
-    # Picarx.__init__ calls os.getlogin() for fileDB ownership — patch it.
-    import os as _os
-    if "LOGNAME" not in _os.environ:
-        _os.environ["LOGNAME"] = "pi"
-    _os.getlogin = lambda: _os.environ.get("LOGNAME", "pi")
+    # os.getlogin() patched globally via usercustomize.py for systemd
     from picarx import Picarx
     return Picarx()
 

@@ -263,8 +263,8 @@ def main() -> int:
         history_entry={
             "event": "chat",
             "model": MODEL,
-            "user_text": user_text[:100],
-            "response": cleaned[:100],
+            "user_text": user_text,
+            "response": cleaned,
             "dry": False,
         },
     )
@@ -274,7 +274,7 @@ def main() -> int:
         "dry": False,
         "model": MODEL,
         "user_text": user_text,
-        "raw_response": raw_response[:500],
+        "raw_response": raw_response,
         "cleaned_response": cleaned,
         "voice_rc": voice_rc,
         "eval_seconds": round(eval_dur, 2),

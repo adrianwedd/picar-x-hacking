@@ -121,7 +121,7 @@ def main() -> int:
     if persona and persona in REPHRASE_PROMPTS:
         rephrased = rephrase_via_ollama(text, persona)
         log_event("voice_persona", {
-            "persona": persona, "original": text[:100], "rephrased": rephrased[:100],
+            "persona": persona, "original": text, "rephrased": rephrased,
         })
     else:
         rephrased = text
@@ -136,8 +136,8 @@ def main() -> int:
     payload = {
         "status": "ok",
         "persona": persona,
-        "original": text[:200],
-        "rephrased": rephrased[:200],
+        "original": text,
+        "rephrased": rephrased,
         "voice_rc": result.returncode,
     }
     print(json.dumps(payload))

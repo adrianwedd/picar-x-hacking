@@ -247,7 +247,7 @@ def auto_remember(thought: dict) -> None:
     NOTES_FILE.parent.mkdir(parents=True, exist_ok=True)
     with NOTES_FILE.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
-    log(f"auto-remembered: {thought['thought'][:60]}")
+    log(f"auto-remembered: {thought['thought']}")
 
 
 def extract_json(text: str) -> dict | None:
@@ -335,13 +335,13 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     raw = result.get("response", "")
     parsed = extract_json(raw)
     if not parsed:
-        log(f"reflection: no JSON in response: {raw[:200]}")
+        log(f"reflection: no JSON in response: {raw}")
         return None
 
     # Validate and sanitize
     thought = {
         "ts": utc_timestamp(),
-        "thought": str(parsed.get("thought", ""))[:200],
+        "thought": str(parsed.get("thought", "")),
         "mood": parsed.get("mood", "content") if parsed.get("mood") in VALID_MOODS else "content",
         "action": parsed.get("action", "wait") if parsed.get("action") in VALID_ACTIONS else "wait",
         "salience": max(0.0, min(1.0, float(parsed.get("salience", 0.0)))),
@@ -351,7 +351,7 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     eval_dur = result.get("eval_duration", 0) / 1e9
     tps = round(eval_toks / eval_dur, 1) if eval_dur > 0 else 0
 
-    log(f"thought: {thought['thought'][:80]}  mood={thought['mood']} "
+    log(f"thought: {thought['thought']}  mood={thought['mood']} "
         f"action={thought['action']} salience={thought['salience']:.1f} "
         f"({elapsed:.1f}s, {tps} tok/s)")
 
@@ -437,7 +437,7 @@ def expression(thought: dict, dry: bool) -> None:
             "event": "mind",
             "mood": thought.get("mood", ""),
             "action": action,
-            "thought": text[:80],
+            "thought": text,
         },
     )
 

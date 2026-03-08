@@ -112,7 +112,7 @@ def main() -> int:
 
     update_session(
         fields={"last_action": "tool_voice"},
-        history_entry={"event": "voice", "text": text[:120], "dry": dry_mode},
+        history_entry={"event": "voice", "text": text, "dry": dry_mode},
     )
     log_event("voice", payload)
     print(json.dumps(payload))
