@@ -59,50 +59,92 @@ def ease(px, from_pan: int, from_tilt: int, to_pan: int, to_tilt: int, duration:
             time.sleep(duration / steps)
 
 
-def safe_distance(px) -> float:
+def make_px():
+    from picarx import Picarx
+    return Picarx()
+
+
+def release_px(px) -> None:
+    """Release lgpio + I2C handles without resetting servo position.
+
+    The PCA9685 PWM chip is I2C-driven and holds its last commanded position
+    autonomously after close(), so the servo stays put while px-alive sleeps.
+    """
     try:
+        px.close()
+    except Exception:
+        pass
+
+
+def safe_distance() -> float:
+    """Open Picarx briefly just to read sonar, then release."""
+    px = None
+    try:
+        px = make_px()
         d = px.get_distance()
         return float(d) if d and d > 0 else 999.0
     except Exception:
         return 999.0
+    finally:
+        if px is not None:
+            release_px(px)
 
 
-def idle_loop(px, args) -> None:
+def do_ease(from_pan: int, from_tilt: int, to_pan: int, to_tilt: int, duration: float) -> None:
+    """Open Picarx, ease to target, then release."""
+    px = None
+    try:
+        px = make_px()
+        ease(px, from_pan, from_tilt, to_pan, to_tilt, duration)
+    finally:
+        if px is not None:
+            release_px(px)
+
+
+def idle_loop(args) -> None:
     cur_pan, cur_tilt = 0, 0
     next_gaze = time.monotonic() + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
     next_scan = time.monotonic() + random.uniform(SCAN_MIN_S, SCAN_MAX_S)
     prox_near_since: float | None = None
 
-    log("idle loop started")
+    log("idle loop started (cooperative GPIO — acquire/release per move)")
 
     while True:
         now = time.monotonic()
 
         # --- Proximity check (every ~0.5 s) ---
-        dist = safe_distance(px)
-        if dist < PROX_THRESH:
-            if prox_near_since is None:
-                prox_near_since = now
-            elif now - prox_near_since >= PROX_HOLD_S:
-                log(f"proximity react: object at {dist:.1f}cm — facing forward")
-                ease(px, cur_pan, cur_tilt, 0, 5, 0.5)
-                cur_pan, cur_tilt = 0, 5
+        if PROX_THRESH > 0:
+            dist = safe_distance()
+            if dist < PROX_THRESH:
+                if prox_near_since is None:
+                    prox_near_since = now
+                elif now - prox_near_since >= PROX_HOLD_S:
+                    log(f"proximity react: object at {dist:.1f}cm — facing forward")
+                    do_ease(cur_pan, cur_tilt, 0, 5, 0.5)
+                    cur_pan, cur_tilt = 0, 5
+                    prox_near_since = None
+                    next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
+            else:
                 prox_near_since = None
-                next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
-        else:
-            prox_near_since = None
 
         # --- Slow idle scan ---
         if now >= next_scan:
             log("idle scan: sweeping pan")
             angles = list(range(PAN_RANGE[0], PAN_RANGE[1] + 1, 15)) + \
                      list(range(PAN_RANGE[1], PAN_RANGE[0] - 1, -15))
-            for a in angles:
-                ease(px, cur_pan, cur_tilt, a, cur_tilt, 0.6)
-                cur_pan = a
-                time.sleep(0.2)
-            ease(px, cur_pan, cur_tilt, 0, 0, 0.8)
-            cur_pan, cur_tilt = 0, 0
+            # Open once for the whole sweep — it's a continuous motion
+            px = None
+            try:
+                px = make_px()
+                for a in angles:
+                    ease(px, cur_pan, cur_tilt, a, cur_tilt, 0.6)
+                    cur_pan = a
+                    time.sleep(0.2)
+                ease(px, cur_pan, cur_tilt, 0, 0, 0.8)
+                cur_pan, cur_tilt = 0, 0
+            finally:
+                if px is not None:
+                    release_px(px)
             next_scan = now + random.uniform(SCAN_MIN_S, SCAN_MAX_S)
             next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
 
@@ -112,7 +154,7 @@ def idle_loop(px, args) -> None:
             target_tilt = random.randint(*TILT_RANGE)
             duration    = random.uniform(0.8, 2.2)
             log(f"gaze drift: ({cur_pan},{cur_tilt}) → ({target_pan},{target_tilt}) over {duration:.1f}s")
-            ease(px, cur_pan, cur_tilt, target_pan, target_tilt, duration)
+            do_ease(cur_pan, cur_tilt, target_pan, target_tilt, duration)
             cur_pan, cur_tilt = target_pan, target_tilt
             next_gaze = now + random.uniform(GAZE_MIN_S, GAZE_MAX_S)
 
@@ -165,29 +207,21 @@ def main(argv) -> int:
         PID_FILE.unlink(missing_ok=True)
         return 0
 
+    # Verify picarx is importable before entering the loop
     try:
-        from picarx import Picarx
+        from picarx import Picarx as _  # noqa: F401
     except Exception as exc:
         log(f"import error: {exc}")
         return 1
 
-    px = None
     try:
-        px = Picarx()
-        idle_loop(px, args)
+        idle_loop(args)
     except SystemExit:
         pass
     except Exception as exc:
         log(f"fatal: {exc}")
         return 1
     finally:
-        if px is not None:
-            try:
-                px.set_cam_pan_angle(0)
-                px.set_cam_tilt_angle(0)
-                px.close()
-            except Exception:
-                pass
         PID_FILE.unlink(missing_ok=True)
         log("stopped")
     return 0
