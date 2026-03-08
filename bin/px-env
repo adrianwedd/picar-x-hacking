@@ -37,3 +37,7 @@ if [[ -d "$PROJECT_ROOT/.venv" && -z "${VIRTUAL_ENV:-}" ]]; then
 fi
 
 mkdir -p "$LOG_DIR"
+
+# Default audio output: HifiBerry DAC via robot_hat ALSA plug device.
+# Override with e.g. PX_VOICE_DEVICE=plughw:1,0 for direct HW access.
+export PX_VOICE_DEVICE="${PX_VOICE_DEVICE:-robothat}"

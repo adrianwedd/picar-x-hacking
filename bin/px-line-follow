@@ -1,0 +1,339 @@
+#!/usr/bin/env bash
+# Run via bin/run-line-follow (handles sudo). Direct use requires root.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+/usr/bin/python3 - "$@" <<'PY'
+"""Line follower: detect coloured track boundaries, steer to inferred centre.
+
+Track layout: grey surface, red/white boundary kerbs on each side.
+
+Flow:
+  1. Capture frame from CSI camera (picamera2, OV5647).
+  2. HSV-mask red and white pixels → boundary map.
+  3. For each of N horizontal scan rows, find leftmost and rightmost boundary
+     pixel → track centre X for that row.
+  4. Weighted average of row centres (bottom rows weighted higher) → error.
+  5. PD controller → steering angle.
+  6. Speed scheduling: measure curvature from how much centres shift between
+     rows → slow for hairpins, fast for straights.
+  7. --debug: save annotated JPEG every N frames for threshold tuning.
+"""
+import argparse
+import os
+import sys
+import time
+import signal
+import datetime as dt
+from pathlib import Path
+
+LOG_DIR  = Path(os.environ.get("LOG_DIR",  Path.cwd() / "logs"))
+LOG_FILE = Path(os.environ.get("PX_LOG_FILE", LOG_DIR / "px-line-follow.log"))
+DRY_RUN  = os.environ.get("PX_DRY", "0") == "1"
+
+# ── Tunable parameters ────────────────────────────────────────────────────────
+
+# Camera
+FRAME_W  = 640
+FRAME_H  = 480
+CAM_TILT = -15          # camera tilt angle (negative = down); tune on robot
+
+# Scan rows: sample these Y positions (0=top, FRAME_H-1=bottom)
+# Bottom rows = close to car (immediate), top rows = lookahead
+SCAN_ROWS  = [380, 340, 300, 260, 220]   # 5 rows from near to far
+ROW_WEIGHTS = [5,   4,   3,   2,   1]    # bottom rows weighted higher
+
+# HSV boundary colour ranges  (H: 0-179, S: 0-255, V: 0-255 in OpenCV)
+# Red wraps in HSV → two ranges
+RED_LO1 = (  0,  80,  80)
+RED_HI1 = ( 10, 255, 255)
+RED_LO2 = (165,  80,  80)
+RED_HI2 = (179, 255, 255)
+# White (low saturation, high value)
+WHT_LO  = (  0,   0, 180)
+WHT_HI  = (179,  50, 255)
+
+# PD controller
+KP = 0.35          # proportional gain  (tune: bigger → more aggressive steering)
+KD = 0.15          # derivative gain    (tune: bigger → more damping)
+MAX_STEER = 35     # degrees, PiCar-X servo limit
+
+# Speed scheduling
+SPEED_STRAIGHT  = 60   # % when track is straight
+SPEED_CURVE     = 40   # % for moderate curves
+SPEED_HAIRPIN   = 25   # % for tight hairpins
+CURVE_THRESH    = 30   # pixel shift between rows → "curve"
+HAIRPIN_THRESH  = 70   # pixel shift between rows → "hairpin"
+
+# Control loop
+LOOP_HZ  = 15          # target control loop rate
+DEBUG_EVERY = 30       # save annotated frame every N frames (0 = off)
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+
+def log(msg: str) -> None:
+    ts = dt.datetime.now().isoformat(timespec="seconds")
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    line = f"{ts} [line] {msg}"
+    with LOG_FILE.open("a") as f:
+        f.write(line + "\n")
+    print(line, flush=True)
+
+
+# ── Boundary detection ────────────────────────────────────────────────────────
+
+def build_boundary_mask(frame_bgr):
+    """Return binary mask of red+white boundary pixels."""
+    import cv2
+    import numpy as np
+    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+    red1 = cv2.inRange(hsv, RED_LO1, RED_HI1)
+    red2 = cv2.inRange(hsv, RED_LO2, RED_HI2)
+    white = cv2.inRange(hsv, WHT_LO, WHT_HI)
+    return cv2.bitwise_or(cv2.bitwise_or(red1, red2), white)
+
+
+def scan_row(mask, y: int, half_w: int = 20):
+    """Find leftmost and rightmost boundary pixel in row y.
+
+    Returns (left_x, right_x) or (None, None) if boundary not found.
+    Searches left-to-right for left edge, right-to-left for right edge.
+    """
+    import numpy as np
+    row = mask[y]
+    nz = np.nonzero(row)[0]
+    if len(nz) < 2:
+        return None, None
+    return int(nz[0]), int(nz[-1])
+
+
+def compute_track_centres(mask):
+    """Return list of (y, centre_x) for each scan row where both edges found."""
+    centres = []
+    for y in SCAN_ROWS:
+        if y >= mask.shape[0]:
+            continue
+        lx, rx = scan_row(mask, y)
+        if lx is not None and rx is not None and rx > lx + 20:
+            centres.append((y, (lx + rx) // 2, lx, rx))
+    return centres  # [(y, centre_x, left_x, right_x), ...]
+
+
+def compute_error(centres) -> float:
+    """Weighted average lateral error: positive = track centre is to the right."""
+    if not centres:
+        return 0.0
+    frame_cx = FRAME_W // 2
+    total_w = 0.0
+    total_err = 0.0
+    row_to_weight = dict(zip(SCAN_ROWS, ROW_WEIGHTS))
+    for y, cx, lx, rx in centres:
+        w = row_to_weight.get(y, 1)
+        total_err += w * (cx - frame_cx)
+        total_w   += w
+    return total_err / total_w if total_w else 0.0
+
+
+def classify_speed(centres) -> int:
+    """Estimate curvature from how much the centre shifts between rows."""
+    if len(centres) < 2:
+        return SPEED_CURVE
+    cxs = [c[1] for c in centres]
+    # max shift between adjacent rows
+    shifts = [abs(cxs[i+1] - cxs[i]) for i in range(len(cxs)-1)]
+    max_shift = max(shifts) if shifts else 0
+    if max_shift >= HAIRPIN_THRESH:
+        return SPEED_HAIRPIN
+    if max_shift >= CURVE_THRESH:
+        return SPEED_CURVE
+    return SPEED_STRAIGHT
+
+
+# ── Debug frame ───────────────────────────────────────────────────────────────
+
+def save_debug_frame(frame_bgr, mask, centres, steer: float, speed: int,
+                     frame_n: int, debug_dir: Path) -> None:
+    """Save annotated frame to debug_dir for threshold tuning."""
+    import cv2
+    import numpy as np
+    out = frame_bgr.copy()
+    # Overlay mask in green
+    green_overlay = np.zeros_like(out)
+    green_overlay[:, :, 1] = mask
+    out = cv2.addWeighted(out, 0.7, green_overlay, 0.3, 0)
+    # Draw scan row centres
+    frame_cx = FRAME_W // 2
+    for y, cx, lx, rx in centres:
+        cv2.circle(out, (lx, y), 4, (0, 0, 255), -1)   # left edge: red
+        cv2.circle(out, (rx, y), 4, (255, 0, 0), -1)   # right edge: blue
+        cv2.circle(out, (cx, y), 5, (0, 255, 0), -1)   # centre: green
+        cv2.line(out, (frame_cx, y), (cx, y), (0, 255, 255), 1)  # error line
+    cv2.line(out, (frame_cx, 0), (frame_cx, FRAME_H), (255, 255, 0), 1)
+    cv2.putText(out, f"steer={steer:+.1f} spd={speed}", (10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(debug_dir / f"frame_{frame_n:06d}.jpg"), out)
+
+
+# ── Main control loop ─────────────────────────────────────────────────────────
+
+def run(args) -> int:
+    import cv2
+    import numpy as np
+
+    dry = DRY_RUN or args.dry_run
+    debug_dir = Path(args.debug_dir) if args.debug_dir else LOG_DIR / "line-debug"
+
+    # Camera
+    try:
+        from picamera2 import Picamera2
+    except ImportError:
+        log("picamera2 not available")
+        return 1
+
+    cam = Picamera2()
+    cfg = cam.create_video_configuration(
+        main={"size": (FRAME_W, FRAME_H), "format": "BGR888"},
+        controls={"FrameRate": LOOP_HZ + 5},
+    )
+    cam.configure(cfg)
+
+    # Picarx
+    px = None
+    if not dry:
+        try:
+            from picarx import Picarx
+            px = Picarx()
+            # Tilt camera down to see track
+            px.set_camera_tilt_angle(args.cam_tilt)
+            log(f"picarx ready, camera tilt={args.cam_tilt}°")
+        except Exception as exc:
+            log(f"picarx init failed: {exc} — running in dry mode")
+            dry = True
+
+    log(f"starting: dry={dry} Kp={args.kp} Kd={args.kd} "
+        f"debug_every={args.debug_every}")
+
+    cam.start()
+    time.sleep(0.5)  # let AGC settle
+
+    prev_error = 0.0
+    prev_time  = time.time()
+    frame_n    = 0
+    lost_frames = 0
+    error  = 0.0
+    steer  = 0.0
+    speed  = SPEED_STRAIGHT
+
+    def _stop(sig, _frame):
+        log(f"signal {sig} — stopping")
+        if px:
+            try:
+                px.stop()
+            except Exception:
+                pass
+        cam.stop()
+        cam.close()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT,  _stop)
+
+    target_dt = 1.0 / LOOP_HZ
+
+    try:
+        while True:
+            t_start = time.time()
+
+            frame = cam.capture_array()
+            mask = build_boundary_mask(frame)
+            centres = compute_track_centres(mask)
+
+            if centres:
+                lost_frames = 0
+                error  = compute_error(centres)
+                speed  = classify_speed(centres)
+                now    = time.time()
+                dt_s   = max(now - prev_time, 1e-3)
+                d_err  = (error - prev_error) / dt_s
+                steer  = -(args.kp * error + args.kd * d_err)
+                steer  = max(-MAX_STEER, min(MAX_STEER, steer))
+                prev_error = error
+                prev_time  = now
+            else:
+                lost_frames += 1
+                steer = prev_error * -args.kp  # hold last steer
+                speed = SPEED_HAIRPIN
+                if lost_frames > LOOP_HZ * 2:  # 2s with no track → stop
+                    log("track lost for 2s — stopping")
+                    if px:
+                        px.stop()
+                    break
+
+            if args.debug_every and frame_n % args.debug_every == 0:
+                save_debug_frame(frame, mask, centres, steer, speed,
+                                 frame_n, debug_dir)
+
+            if frame_n % LOOP_HZ == 0:
+                err_str = f"{error:+.1f}" if centres else "lost"
+                log(f"frame={frame_n} err={err_str} "
+                    f"steer={steer:+.1f} spd={speed} lost={lost_frames}")
+
+            if not dry and px:
+                px.set_dir_servo_angle(steer)
+                px.forward(speed)
+
+            frame_n += 1
+
+            # Pace the loop
+            elapsed = time.time() - t_start
+            sleep_t = target_dt - elapsed
+            if sleep_t > 0:
+                time.sleep(sleep_t)
+
+    except KeyboardInterrupt:
+        pass
+    finally:
+        log(f"stopped after {frame_n} frames")
+        if px:
+            try:
+                px.stop()
+            except Exception:
+                pass
+        cam.stop()
+        cam.close()
+
+    return 0
+
+
+def main(argv) -> int:
+    parser = argparse.ArgumentParser(description="PiCar-X boundary line follower")
+    parser.add_argument("--dry-run",     action="store_true",
+                        help="Capture and compute but do not move")
+    parser.add_argument("--debug-every", type=int, default=DEBUG_EVERY,
+                        metavar="N",
+                        help="Save annotated debug frame every N frames (0=off)")
+    parser.add_argument("--debug-dir",   default="",
+                        help="Directory for debug frames (default: logs/line-debug/)")
+    parser.add_argument("--cam-tilt",    type=int, default=CAM_TILT,
+                        help=f"Camera tilt angle, degrees (default: {CAM_TILT})")
+    parser.add_argument("--kp",          type=float, default=KP)
+    parser.add_argument("--kd",          type=float, default=KD)
+    parser.add_argument("--snapshot",    action="store_true",
+                        help="Capture one frame, save debug image, then exit "
+                             "(for HSV threshold tuning without moving)")
+    args = parser.parse_args(argv)
+
+    if args.snapshot:
+        args.dry_run    = True
+        args.debug_every = 1
+
+    return run(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
+PY

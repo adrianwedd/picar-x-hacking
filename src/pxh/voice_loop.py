@@ -142,7 +142,9 @@ def capture_text_input() -> Optional[str]:
     try:
         line = input("You> ").strip()
     except EOFError:
-        return None
+        # Stdin exhausted (piped single utterance). Return a continuation sentinel
+        # so the model can follow up on its last tool call (e.g. speak weather result).
+        return "(continue)"
     if not line:
         return None
     return line

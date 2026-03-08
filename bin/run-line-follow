@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Launch the line follower with sudo (needed for picarx GPIO).
+# Usage: bin/run-line-follow [--dry-run] [--snapshot] [--kp 0.35] [--kd 0.15] [--help]
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+exec sudo -n \
+    PYTHONPATH="$PYTHONPATH" \
+    PROJECT_ROOT="$PROJECT_ROOT" \
+    LOG_DIR="$LOG_DIR" \
+    PX_DRY="${PX_DRY:-0}" \
+    bash "$SCRIPT_DIR/px-line-follow" "$@"

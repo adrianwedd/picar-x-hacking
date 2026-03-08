@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Launch the wake-word listener daemon.
 # Usage: bin/run-wake [--wake-word "hey robot"] [--dry-run] [--help]
+#
+# Environment:
+#   PX_WAKE_WORD     Wake phrase (default: "hey robot")
+#   PX_WAKE_MODEL    Vosk grammar model dir (default: vosk-model-small-en-us-0.15)
+#   PX_STT_MODEL     Sherpa-onnx Zipformer dir for utterance STT (default: sherpa-onnx-streaming-zipformer-en-2023-06-26)
+#   PX_VOICE_DEVICE  ALSA device for chime output
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,11 +14,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/px-env"
 
 MODEL_DIR="${PX_WAKE_MODEL:-$PROJECT_ROOT/models/vosk-model-small-en-us-0.15}"
+STT_DIR="${PX_STT_MODEL:-$PROJECT_ROOT/models/sherpa-onnx-streaming-zipformer-en-2023-06-26}"
 WAKE_WORD="${PX_WAKE_WORD:-hey robot}"
 APLAY_DEV="${PX_VOICE_DEVICE:-}"
 
 exec "$SCRIPT_DIR/px-wake-listen" \
     --model-dir "$MODEL_DIR" \
+    --stt-model-dir "$STT_DIR" \
     --wake-word "$WAKE_WORD" \
     ${APLAY_DEV:+--aplay-device "$APLAY_DEV"} \
     "$@"

@@ -10,3 +10,6 @@ logs_test/
 models/
 |
 picar-x-hacking/
+state/session.json.lock
+test-frame.jpg
+track.png
