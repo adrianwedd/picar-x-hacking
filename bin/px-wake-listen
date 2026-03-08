@@ -55,9 +55,9 @@ DEFAULT_WAKE  = "hey robot"
 
 # Persona config: prompt file, voice settings, and fallback chat tool
 PERSONAS = {
-    "siren": {
-        "prompt": str(PROJECT_ROOT / "docs" / "prompts" / "persona-siren.md"),
-        "chat_tool": str(PROJECT_ROOT / "bin" / "tool-chat-siren"),
+    "vixen": {
+        "prompt": str(PROJECT_ROOT / "docs" / "prompts" / "persona-vixen.md"),
+        "chat_tool": str(PROJECT_ROOT / "bin" / "tool-chat-vixen"),
         "voice_env": {
             "PX_VOICE_VARIANT": "en+f4",
             "PX_VOICE_PITCH": "72",
