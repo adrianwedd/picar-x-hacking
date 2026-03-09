@@ -8,7 +8,7 @@ User=root
 WorkingDirectory=/home/pi/picar-x-hacking
 Environment=HOME=/home/pi
 ExecStart=/home/pi/picar-x-hacking/bin/px-alive
-Restart=on-failure
+Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal

@@ -17,7 +17,6 @@ Step schema:
   { "speak": "text",           # optional — spoken via espeak+aplay
     "emote": "happy",          # optional — named camera pose
     "look":  {"pan": 30, "tilt": 10},  # optional — explicit angle
-    "move":  "circle"|"figure8",       # optional — wheel motion (motion-gated)
     "pause": 1.5               # optional — hold N seconds after this step
   }
 """

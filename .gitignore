@@ -18,9 +18,13 @@ track.png
 state/notes.jsonl
 state/awareness.json
 state/thoughts.jsonl
+state/mood.json
+state/ambient_sound.json
+state/*.lock
 photos/
 .env
-logs/px-api-server.pid
+logs/*.pid
+diag_summary.json
 .claude.json
 .claude/
 .npm/

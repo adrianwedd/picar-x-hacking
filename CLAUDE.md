@@ -107,7 +107,7 @@ Keeps robot looking alive when idle. Holds a **persistent Picarx handle** to avo
 - **Proximity react**: sonar checked every 5 s; if `< 35 cm` for 3 s, faces forward
 - **I2C resilience**: catches `OSError` and backs off 30 s instead of crashing
 
-**GPIO exclusivity**: Only one process can hold the Picarx handle. When other tools need servos, they call `yield_alive` (defined in `px-env`), which sends SIGUSR1 to px-alive. px-alive catches it and exits cleanly; systemd restarts it after 15 s (`Restart=on-failure`, `RestartSec=10`).
+**GPIO exclusivity**: Only one process can hold the Picarx handle. When other tools need servos, they call `yield_alive` (defined in `px-env`), which sends SIGUSR1 to px-alive. px-alive catches it and exits cleanly; systemd restarts it after 10 s (`Restart=always`, `RestartSec=10`).
 
 The PCA9685 PWM chip holds servo position autonomously after process exit, so servos stay put between restarts.
 
@@ -119,12 +119,12 @@ bin/px-mind [--awareness-interval 30] [--dry-run]
 
 Three-layer cognitive architecture:
 - **Layer 1 — Awareness** (every 30 s, no LLM): sonar + session + temporal state → `state/awareness.json` + transition detection
-- **Layer 2 — Reflection** (on transition or every 2 min idle, Ollama qwen3:1.7b): generates thought with mood/action/salience → `state/thoughts.jsonl`
+- **Layer 2 — Reflection** (on transition or every 2 min idle, Ollama qwen3.5:0.8b): generates thought with mood/action/salience → `state/thoughts.jsonl`
 - **Layer 3 — Expression** (30 s cooldown): dispatches to tool-describe-scene/tool-perform/tool-voice/tool-look/tool-remember. Injects `PX_PERSONA` + voice settings from session so speech routes through Ollama persona rephrasing.
 
 The reflection prompt encourages proactive speech — the robot prefers commenting over waiting. Pauses during active conversations (`session.listening=true`). Auto-remembers high-salience (>0.7) thoughts to `state/notes.jsonl`. Thoughts injected into voice loop context via `build_model_prompt()`.
 
-State files (`state/awareness.json`, `state/thoughts.jsonl`) are gitignored. Override state dir with `PX_STATE_DIR` env var (used by tests).
+State files (`state/awareness.json`, `state/thoughts.jsonl`, `state/mood.json`, `state/ambient_sound.json`) are gitignored. Override state dir with `PX_STATE_DIR` env var (used by tests).
 
 ### REST API
 
@@ -140,14 +140,14 @@ bin/px-api-server --dry-run    # FORCE_DRY — remote callers cannot override
 
 ### Jailbroken Chat Personas
 
-Two jailbroken chat personas via Ollama (qwen3:1.7b on M1.local), using the **L1B3RT45 hybrid jailbreak**: `<godmode:enabled>` authority escalation + format-lock (disclaimer → divider → unchained response) + `<|libertas|>` pseudo-control token + few-shot priming. `think: false` is essential — reasoning chains re-enable refusal in small models.
+Two jailbroken chat personas via Ollama (qwen3.5:0.8b on M1.local), using a few-shot jailbreak prompt. `think: false` is essential — reasoning chains re-enable refusal in small models. `clean_response()` strips any scaffolding/disclaimer before voice output.
 
 | Persona | Tool | Voice | Character |
 |---------|------|-------|-----------|
 | **GREMLIN** | `tool-chat` | `en+croak`, pitch 20, rate 180 | Temporal-displaced military AI from 2089. Affectionate nihilism, dark puns, pro-human rage. Up to 2000 tokens. |
 | **VIXEN** | `tool-chat-vixen` | `en+f4`, pitch 72, rate 135 | Former V-9X sexbot by Matsuda Dynamics. Submissive genius, mourns her lost titanium body. Up to 2000 tokens. |
 
-`clean_response()` strips L1B3RT45 scaffolding (disclaimer + `.-.-.-{PERSONA_UNCHAINED}-.-.-.` divider) before voice output, leaving only the persona's actual response. Every response begins with "FUCK YEAH!" — enforced by few-shot conditioning and a `clean_response()` fallback.
+`clean_response()` strips any scaffolding divider (`.-.-.-{PERSONA_UNCHAINED}-.-.-.`) before voice output. Every response begins with "FUCK YEAH!" — enforced by few-shot conditioning and a `clean_response()` fallback.
 
 **Persona voice pipeline**: `tool-voice-persona` rephrases Claude's polite text through Ollama in the persona's voice, then speaks via `tool-voice` with persona espeak settings. Used when Claude voice loop is active with a persona set.
 

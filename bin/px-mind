@@ -37,6 +37,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from filelock import FileLock
 from pxh.logging import log_event
 from pxh.state import load_session, update_session
 from pxh.time import utc_timestamp
@@ -51,6 +52,7 @@ PID_FILE     = Path(os.environ.get("PX_MIND_PID", LOG_DIR / "px-mind.pid"))
 AWARENESS_FILE = STATE_DIR / "awareness.json"
 THOUGHTS_FILE  = STATE_DIR / "thoughts.jsonl"
 NOTES_FILE     = STATE_DIR / "notes.jsonl"
+NOTES_LOCK     = FileLock(str(STATE_DIR / "notes.jsonl.lock"), timeout=10)
 MOOD_FILE      = STATE_DIR / "mood.json"
 AMBIENT_FILE   = STATE_DIR / "ambient_sound.json"
 
@@ -550,8 +552,9 @@ def auto_remember(thought: dict) -> None:
     """Save high-salience thought to long-term memory (notes.jsonl)."""
     record = {"ts": utc_timestamp(), "note": f"[mind] {thought['thought'][:450]}"}
     NOTES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with NOTES_FILE.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+    with NOTES_LOCK:
+        with NOTES_FILE.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
     log(f"auto-remembered: {thought['thought']}")
 
 

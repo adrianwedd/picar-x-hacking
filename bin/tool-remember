@@ -13,12 +13,15 @@ import json
 import os
 from pathlib import Path
 
+from filelock import FileLock
 from pxh.logging import log_event
 from pxh.state import update_session
 from pxh.time import utc_timestamp
 
 PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
-NOTES_FILE   = PROJECT_ROOT / "state" / "notes.jsonl"
+STATE_DIR    = Path(os.environ.get("PX_STATE_DIR", str(PROJECT_ROOT / "state")))
+NOTES_FILE   = STATE_DIR / "notes.jsonl"
+NOTES_LOCK   = FileLock(str(STATE_DIR / "notes.jsonl.lock"), timeout=10)
 
 
 def main() -> int:
@@ -34,8 +37,9 @@ def main() -> int:
 
     record = {"ts": utc_timestamp(), "note": text}
     NOTES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with NOTES_FILE.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+    with NOTES_LOCK:
+        with NOTES_FILE.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
 
     update_session(
         fields={"last_action": "tool_remember"},

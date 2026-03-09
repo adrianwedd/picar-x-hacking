@@ -210,6 +210,8 @@ async def run_tool(body: ToolRequest) -> JSONResponse:
                 })
             except VoiceLoopError as exc:
                 _set_job(job_id, {"status": "error", "tool": tool, "error": str(exc)})
+            except Exception as exc:
+                _set_job(job_id, {"status": "error", "tool": tool, "error": f"{type(exc).__name__}: {exc}"})
 
         asyncio.create_task(_run_async())
         return JSONResponse(
