@@ -602,7 +602,22 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Nunito
         <button class="btn btn-blue" onclick="promptRemember()">&#x1F4AD; Remember this</button>
         <button class="btn btn-blue" onclick="doTool('tool_recall',{})">&#x1F50D; What do you remember?</button>
       </div>
-      <!-- routines + move SPARK added next -->
+      <div class="sec-hdr" style="color:var(--orange)">&#x1F4CB; Our routines</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <button class="btn btn-orange" onclick="doTool('tool_routine',{action:'start',routine:'morning'})">&#x1F305; Morning</button>
+        <button class="btn btn-orange" onclick="doTool('tool_routine',{action:'start',routine:'homework'})">&#x1F4DA; Homework</button>
+        <button class="btn btn-orange" onclick="doTool('tool_routine',{action:'start',routine:'bedtime'})">&#x1F319; Bedtime</button>
+        <button class="btn btn-orange" onclick="doTool('tool_routine',{action:'next'})">&#x27A1;&#xFE0F; Next step</button>
+        <button class="btn btn-orange" onclick="doTool('tool_routine',{action:'status'})">&#x2753; What&apos;s the plan?</button>
+        <button class="btn btn-muted"  onclick="doTool('tool_routine',{action:'stop'})">&#x23F9;&#xFE0F; Stop routine</button>
+      </div>
+      <div class="sec-hdr" style="color:var(--orange)">&#x23F0; Transitions</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <button class="btn btn-orange" onclick="doTool('tool_transition',{minutes:5})">&#x23F0; 5 min warning</button>
+        <button class="btn btn-orange" onclick="doTool('tool_transition',{minutes:2})">&#x23F0; 2 min warning</button>
+        <button class="btn btn-orange" onclick="doTool('tool_transition',{action:'arrived'})">&#x2705; I&apos;m here now</button>
+      </div>
+      <!-- move SPARK added next -->
     </div>
   </div>
   <div id="panel-spark"   class="tab-panel"><!-- SPARK FACE --></div>
