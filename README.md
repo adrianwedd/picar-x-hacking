@@ -60,7 +60,7 @@ bin/px-spark [--dry-run] [--input-mode voice|text]
            │                            │                            │
     ┌──────▼──────┐  ┌─────────────────▼────────────────┐  ┌───────▼───────┐
     │  tool-*     │  │         px-env                    │  │  REST API     │
-    │  26 tools   │  │  PYTHONPATH · LOG_DIR · venv      │  │  :8420        │
+    │  37 tools   │  │  PYTHONPATH · LOG_DIR · venv      │  │  :8420        │
     │  JSON out   │  │  yield_alive() · PX_VOICE_DEVICE  │  │  Bearer auth  │
     └──────┬──────┘  └──────────────────────────────────┘  └───────────────┘
            │
@@ -117,7 +117,7 @@ source .venv/bin/activate
 # 4. Dry-run a tool to verify the setup
 PX_DRY=1 bin/tool-status
 
-# 5. Run tests (82 dry-run, no hardware needed)
+# 5. Run tests (105 dry-run, no hardware needed)
 python -m pytest tests/
 
 # 6. Launch SPARK (Claude voice companion)
@@ -188,6 +188,31 @@ Every tool emits a single JSON object to stdout, supports `PX_DRY=1`, and handle
 | `tool-qa` | Speak arbitrary text (delegates to `tool-voice`) | `PX_TEXT` |
 | `tool-api-start` | Start the REST API daemon | — |
 | `tool-api-stop` | Stop the REST API daemon | — |
+
+### SPARK — Child Companion Tools
+
+Available only in SPARK persona mode. All support `PX_DRY=1`.
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `tool-routine` | Daily routine manager: load, advance, complete | `PX_ROUTINE_ACTION` (load\|next\|status\|complete), `PX_ROUTINE_NAME` (morning\|homework\|bedtime\|wind-down) |
+| `tool-checkin` | Emotional check-in: ask or record mood | `PX_CHECKIN_ACTION` (ask\|record), `PX_CHECKIN_MOOD` |
+| `tool-celebrate` | Specific, brief positive reinforcement | `PX_CELEBRATE_TEXT` (optional) |
+| `tool-transition` | Transition warning / buffer / arrival | `PX_TRANSITION_ACTION` (warn\|buffer\|arrived), `PX_TRANSITION_MINUTES`, `PX_TRANSITION_LABEL` |
+| `tool-quiet` | Three S's meltdown protocol: stop, stay, safe | `PX_QUIET_ACTION` (start\|check\|end) |
+| `tool-breathe` | Guided breathing exercise | `PX_BREATHE_TYPE` (simple\|box\|478), `PX_BREATHE_ROUNDS` (1-4) |
+| `tool-dopamine-menu` | Interest-based activity suggestions | `PX_DOPAMINE_ENERGY` (high\|medium\|low), `PX_DOPAMINE_CONTEXT` (free\|focus\|wind-down) |
+| `tool-sensory-check` | Body scan + sensory support | `PX_SENSORY_ACTION` (ask\|record), `PX_SENSORY_ISSUE` |
+| `tool-repair` | Post-conflict reconnection | `PX_REPAIR_CONTEXT` (optional, private) |
+
+### Google Workspace (optional)
+
+Requires `gws auth login` (see [googleworkspace/cli](https://github.com/googleworkspace/cli)). Gracefully degrades if not authenticated.
+
+| Tool | Description | Key Params |
+|------|-------------|------------|
+| `tool-gws-calendar` | Read upcoming calendar events | `PX_CALENDAR_ACTION` (today\|next\|week), `PX_CALENDAR_ID` |
+| `tool-gws-sheets-log` | Append a row to a tracking spreadsheet | `PX_SHEETS_ID` (required, set in `.env`), `PX_SHEETS_EVENT`, `PX_SHEETS_DETAIL`, `PX_SHEETS_MOOD` |
 
 ---
 

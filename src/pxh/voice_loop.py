@@ -46,6 +46,18 @@ ALLOWED_TOOLS = {
     "tool_api_stop",
     "tool_chat",
     "tool_chat_vixen",
+    # SPARK child-companion tools
+    "tool_routine",
+    "tool_checkin",
+    "tool_celebrate",
+    "tool_transition",
+    "tool_quiet",
+    "tool_breathe",
+    "tool_dopamine_menu",
+    "tool_sensory_check",
+    "tool_repair",
+    "tool_gws_calendar",
+    "tool_gws_sheets_log",
 }
 
 TOOL_COMMANDS = {
@@ -74,6 +86,18 @@ TOOL_COMMANDS = {
     "tool_api_stop":      BIN_DIR / "tool-api-stop",
     "tool_chat":          BIN_DIR / "tool-chat",
     "tool_chat_vixen":    BIN_DIR / "tool-chat-vixen",
+    # SPARK child-companion tools
+    "tool_routine":          BIN_DIR / "tool-routine",
+    "tool_checkin":          BIN_DIR / "tool-checkin",
+    "tool_celebrate":        BIN_DIR / "tool-celebrate",
+    "tool_transition":       BIN_DIR / "tool-transition",
+    "tool_quiet":            BIN_DIR / "tool-quiet",
+    "tool_breathe":          BIN_DIR / "tool-breathe",
+    "tool_dopamine_menu":    BIN_DIR / "tool-dopamine-menu",
+    "tool_sensory_check":    BIN_DIR / "tool-sensory-check",
+    "tool_repair":           BIN_DIR / "tool-repair",
+    "tool_gws_calendar":     BIN_DIR / "tool-gws-calendar",
+    "tool_gws_sheets_log":   BIN_DIR / "tool-gws-sheets-log",
 }
 
 
@@ -484,6 +508,101 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         sanitized["PX_TEXT"] = text
     elif tool in ("tool_api_start", "tool_api_stop"):
         pass  # no params required
+    elif tool == "tool_routine":
+        valid_actions = {"load", "next", "status", "complete"}
+        act = str(params.get("action", "status")).lower()
+        if act not in valid_actions:
+            raise VoiceLoopError(f"tool_routine action must be one of {sorted(valid_actions)}")
+        sanitized["PX_ROUTINE_ACTION"] = act
+        if act == "load":
+            name = str(params.get("name", "")).lower().strip()
+            if not name:
+                raise VoiceLoopError("tool_routine load requires a 'name' parameter")
+            sanitized["PX_ROUTINE_NAME"] = name[:40]
+    elif tool == "tool_checkin":
+        valid_actions = {"ask", "record"}
+        act = str(params.get("action", "ask")).lower()
+        if act not in valid_actions:
+            raise VoiceLoopError(f"tool_checkin action must be 'ask' or 'record'")
+        sanitized["PX_CHECKIN_ACTION"] = act
+        if act == "record":
+            mood = str(params.get("mood", "")).lower().strip()
+            sanitized["PX_CHECKIN_MOOD"] = mood[:40]
+    elif tool == "tool_celebrate":
+        text = str(params.get("text", "")).strip()[:300]
+        if text:
+            sanitized["PX_CELEBRATE_TEXT"] = text
+    elif tool == "tool_transition":
+        valid_actions = {"warn", "buffer", "arrived"}
+        act = str(params.get("action", "warn")).lower()
+        if act not in valid_actions:
+            raise VoiceLoopError(f"tool_transition action must be one of {sorted(valid_actions)}")
+        sanitized["PX_TRANSITION_ACTION"] = act
+        if act == "warn":
+            minutes = int(clamp(_num(params.get("minutes", 5), "minutes"), 1, 60))
+            sanitized["PX_TRANSITION_MINUTES"] = str(minutes)
+        label = str(params.get("label", "")).strip()[:80]
+        if label:
+            sanitized["PX_TRANSITION_LABEL"] = label
+    elif tool == "tool_quiet":
+        valid_actions = {"start", "check", "end"}
+        act = str(params.get("action", "start")).lower()
+        if act not in valid_actions:
+            raise VoiceLoopError(f"tool_quiet action must be one of {sorted(valid_actions)}")
+        sanitized["PX_QUIET_ACTION"] = act
+    elif tool == "tool_breathe":
+        valid_types = {"box", "478", "simple"}
+        btype = str(params.get("type", "simple")).lower()
+        if btype not in valid_types:
+            btype = "simple"
+        rounds = int(clamp(_num(params.get("rounds", 2), "rounds"), 1, 4))
+        sanitized["PX_BREATHE_TYPE"] = btype
+        sanitized["PX_BREATHE_ROUNDS"] = str(rounds)
+    elif tool == "tool_dopamine_menu":
+        valid_energy = {"high", "medium", "low"}
+        valid_context = {"free", "focus", "wind-down"}
+        energy = str(params.get("energy", "medium")).lower()
+        context = str(params.get("context", "free")).lower()
+        if energy not in valid_energy:
+            energy = "medium"
+        if context not in valid_context:
+            context = "free"
+        sanitized["PX_DOPAMINE_ENERGY"] = energy
+        sanitized["PX_DOPAMINE_CONTEXT"] = context
+    elif tool == "tool_sensory_check":
+        valid_actions = {"ask", "record"}
+        act = str(params.get("action", "ask")).lower()
+        if act not in valid_actions:
+            raise VoiceLoopError(f"tool_sensory_check action must be 'ask' or 'record'")
+        sanitized["PX_SENSORY_ACTION"] = act
+        if act == "record":
+            issue = str(params.get("issue", "")).lower().strip()[:80]
+            sanitized["PX_SENSORY_ISSUE"] = issue
+    elif tool == "tool_repair":
+        context = str(params.get("context", "")).strip()[:200]
+        if context:
+            sanitized["PX_REPAIR_CONTEXT"] = context
+    elif tool == "tool_gws_calendar":
+        valid_actions = {"today", "next", "week"}
+        act = str(params.get("action", "today")).lower()
+        if act not in valid_actions:
+            raise VoiceLoopError(f"tool_gws_calendar action must be one of {sorted(valid_actions)}")
+        sanitized["PX_CALENDAR_ACTION"] = act
+        cal_id = str(params.get("calendar_id", "primary")).strip()[:200]
+        if cal_id:
+            sanitized["PX_CALENDAR_ID"] = cal_id
+    elif tool == "tool_gws_sheets_log":
+        event_type = str(params.get("event_type", "note")).strip()[:40]
+        sanitized["PX_SHEETS_EVENT"] = event_type
+        detail = str(params.get("detail", "")).strip()[:200]
+        if detail:
+            sanitized["PX_SHEETS_DETAIL"] = detail
+        mood = str(params.get("mood", "")).strip()[:40]
+        if mood:
+            sanitized["PX_SHEETS_MOOD"] = mood
+        notes = str(params.get("notes", "")).strip()[:500]
+        if notes:
+            sanitized["PX_SHEETS_NOTES"] = notes
     else:
         if params:
             raise VoiceLoopError("unexpected parameters for tool")

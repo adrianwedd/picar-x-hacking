@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: SPARK emotional check-in.
+
+Speaks a check-in question and/or records a mood response.
+Two modes:
+  ask  (default) — speak the check-in question; Claude listens next turn
+  record         — record PX_CHECKIN_MOOD from a prior response
+"""
+from __future__ import annotations
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+from pxh.time import utc_timestamp
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+TOOL_VOICE   = PROJECT_ROOT / "bin" / "tool-voice"
+TOOL_EMOTE   = PROJECT_ROOT / "bin" / "tool-emote"
+
+MOOD_RESPONSES = {
+    "good":     ("happy",      "Good. Glad to hear it."),
+    "great":    ("excited",    "Great. Let's keep that going."),
+    "okay":     ("curious",    "Okay. That's fine. What do you need right now?"),
+    "tired":    ("sad",        "Tired makes sense. Want something quiet or something to move around?"),
+    "sad":      ("sad",        "Sad is okay. I'm here. We don't have to do anything."),
+    "angry":    ("alert",      "Angry. Got it. That's a big feeling. You don't have to fix it right now."),
+    "worried":  ("alert",      "Worried. That sounds heavy. Want to just sit for a bit?"),
+    "bored":    ("curious",    "Bored. Classic. Want a quick thing or something to really get into?"),
+    "excited":  ("excited",    "Excited — let's use that."),
+    "overwhelmed": ("sad",     "Overwhelmed. Okay. Let's make everything smaller. Just one thing."),
+}
+
+CHECKIN_QUESTION = (
+    "How are you feeling right now? "
+    "Good, okay, tired, sad, angry, worried, bored, excited, or overwhelmed?"
+)
+
+
+def speak(text: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_TEXT"] = text[:2000]
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_VOICE)], env=env, capture_output=True, check=False)
+
+
+def emote(name: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_EMOTE"] = name
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_EMOTE)], env=env, capture_output=True, check=False)
+
+
+def main() -> int:
+    dry = os.environ.get("PX_DRY", "0") != "0"
+    action = os.environ.get("PX_CHECKIN_ACTION", "ask").lower()
+    mood_input = os.environ.get("PX_CHECKIN_MOOD", "").lower().strip()
+
+    if action == "ask":
+        emote("curious", dry)
+        speak(CHECKIN_QUESTION, dry)
+        update_session(
+            fields={"last_action": "tool_checkin"},
+            history_entry={"event": "checkin_ask", "ts": utc_timestamp()},
+        )
+        payload = {"status": "ok", "action": "ask", "dry": dry}
+        log_event("checkin", payload)
+        print(json.dumps(payload))
+        return 0
+
+    if action == "record":
+        # Find closest mood match
+        mood = next((k for k in MOOD_RESPONSES if k in mood_input), None)
+        if mood:
+            emote_name, response = MOOD_RESPONSES[mood]
+            emote(emote_name, dry)
+            speak(response, dry)
+        else:
+            # Unknown mood — validate and be present
+            mood = mood_input[:30] if mood_input else "unknown"
+            emote("curious", dry)
+            speak("Thanks for telling me. I'm here.", dry)
+
+        update_session(
+            fields={"obi_mood": mood, "last_action": "tool_checkin"},
+            history_entry={"event": "checkin_record", "mood": mood, "ts": utc_timestamp()},
+        )
+        payload = {"status": "ok", "action": "record", "mood": mood, "dry": dry}
+        log_event("checkin", payload)
+        print(json.dumps(payload))
+        return 0
+
+    payload = {"status": "error", "error": f"unknown action '{action}'"}
+    log_event("checkin", payload)
+    print(json.dumps(payload))
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

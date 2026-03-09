@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: SPARK breathing exercise — co-regulation through guided breath.
+
+Speaks a calm, short breathing exercise. Matched to regulation needs.
+Box breathing, 4-7-8, or simple in/out — all under 90 seconds.
+
+Params:
+  PX_BREATHE_TYPE — box|478|simple (default: simple)
+  PX_BREATHE_ROUNDS — number of rounds 1-4 (default: 2)
+"""
+from __future__ import annotations
+import json
+import os
+import subprocess
+import time
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+from pxh.time import utc_timestamp
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+TOOL_VOICE   = PROJECT_ROOT / "bin" / "tool-voice"
+TOOL_EMOTE   = PROJECT_ROOT / "bin" / "tool-emote"
+
+
+def speak(text: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_TEXT"] = text[:2000]
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_VOICE)], env=env, capture_output=True, check=False)
+
+
+def emote(name: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_EMOTE"] = name
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_EMOTE)], env=env, capture_output=True, check=False)
+
+
+def pause(seconds: float, dry: bool) -> None:
+    if not dry:
+        time.sleep(seconds)
+
+
+def main() -> int:
+    dry = os.environ.get("PX_DRY", "0") != "0"
+    breathe_type = os.environ.get("PX_BREATHE_TYPE", "simple").lower()
+
+    try:
+        rounds = int(os.environ.get("PX_BREATHE_ROUNDS", "2"))
+        rounds = max(1, min(4, rounds))
+    except (ValueError, TypeError):
+        rounds = 2
+
+    emote("idle", dry)
+
+    if breathe_type == "box":
+        # Box breathing: 4 in, 4 hold, 4 out, 4 hold
+        speak("Box breathing. Let's go.", dry)
+        pause(1.5, dry)
+        for i in range(rounds):
+            speak("In. Two, three, four.", dry)
+            pause(4.5, dry)
+            speak("Hold. Two, three, four.", dry)
+            pause(4.5, dry)
+            speak("Out. Two, three, four.", dry)
+            pause(4.5, dry)
+            speak("Hold. Two, three, four.", dry)
+            pause(4.5, dry)
+        speak("Good.", dry)
+
+    elif breathe_type == "478":
+        # 4-7-8 breathing: 4 in, 7 hold, 8 out
+        speak("Four, seven, eight breathing.", dry)
+        pause(1.5, dry)
+        for i in range(rounds):
+            speak("Breathe in. Two, three, four.", dry)
+            pause(5.0, dry)
+            speak("Hold. Two, three, four, five, six, seven.", dry)
+            pause(8.0, dry)
+            speak("Out slowly. Two, three, four, five, six, seven, eight.", dry)
+            pause(9.0, dry)
+        speak("Good.", dry)
+
+    else:
+        # Simple: breathe in, breathe out — lowest demand
+        speak("Let's breathe together.", dry)
+        pause(1.0, dry)
+        for i in range(rounds):
+            speak("In.", dry)
+            pause(3.0, dry)
+            speak("Out.", dry)
+            pause(4.0, dry)
+        speak("Good.", dry)
+
+    emote("happy", dry)
+    update_session(
+        fields={"last_action": "tool_breathe"},
+        history_entry={"event": "breathe", "type": breathe_type,
+                       "rounds": rounds, "ts": utc_timestamp()},
+    )
+    payload = {"status": "ok", "type": breathe_type, "rounds": rounds, "dry": dry}
+    log_event("breathe", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

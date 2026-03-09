@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: SPARK Google Calendar — read upcoming events and speak them.
+
+Actions:
+  today   (default) — speak today's events
+  next              — speak the next upcoming event only
+  week              — speak events for the next 7 days
+
+Requires gws auth login. Returns graceful error if not authenticated.
+
+Params:
+  PX_CALENDAR_ACTION — today|next|week (default: today)
+  PX_CALENDAR_ID     — calendar ID (default: primary)
+"""
+from __future__ import annotations
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+from pxh.time import utc_timestamp
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+TOOL_VOICE   = PROJECT_ROOT / "bin" / "tool-voice"
+TOOL_EMOTE   = PROJECT_ROOT / "bin" / "tool-emote"
+GWS          = Path("/home/pi/.cargo/bin/gws")
+
+
+def speak(text: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_TEXT"] = text[:2000]
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_VOICE)], env=env, capture_output=True, check=False)
+
+
+def emote(name: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_EMOTE"] = name
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_EMOTE)], env=env, capture_output=True, check=False)
+
+
+def gws_calendar(params: dict) -> tuple[bool, dict]:
+    """Call gws calendar events list. Returns (auth_ok, data)."""
+    if not GWS.exists():
+        return False, {"error": "gws not installed"}
+
+    result = subprocess.run(
+        [str(GWS), "calendar", "events", "list",
+         "--params", json.dumps(params)],
+        capture_output=True, text=True, timeout=15,
+    )
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        data = {"error": result.stderr.strip() or "invalid response"}
+
+    # Auth error detection
+    if isinstance(data.get("error"), dict):
+        code = data["error"].get("code", 0)
+        if code in (401, 403):
+            return False, data
+    return True, data
+
+
+def format_event(event: dict) -> str:
+    """Format a calendar event for speech."""
+    summary = event.get("summary", "Something")
+    start = event.get("start", {})
+    dt_str = start.get("dateTime") or start.get("date", "")
+
+    if not dt_str:
+        return summary
+
+    try:
+        if "T" in dt_str:
+            dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+            local_dt = dt.astimezone()
+            time_str = local_dt.strftime("%-I:%M %p").lower()
+            return f"{summary} at {time_str}"
+        else:
+            # All-day
+            return f"{summary}, all day"
+    except Exception:
+        return summary
+
+
+def main() -> int:
+    dry = os.environ.get("PX_DRY", "0") != "0"
+    action = os.environ.get("PX_CALENDAR_ACTION", "today").lower()
+    cal_id = os.environ.get("PX_CALENDAR_ID", "primary").strip() or "primary"
+
+    now = datetime.now(timezone.utc)
+    if action == "week":
+        time_max = (now + timedelta(days=7)).isoformat()
+        max_results = 10
+    elif action == "next":
+        time_max = (now + timedelta(days=7)).isoformat()
+        max_results = 1
+    else:  # today
+        end_of_day = now.replace(hour=23, minute=59, second=59)
+        time_max = end_of_day.isoformat()
+        max_results = 8
+
+    params = {
+        "calendarId": cal_id,
+        "timeMin": now.isoformat(),
+        "timeMax": time_max,
+        "maxResults": max_results,
+        "singleEvents": True,
+        "orderBy": "startTime",
+    }
+
+    auth_ok, data = gws_calendar(params)
+
+    if not auth_ok:
+        emote("alert", dry)
+        speak("Google Calendar isn't connected. Run gws auth login to set it up.", dry)
+        payload = {"status": "error", "error": "not authenticated", "dry": dry}
+        log_event("gws_calendar", payload)
+        print(json.dumps(payload))
+        return 1
+
+    events = data.get("items", [])
+
+    emote("curious", dry)
+    if not events:
+        if action == "today":
+            speak("Nothing in the calendar today.", dry)
+        elif action == "next":
+            speak("Nothing coming up in the next week.", dry)
+        else:
+            speak("Nothing in the calendar this week.", dry)
+    else:
+        if action == "today":
+            speak(f"{len(events)} thing{'s' if len(events) != 1 else ''} today.", dry)
+        elif action == "week":
+            speak(f"{len(events)} thing{'s' if len(events) != 1 else ''} this week.", dry)
+
+        for event in events[:5]:  # max 5 spoken
+            speak(format_event(event), dry)
+
+    update_session(
+        fields={"last_action": "tool_gws_calendar"},
+        history_entry={"event": "gws_calendar", "action": action,
+                       "count": len(events), "ts": utc_timestamp()},
+    )
+    payload = {"status": "ok", "action": action, "count": len(events),
+               "events": [e.get("summary", "") for e in events], "dry": dry}
+    log_event("gws_calendar", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

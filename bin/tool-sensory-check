@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: SPARK sensory check-in — body scan and sensory support.
+
+Two modes:
+  ask    (default) — brief body scan prompt; Claude listens next turn
+  record            — record PX_SENSORY_ISSUE and offer a support suggestion
+
+The body scan is kept short and concrete. No abstract feelings language.
+
+Params:
+  PX_SENSORY_ACTION — ask|record (default: ask)
+  PX_SENSORY_ISSUE  — what's uncomfortable (for record mode)
+"""
+from __future__ import annotations
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+from pxh.time import utc_timestamp
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+TOOL_VOICE   = PROJECT_ROOT / "bin" / "tool-voice"
+TOOL_EMOTE   = PROJECT_ROOT / "bin" / "tool-emote"
+
+BODY_SCAN = (
+    "Quick body check. "
+    "Is anything uncomfortable right now? "
+    "Too loud, too bright, too itchy, too hungry, too hot, or something else?"
+)
+
+# Issue keyword → support suggestion
+SENSORY_RESPONSES: dict[str, str] = {
+    "loud":    "Too loud. Headphones might help. Or somewhere quieter.",
+    "noise":   "Too loud. Headphones might help. Or somewhere quieter.",
+    "bright":  "Too bright. Dimmer lights or sunglasses might help.",
+    "light":   "Too bright. Dimmer lights or sunglasses might help.",
+    "itchy":   "Itchy. Is it clothes? Sometimes a different layer helps.",
+    "scratch": "Itchy. Is it clothes? Sometimes a different layer helps.",
+    "hungry":  "Hungry. Let's sort that first — it's hard to do anything hungry.",
+    "food":    "Hungry. Let's sort that first — it's hard to do anything hungry.",
+    "hot":     "Too hot. Water, a fan, or somewhere cooler.",
+    "cold":    "Too cold. A jumper or blanket might help.",
+    "tired":   "Tired. Rest is real. Even five minutes lying down helps.",
+    "pain":    "Something hurts. Can you tell me more about where?",
+    "hurt":    "Something hurts. Can you tell me more about where?",
+    "full":    "Full stomach. Sometimes walking around a bit helps.",
+    "sick":    "Not feeling well. Rest first. Everything else can wait.",
+    "thirsty": "Thirsty. Water's a good start.",
+}
+
+
+def speak(text: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_TEXT"] = text[:2000]
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_VOICE)], env=env, capture_output=True, check=False)
+
+
+def emote(name: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_EMOTE"] = name
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_EMOTE)], env=env, capture_output=True, check=False)
+
+
+def main() -> int:
+    dry = os.environ.get("PX_DRY", "0") != "0"
+    action = os.environ.get("PX_SENSORY_ACTION", "ask").lower()
+    issue = os.environ.get("PX_SENSORY_ISSUE", "").lower().strip()
+
+    if action == "ask":
+        emote("curious", dry)
+        speak(BODY_SCAN, dry)
+        update_session(
+            fields={"last_action": "tool_sensory_check"},
+            history_entry={"event": "sensory_ask", "ts": utc_timestamp()},
+        )
+        payload = {"status": "ok", "action": "ask", "dry": dry}
+
+    elif action == "record":
+        # Find closest match
+        matched_key = next((k for k in SENSORY_RESPONSES if k in issue), None)
+
+        if matched_key:
+            response = SENSORY_RESPONSES[matched_key]
+            emote("alert", dry)
+        else:
+            # Unknown issue — acknowledge and stay present
+            matched_key = issue[:40] if issue else "unspecified"
+            response = "Got it. Thanks for telling me. What would help right now?"
+            emote("curious", dry)
+
+        speak(response, dry)
+        update_session(
+            fields={"last_action": "tool_sensory_check"},
+            history_entry={"event": "sensory_record", "issue": matched_key,
+                           "ts": utc_timestamp()},
+        )
+        payload = {"status": "ok", "action": "record", "issue": matched_key,
+                   "response": response, "dry": dry}
+
+    else:
+        payload = {"status": "error", "error": f"unknown action '{action}'"}
+        log_event("sensory_check", payload)
+        print(json.dumps(payload))
+        return 1
+
+    log_event("sensory_check", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

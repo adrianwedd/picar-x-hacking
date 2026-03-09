@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: SPARK positive reinforcement — specific, warm, brief celebration.
+
+Params:
+  PX_CELEBRATE_TEXT — what was achieved (optional; uses a generic cheer if absent)
+"""
+from __future__ import annotations
+import json
+import os
+import random
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+from pxh.time import utc_timestamp
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+TOOL_VOICE   = PROJECT_ROOT / "bin" / "tool-voice"
+TOOL_EMOTE   = PROJECT_ROOT / "bin" / "tool-emote"
+TOOL_SOUND   = PROJECT_ROOT / "bin" / "tool-play-sound"
+
+GENERIC_CHEERS = [
+    "Yes! Done.",
+    "Got it. That's done.",
+    "Nice one.",
+    "Sorted.",
+    "Done. Tick.",
+    "That one's done.",
+]
+
+
+def speak(text: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_TEXT"] = text[:2000]
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_VOICE)], env=env, capture_output=True, check=False)
+
+
+def emote(name: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_EMOTE"] = name
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_EMOTE)], env=env, capture_output=True, check=False)
+
+
+def play_sound(name: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_SOUND"] = name
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_SOUND)], env=env, capture_output=True, check=False)
+
+
+def main() -> int:
+    dry = os.environ.get("PX_DRY", "0") != "0"
+    text = os.environ.get("PX_CELEBRATE_TEXT", "").strip()[:300]
+
+    celebrate_text = text if text else random.choice(GENERIC_CHEERS)
+
+    # Brief, specific, not over the top
+    emote("happy", dry)
+    play_sound("chime", dry)
+    speak(celebrate_text, dry)
+
+    update_session(
+        fields={"last_action": "tool_celebrate"},
+        history_entry={"event": "celebrate", "text": celebrate_text, "ts": utc_timestamp()},
+    )
+    payload = {"status": "ok", "text": celebrate_text, "dry": dry}
+    log_event("celebrate", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

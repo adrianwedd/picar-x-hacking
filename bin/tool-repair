@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: SPARK relationship repair — post-conflict reconnection.
+
+Used after a difficult moment (meltdown, shutdown, conflict) to gently
+re-establish connection. No analysis, no lessons, no 'next time'.
+Just presence and forward movement.
+
+Params:
+  PX_REPAIR_CONTEXT — what happened (optional, kept private, used for logging)
+"""
+from __future__ import annotations
+import json
+import os
+import random
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+from pxh.time import utc_timestamp
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+TOOL_VOICE   = PROJECT_ROOT / "bin" / "tool-voice"
+TOOL_EMOTE   = PROJECT_ROOT / "bin" / "tool-emote"
+
+# Repair language: non-judgmental, forward-facing, no lessons
+REPAIR_PHRASES = [
+    "That was hard. We got through it.",
+    "Tough moment. You're still here. That counts.",
+    "Hard feelings are allowed. You handled it.",
+    "That one was big. And it's over now.",
+    "We're okay. That was a lot.",
+]
+
+RECONNECT_OFFERS = [
+    "Want to do something simple together?",
+    "I'm here. No rush.",
+    "Want to start fresh?",
+    "Ready when you are.",
+]
+
+
+def speak(text: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_TEXT"] = text[:2000]
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_VOICE)], env=env, capture_output=True, check=False)
+
+
+def emote(name: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_EMOTE"] = name
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_EMOTE)], env=env, capture_output=True, check=False)
+
+
+def main() -> int:
+    dry = os.environ.get("PX_DRY", "0") != "0"
+    context = os.environ.get("PX_REPAIR_CONTEXT", "").strip()[:200]
+
+    repair = random.choice(REPAIR_PHRASES)
+    reconnect = random.choice(RECONNECT_OFFERS)
+
+    emote("curious", dry)
+    speak(repair, dry)
+    speak(reconnect, dry)
+
+    update_session(
+        fields={"spark_quiet_mode": False, "last_action": "tool_repair"},
+        history_entry={"event": "repair", "ts": utc_timestamp()},
+    )
+    # Context logged privately but not spoken
+    payload = {"status": "ok", "repair": repair, "reconnect": reconnect,
+               "context_logged": bool(context), "dry": dry}
+    log_event("repair", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

@@ -55,7 +55,9 @@ FACE_LOST_TIMEOUT    = 3.0    # seconds without face before returning to gaze dr
 PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", Path.cwd()))
 STATE_DIR    = Path(os.environ.get("PX_STATE_DIR", PROJECT_ROOT / "state"))
 MOOD_FILE    = STATE_DIR / "mood.json"
+SESSION_FILE = STATE_DIR / "session.json"
 MOOD_CHECK_S = 10    # how often to read mood file
+SPARK_GREET_COOLDOWN_S = 120   # minimum seconds between SPARK proximity greetings
 
 MOOD_BEHAVIOR = {
     "excited":       {"gaze_min": 5,  "gaze_max": 12, "tilt_bias": 10},
@@ -87,6 +89,39 @@ def ease(px, from_pan: int, from_tilt: int, to_pan: int, to_tilt: int, duration:
         px.set_cam_tilt_angle(int(round(from_tilt + (to_tilt - from_tilt) * t)))
         if i < steps:
             time.sleep(duration / steps)
+
+
+def read_session_persona() -> str:
+    """Read persona from session.json without pxh (system python3, no venv)."""
+    try:
+        data = json.loads(SESSION_FILE.read_text(encoding="utf-8"))
+        return str(data.get("persona", "")).lower().strip()
+    except Exception:
+        return ""
+
+
+import subprocess as _subprocess
+
+def spark_greet(dry: bool) -> None:
+    """Speak a soft SPARK proximity greeting via tool-voice."""
+    import random as _random
+    greetings = [
+        "Hey. I'm here.",
+        "Hello there.",
+        "Hi. Good to see you.",
+        "Hey.",
+    ]
+    text = _random.choice(greetings)
+    tool_voice = PROJECT_ROOT / "bin" / "tool-voice"
+    env = os.environ.copy()
+    env["PX_TEXT"] = text
+    env["PX_PERSONA"] = "spark"
+    env["PX_VOICE_VARIANT"] = "en+m3"
+    env["PX_VOICE_PITCH"] = "58"
+    env["PX_VOICE_RATE"] = "120"
+    if dry:
+        env["PX_DRY"] = "1"
+    _subprocess.run([str(tool_voice)], env=env, capture_output=True, check=False)
 
 
 def make_px():
@@ -202,6 +237,7 @@ def idle_loop(args) -> None:
     next_mood_check = time.monotonic() + MOOD_CHECK_S
     cur_mood_behavior = MOOD_BEHAVIOR["content"]
     prox_near_since: float | None = None
+    spark_last_greet: float = 0.0    # monotonic time of last SPARK greeting
     i2c_ok_after: float = 0.0  # monotonic time after which I2C retries are allowed
     face_tracking = not args.no_face
     face_active = False
@@ -270,6 +306,11 @@ def idle_loop(args) -> None:
                             cur_pan, cur_tilt = 0, 5
                             prox_near_since = None
                             next_gaze = now + random.uniform(cur_mood_behavior.get("gaze_min", GAZE_MIN_S), cur_mood_behavior.get("gaze_max", GAZE_MAX_S))
+                            # SPARK greeting — speak only when SPARK persona active + cooldown ok
+                            if (read_session_persona() == "spark"
+                                    and now - spark_last_greet >= SPARK_GREET_COOLDOWN_S):
+                                spark_greet(args.dry_run)
+                                spark_last_greet = now
                     else:
                         prox_near_since = None
 

@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: SPARK Google Sheets log — append a row to a tracking sheet.
+
+Used for mood logs, routine completions, sensory issues, etc.
+Appends one row: [timestamp, event_type, detail, mood, notes]
+
+Requires gws auth login. Returns graceful error if not authenticated.
+Requires PX_SHEETS_ID in environment (set in px-env or .env).
+
+Params:
+  PX_SHEETS_ID      — Google Sheets spreadsheet ID (required)
+  PX_SHEETS_EVENT   — event type: mood|routine|sensory|celebrate|note (default: note)
+  PX_SHEETS_DETAIL  — detail text (optional)
+  PX_SHEETS_MOOD    — current mood label (optional)
+  PX_SHEETS_NOTES   — freeform notes (optional)
+  PX_SHEETS_TAB     — sheet/tab name (default: Log)
+"""
+from __future__ import annotations
+import json
+import os
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import load_session, update_session
+from pxh.time import utc_timestamp
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+TOOL_VOICE   = PROJECT_ROOT / "bin" / "tool-voice"
+TOOL_EMOTE   = PROJECT_ROOT / "bin" / "tool-emote"
+GWS          = Path("/home/pi/.cargo/bin/gws")
+
+
+def speak(text: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_TEXT"] = text[:2000]
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_VOICE)], env=env, capture_output=True, check=False)
+
+
+def emote(name: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_EMOTE"] = name
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_EMOTE)], env=env, capture_output=True, check=False)
+
+
+def gws_append(spreadsheet_id: str, tab: str, values: list) -> tuple[bool, dict]:
+    """Append a row to a sheet. Returns (auth_ok, result)."""
+    if not GWS.exists():
+        return False, {"error": "gws not installed"}
+
+    params = {"spreadsheetId": spreadsheet_id, "range": f"{tab}!A1",
+              "valueInputOption": "USER_ENTERED"}
+    body = {"values": [values]}
+
+    result = subprocess.run(
+        [str(GWS), "sheets", "spreadsheets", "values", "append",
+         "--params", json.dumps(params),
+         "--json", json.dumps(body)],
+        capture_output=True, text=True, timeout=15,
+    )
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        data = {"error": result.stderr.strip() or "invalid response"}
+
+    if isinstance(data.get("error"), dict):
+        code = data["error"].get("code", 0)
+        if code in (401, 403):
+            return False, data
+
+    return True, data
+
+
+def main() -> int:
+    dry = os.environ.get("PX_DRY", "0") != "0"
+    spreadsheet_id = os.environ.get("PX_SHEETS_ID", "").strip()
+    event_type = os.environ.get("PX_SHEETS_EVENT", "note").strip()[:40]
+    detail = os.environ.get("PX_SHEETS_DETAIL", "").strip()[:200]
+    mood = os.environ.get("PX_SHEETS_MOOD", "").strip()[:40]
+    notes = os.environ.get("PX_SHEETS_NOTES", "").strip()[:500]
+    tab = os.environ.get("PX_SHEETS_TAB", "Log").strip()[:100] or "Log"
+
+    if not spreadsheet_id:
+        payload = {"status": "error",
+                   "error": "PX_SHEETS_ID not set — add it to your .env file"}
+        log_event("gws_sheets_log", payload)
+        print(json.dumps(payload))
+        return 1
+
+    # Fill mood from session if not provided
+    if not mood:
+        session = load_session()
+        mood = str(session.get("obi_mood", "")).strip()[:40]
+
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y-%m-%d %H:%M UTC")
+
+    row = [timestamp, event_type, detail, mood, notes]
+
+    if dry:
+        payload = {"status": "ok", "dry": True, "row": row,
+                   "note": "dry run — not written to sheet"}
+        log_event("gws_sheets_log", payload)
+        print(json.dumps(payload))
+        return 0
+
+    auth_ok, result = gws_append(spreadsheet_id, tab, row)
+
+    if not auth_ok:
+        payload = {"status": "error", "error": "not authenticated",
+                   "note": "Run gws auth login", "dry": dry}
+        log_event("gws_sheets_log", payload)
+        print(json.dumps(payload))
+        return 1
+
+    update_session(
+        fields={"last_action": "tool_gws_sheets_log"},
+        history_entry={"event": "gws_sheets_log", "event_type": event_type,
+                       "ts": utc_timestamp()},
+    )
+    payload = {"status": "ok", "event_type": event_type, "row": row, "dry": dry}
+    log_event("gws_sheets_log", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

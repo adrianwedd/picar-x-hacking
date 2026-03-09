@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: SPARK transition warning and buffer mode.
+
+Transitions are neurologically expensive. This tool:
+1. Speaks a low-demand transition warning
+2. Can set a transition timer for the actual change
+3. Can activate a 20-minute low-demand buffer mode after a transition
+
+Params:
+  PX_TRANSITION_MINUTES — time until transition (1-60, default 5)
+  PX_TRANSITION_LABEL   — what's happening (e.g. "school", "dinner")
+  PX_TRANSITION_ACTION  — warn|buffer|arrived (default: warn)
+"""
+from __future__ import annotations
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import update_session
+from pxh.time import utc_timestamp
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+TOOL_VOICE   = PROJECT_ROOT / "bin" / "tool-voice"
+TOOL_EMOTE   = PROJECT_ROOT / "bin" / "tool-emote"
+TOOL_TIMER   = PROJECT_ROOT / "bin" / "tool-timer"
+
+# Low-demand transition language — declarative, team-framing, no commands
+WARN_TEMPLATES = {
+    1:  "One minute.",
+    2:  "About two minutes.",
+    5:  "Team {label} in five.",
+    10: "About ten minutes until {label}.",
+    15: "Fifteen minutes until {label}.",
+    20: "About twenty minutes until {label}.",
+    30: "Half an hour until {label}.",
+}
+
+
+def speak(text: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_TEXT"] = text[:2000]
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_VOICE)], env=env, capture_output=True, check=False)
+
+
+def emote(name: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_EMOTE"] = name
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_EMOTE)], env=env, capture_output=True, check=False)
+
+
+def main() -> int:
+    dry = os.environ.get("PX_DRY", "0") != "0"
+    action = os.environ.get("PX_TRANSITION_ACTION", "warn").lower()
+    label = os.environ.get("PX_TRANSITION_LABEL", "the next thing").strip()[:80]
+
+    try:
+        minutes = int(float(os.environ.get("PX_TRANSITION_MINUTES", "5")))
+        minutes = max(1, min(60, minutes))
+    except (ValueError, TypeError):
+        minutes = 5
+
+    if action == "warn":
+        # Pick closest template
+        closest = min(WARN_TEMPLATES.keys(), key=lambda k: abs(k - minutes))
+        warn_text = WARN_TEMPLATES[closest].format(label=label)
+        if minutes not in WARN_TEMPLATES:
+            warn_text = f"About {minutes} minutes until {label}."
+
+        emote("alert", dry)
+        speak(warn_text, dry)
+
+        # Set a timer if more than 2 minutes away
+        if minutes >= 2 and not dry:
+            timer_env = os.environ.copy()
+            timer_env["PX_TIMER_SECONDS"] = str(minutes * 60)
+            timer_env["PX_TIMER_LABEL"] = label
+            subprocess.run([str(TOOL_TIMER)], env=timer_env, capture_output=True, check=False)
+
+        update_session(
+            fields={"last_action": "tool_transition"},
+            history_entry={"event": "transition_warn", "label": label,
+                           "minutes": minutes, "ts": utc_timestamp()},
+        )
+        payload = {"status": "ok", "action": "warn", "label": label,
+                   "minutes": minutes, "dry": dry}
+
+    elif action == "buffer":
+        # 20-minute low-demand buffer after a transition — no instructions, just presence
+        emote("idle", dry)
+        speak("We're here. Take your time. No rush.", dry)
+        update_session(
+            fields={"spark_quiet_mode": False, "last_action": "tool_transition"},
+            history_entry={"event": "transition_buffer", "ts": utc_timestamp()},
+        )
+        payload = {"status": "ok", "action": "buffer", "dry": dry,
+                   "note": "20-min low-demand buffer — avoid instructions"}
+
+    elif action == "arrived":
+        # Arrived at destination — soft landing
+        emote("curious", dry)
+        speak(f"We're here.", dry)
+        update_session(
+            fields={"last_action": "tool_transition"},
+            history_entry={"event": "transition_arrived", "label": label, "ts": utc_timestamp()},
+        )
+        payload = {"status": "ok", "action": "arrived", "label": label, "dry": dry}
+
+    else:
+        payload = {"status": "error", "error": f"unknown action '{action}'"}
+        log_event("transition", payload)
+        print(json.dumps(payload))
+        return 1
+
+    log_event("transition", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

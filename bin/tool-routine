@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: SPARK routine manager — load, advance, and complete named routines.
+
+Actions:
+  load   — start a named routine from step 0 (PX_ROUTINE_NAME required)
+  next   — speak the current step and advance to the next
+  status — speak the current step without advancing
+  complete — celebrate completion and clear the routine
+"""
+from __future__ import annotations
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from filelock import FileLock
+from pxh.logging import log_event
+from pxh.state import load_session, update_session
+from pxh.time import utc_timestamp
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+STATE_DIR    = Path(os.environ.get("PX_STATE_DIR", PROJECT_ROOT / "state"))
+TOOL_VOICE   = PROJECT_ROOT / "bin" / "tool-voice"
+TOOL_EMOTE   = PROJECT_ROOT / "bin" / "tool-emote"
+ROUTINES_FILE = STATE_DIR / "routines.json"
+
+DEFAULT_ROUTINES = {
+    "morning": {
+        "label": "Morning routine",
+        "steps": [
+            {"text": "Wake up", "speak": "Time to wake up. Take your time.", "celebrate": "Up — done!"},
+            {"text": "Toilet", "speak": "Bathroom's free.", "celebrate": "Good."},
+            {"text": "Dressed", "speak": "Clothes are on the bed.", "celebrate": "Dressed — sorted!"},
+            {"text": "Breakfast", "speak": "Breakfast is on the table.", "celebrate": "Breakfast — done!"},
+            {"text": "Teeth", "speak": "Toothbrush is in the bathroom.", "celebrate": "Teeth — brilliant!"},
+            {"text": "Shoes", "speak": "Shoes are by the door.", "celebrate": "Shoes — on!"},
+            {"text": "Bag", "speak": "Bag is packed and ready.", "celebrate": "Bag — sorted!"},
+        ],
+    },
+    "homework": {
+        "label": "Homework time",
+        "steps": [
+            {"text": "Set up", "speak": "Desk is clear. Books are out.", "celebrate": "Set up — ready!"},
+            {"text": "First task", "speak": "One thing at a time. What's first?", "celebrate": "First one — done!"},
+            {"text": "Break", "speak": "Break time. Five minutes.", "celebrate": "Break taken!"},
+            {"text": "Second task", "speak": "Next thing. We've got this.", "celebrate": "Second one — done!"},
+            {"text": "Pack up", "speak": "Books go back in the bag.", "celebrate": "All packed!"},
+        ],
+    },
+    "bedtime": {
+        "label": "Bedtime routine",
+        "steps": [
+            {"text": "Screens off", "speak": "Screens are going off soon. Two minutes.", "celebrate": "Screens off — done."},
+            {"text": "Pyjamas", "speak": "Pyjamas are on the bed.", "celebrate": "Pyjamas — on!"},
+            {"text": "Teeth", "speak": "Toothbrush time.", "celebrate": "Teeth — done!"},
+            {"text": "Toilet", "speak": "Bathroom's free.", "celebrate": "Done."},
+            {"text": "In bed", "speak": "Bed is ready.", "celebrate": "In bed — good work today."},
+            {"text": "Lights out", "speak": "Sleep well. Good night.", "celebrate": "Night."},
+        ],
+    },
+    "wind-down": {
+        "label": "Wind-down",
+        "steps": [
+            {"text": "Tidy one thing", "speak": "Just one thing to put away.", "celebrate": "Done."},
+            {"text": "Drink of water", "speak": "Water bottle is on the bench.", "celebrate": "Good."},
+            {"text": "Calm activity", "speak": "Drawing, reading, or building — pick one.", "celebrate": "Good choice."},
+            {"text": "Ready", "speak": "Wind-down done.", "celebrate": "All good."},
+        ],
+    },
+}
+
+
+def load_routines() -> dict:
+    """Load routines from state file if it exists, otherwise use defaults."""
+    if ROUTINES_FILE.exists():
+        try:
+            custom = json.loads(ROUTINES_FILE.read_text(encoding="utf-8"))
+            merged = {**DEFAULT_ROUTINES, **custom}
+            return merged
+        except Exception:
+            pass
+    return DEFAULT_ROUTINES
+
+
+def speak(text: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_TEXT"] = text[:2000]
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_VOICE)], env=env, capture_output=True, check=False)
+
+
+def emote(name: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_EMOTE"] = name
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_EMOTE)], env=env, capture_output=True, check=False)
+
+
+def main() -> int:
+    dry = os.environ.get("PX_DRY", "0") != "0"
+    action = os.environ.get("PX_ROUTINE_ACTION", "status").lower()
+    routine_name = os.environ.get("PX_ROUTINE_NAME", "").lower().strip()
+
+    routines = load_routines()
+    session = load_session()
+
+    if action == "load":
+        if not routine_name:
+            payload = {"status": "error", "error": "PX_ROUTINE_NAME required for load"}
+            log_event("routine", payload)
+            print(json.dumps(payload))
+            return 1
+        if routine_name not in routines:
+            valid = sorted(routines.keys())
+            payload = {"status": "error", "error": f"unknown routine '{routine_name}'", "valid": valid}
+            log_event("routine", payload)
+            print(json.dumps(payload))
+            return 1
+
+        routine = routines[routine_name]
+        steps = routine["steps"]
+        label = routine.get("label", routine_name)
+
+        update_session(fields={
+            "obi_routine": routine_name,
+            "obi_step": 0,
+            "last_action": "tool_routine",
+        }, history_entry={"event": "routine_load", "routine": routine_name, "ts": utc_timestamp()})
+
+        first_step = steps[0]["speak"]
+        speak(f"{label}. {first_step}", dry)
+        emote("curious", dry)
+
+        payload = {"status": "ok", "action": "load", "routine": routine_name,
+                   "step": 0, "step_text": steps[0]["text"], "dry": dry}
+        log_event("routine", payload)
+        print(json.dumps(payload))
+        return 0
+
+    # For next/status/complete — get current routine from session
+    current_routine = session.get("obi_routine")
+    current_step = int(session.get("obi_step") or 0)
+
+    if not current_routine:
+        speak("No routine is active right now.", dry)
+        payload = {"status": "ok", "note": "no active routine", "dry": dry}
+        log_event("routine", payload)
+        print(json.dumps(payload))
+        return 0
+
+    if current_routine not in routines:
+        payload = {"status": "error", "error": f"active routine '{current_routine}' not found"}
+        log_event("routine", payload)
+        print(json.dumps(payload))
+        return 1
+
+    routine = routines[current_routine]
+    steps = routine["steps"]
+
+    if action == "complete" or current_step >= len(steps):
+        streak = int(session.get("obi_streak") or 0) + 1
+        update_session(fields={
+            "obi_routine": None,
+            "obi_step": 0,
+            "obi_streak": streak,
+            "last_action": "tool_routine",
+        }, history_entry={"event": "routine_complete", "routine": current_routine,
+                          "streak": streak, "ts": utc_timestamp()})
+
+        emote("excited", dry)
+        speak(f"Routine done. That's {streak} in a row.", dry)
+
+        payload = {"status": "ok", "action": "complete", "routine": current_routine,
+                   "streak": streak, "dry": dry}
+        log_event("routine", payload)
+        print(json.dumps(payload))
+        return 0
+
+    if action == "status":
+        step = steps[current_step]
+        speak(step["speak"], dry)
+        emote("curious", dry)
+        payload = {"status": "ok", "action": "status", "routine": current_routine,
+                   "step": current_step, "step_text": step["text"],
+                   "total_steps": len(steps), "dry": dry}
+        log_event("routine", payload)
+        print(json.dumps(payload))
+        return 0
+
+    if action == "next":
+        # Celebrate current step
+        step = steps[current_step]
+        emote("happy", dry)
+        speak(step.get("celebrate", "Done."), dry)
+
+        next_step = current_step + 1
+        if next_step >= len(steps):
+            # All steps done — complete
+            streak = int(session.get("obi_streak") or 0) + 1
+            update_session(fields={
+                "obi_routine": None,
+                "obi_step": 0,
+                "obi_streak": streak,
+                "last_action": "tool_routine",
+            }, history_entry={"event": "routine_complete", "routine": current_routine,
+                              "streak": streak, "ts": utc_timestamp()})
+            emote("excited", dry)
+            speak(f"That's the whole routine done. {streak} in a row.", dry)
+            payload = {"status": "ok", "action": "complete", "routine": current_routine,
+                       "streak": streak, "dry": dry}
+        else:
+            next = steps[next_step]
+            update_session(fields={
+                "obi_step": next_step,
+                "last_action": "tool_routine",
+            }, history_entry={"event": "routine_step", "routine": current_routine,
+                              "step": next_step, "ts": utc_timestamp()})
+            speak(next["speak"], dry)
+            emote("curious", dry)
+            payload = {"status": "ok", "action": "next", "routine": current_routine,
+                       "step": next_step, "step_text": next["text"],
+                       "total_steps": len(steps), "dry": dry}
+
+        log_event("routine", payload)
+        print(json.dumps(payload))
+        return 0
+
+    payload = {"status": "error", "error": f"unknown action '{action}'"}
+    log_event("routine", payload)
+    print(json.dumps(payload))
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY

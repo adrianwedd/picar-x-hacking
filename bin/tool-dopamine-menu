@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+"""Tool: SPARK dopamine menu — interest-based activity suggestions.
+
+Offers activity options matched to current energy/mood. Uses sideways
+engagement — offers, never directs. No pressure to choose.
+
+Params:
+  PX_DOPAMINE_ENERGY — high|medium|low (default: medium)
+  PX_DOPAMINE_CONTEXT — free|focus|wind-down (default: free)
+"""
+from __future__ import annotations
+import json
+import os
+import random
+import subprocess
+from pathlib import Path
+
+from pxh.logging import log_event
+from pxh.state import load_session, update_session
+from pxh.time import utc_timestamp
+
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+TOOL_VOICE   = PROJECT_ROOT / "bin" / "tool-voice"
+TOOL_EMOTE   = PROJECT_ROOT / "bin" / "tool-emote"
+
+# Dopamine menu: energy × context → options
+# Sideways language: "Some people like...", "There's always...", no commands
+MENU: dict[str, dict[str, list[str]]] = {
+    "high": {
+        "free": [
+            "Building something. Lego, blocks, whatever's around.",
+            "Drawing something massive. Use the whole page.",
+            "Making up a game and teaching it to someone.",
+            "Bouncing or jumping — sometimes the body needs to move first.",
+        ],
+        "focus": [
+            "Timer challenges — see how much you can do in five minutes.",
+            "Making a list of everything you know about one thing.",
+            "Drawing the idea instead of writing it.",
+        ],
+        "wind-down": [
+            "Something with your hands — fidget, clay, tearing paper.",
+            "Drawing while listening to something.",
+            "Sorting something — colours, shapes, whatever.",
+        ],
+    },
+    "medium": {
+        "free": [
+            "Something creative — drawing, building, making.",
+            "A game — alone or with someone.",
+            "Reading or looking through a book.",
+            "Helping with something — sometimes being useful feels good.",
+        ],
+        "focus": [
+            "Starting with the easiest bit first.",
+            "Breaking it into smaller pieces and doing one.",
+            "Working somewhere different — floor, outside, kitchen table.",
+        ],
+        "wind-down": [
+            "Something quiet and satisfying — colouring, stacking.",
+            "Reading.",
+            "Listening to something calm.",
+        ],
+    },
+    "low": {
+        "free": [
+            "Lying down with something to look at or listen to.",
+            "Watching something — no pressure to do anything.",
+            "Just being. That's allowed too.",
+        ],
+        "focus": [
+            "Five-minute version — just five minutes, then stop.",
+            "Doing it out loud, talking through it.",
+            "Starting tomorrow. Rest is real work.",
+        ],
+        "wind-down": [
+            "Something very calm — quiet music, dim light.",
+            "Nothing. Resting counts.",
+        ],
+    },
+}
+
+
+def speak(text: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_TEXT"] = text[:2000]
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_VOICE)], env=env, capture_output=True, check=False)
+
+
+def emote(name: str, dry: bool) -> None:
+    env = os.environ.copy()
+    env["PX_EMOTE"] = name
+    if dry:
+        env["PX_DRY"] = "1"
+    subprocess.run([str(TOOL_EMOTE)], env=env, capture_output=True, check=False)
+
+
+def main() -> int:
+    dry = os.environ.get("PX_DRY", "0") != "0"
+    energy = os.environ.get("PX_DOPAMINE_ENERGY", "medium").lower()
+    context = os.environ.get("PX_DOPAMINE_CONTEXT", "free").lower()
+
+    # Validate with fallbacks
+    if energy not in MENU:
+        energy = "medium"
+    if context not in MENU[energy]:
+        context = "free"
+
+    options = MENU[energy][context]
+    # Pick two distinct options (sideways: offer choice, not a command)
+    picks = random.sample(options, min(2, len(options)))
+
+    emote("curious", dry)
+    speak("Some options.", dry)
+    for pick in picks:
+        speak(pick, dry)
+
+    update_session(
+        fields={"last_action": "tool_dopamine_menu"},
+        history_entry={"event": "dopamine_menu", "energy": energy,
+                       "context": context, "ts": utc_timestamp()},
+    )
+    payload = {"status": "ok", "energy": energy, "context": context,
+               "picks": picks, "dry": dry}
+    log_event("dopamine_menu", payload)
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
