@@ -666,7 +666,70 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Nunito
       </div>
     </div>
   </div>
-  <div id="panel-admin"   class="tab-panel"><!-- ADMIN --></div>
+  <div id="panel-admin"   class="tab-panel">
+    <div id="pin-gate" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;gap:16px">
+      <div style="font-size:48px">&#x1F527;</div>
+      <div style="font-size:20px;font-weight:800">Adrian&apos;s Panel</div>
+      <div style="font-size:14px;color:var(--muted);text-align:center">Enter your PIN to continue.</div>
+      <input id="pin-inp" type="password" inputmode="numeric" maxlength="8" placeholder="PIN"
+        style="font-size:28px;letter-spacing:.3em;text-align:center;background:var(--surface2);border:2px solid var(--surface2);border-radius:var(--radius);padding:14px 20px;width:180px;color:var(--text);font-family:inherit;outline:none"
+        onfocus="this.style.borderColor='var(--spark)'" onblur="this.style.borderColor='var(--surface2)'"
+        onkeydown="if(event.key==='Enter')subPin()">
+      <button class="btn btn-spark" style="width:180px" onclick="subPin()">Unlock</button>
+      <div id="pin-err" style="color:var(--danger);font-size:13px;display:none">Wrong PIN &mdash; try again</div>
+    </div>
+    <div id="admin-body" style="display:none;flex-direction:column;height:100%">
+      <div style="display:flex;background:var(--surface);border-bottom:1px solid var(--surface2);flex-shrink:0">
+        <button class="atab-btn active" id="at-svc"      onclick="swA('svc')">&#x2699;&#xFE0F; Services</button>
+        <button class="atab-btn"        id="at-tools"    onclick="swA('tools')">&#x1F6E0; Tools</button>
+        <button class="atab-btn"        id="at-logs"     onclick="swA('logs')">&#x1F4CB; Logs</button>
+        <button class="atab-btn"        id="at-parental" onclick="swA('parental')">&#x1F46A; Parental</button>
+      </div>
+      <div id="ap-svc" class="apanel active" style="padding:16px;overflow-y:auto">
+        <div id="svc-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px"></div>
+        <div class="sec-hdr" style="color:var(--danger)">&#x26A0;&#xFE0F; Device</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+          <button class="btn btn-danger" onclick="confirmDev('reboot')">&#x1F504; Reboot Pi</button>
+          <button class="btn btn-danger" onclick="confirmDev('shutdown')">&#x26D4; Shutdown Pi</button>
+        </div>
+      </div>
+      <div id="ap-tools" class="apanel" style="padding:16px;overflow-y:auto">
+        <div class="sec-hdr" style="margin-bottom:8px">Raw Tool Runner</div>
+        <select id="tool-sel" style="width:100%;background:var(--surface2);border:none;border-radius:8px;padding:10px 14px;color:var(--text);font-family:inherit;font-size:14px;margin-bottom:8px" onchange="this.value?document.getElementById('tool-params').style.display='block':document.getElementById('tool-params').style.display='none'"></select>
+        <div id="tool-params" style="display:none">
+          <textarea id="tool-prms" placeholder='{&quot;key&quot;:&quot;value&quot;}' style="width:100%;background:var(--surface2);border:none;border-radius:8px;padding:10px 14px;color:var(--text);font-family:monospace;font-size:13px;min-height:80px;margin-bottom:8px;resize:vertical"></textarea>
+          <button class="btn btn-spark" style="margin-bottom:12px" onclick="runAdminTool()">&#x25B6; Run</button>
+        </div>
+        <pre id="tool-out" style="background:var(--surface2);border-radius:8px;padding:12px;font-family:monospace;font-size:12px;color:var(--spark);white-space:pre-wrap;min-height:60px;overflow-y:auto;max-height:300px"></pre>
+      </div>
+      <div id="ap-logs" class="apanel" style="padding:16px;overflow-y:auto">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <button class="btn btn-muted" style="min-height:36px;padding:6px 12px;font-size:12px;width:auto" onclick="loadLog('px-mind')">&#x1F9E0; Mind</button>
+          <button class="btn btn-muted" style="min-height:36px;padding:6px 12px;font-size:12px;width:auto" onclick="loadLog('px-wake-listen')">&#x1F442; Wake</button>
+          <button class="btn btn-muted" style="min-height:36px;padding:6px 12px;font-size:12px;width:auto" onclick="loadLog('px-alive')">&#x1F916; Alive</button>
+          <button class="btn btn-muted" style="min-height:36px;padding:6px 12px;font-size:12px;width:auto" onclick="loadLog('tool-voice')">&#x1F50A; Voice</button>
+        </div>
+        <pre id="log-out" style="background:var(--surface2);border-radius:8px;padding:12px;font-family:monospace;font-size:11px;white-space:pre-wrap;overflow-y:auto;max-height:calc(100vh - 220px);line-height:1.5"></pre>
+      </div>
+      <div id="ap-parental" class="apanel" style="padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px">
+        <div class="sec-hdr">Motion</div>
+        <button class="btn btn-muted" id="btn-motion" onclick="toggleMotion()">Loading&#x2026;</button>
+        <div class="sec-hdr">Quiet mode</div>
+        <button class="btn btn-muted" id="btn-quiet" onclick="toggleQuiet()">Loading&#x2026;</button>
+        <div class="sec-hdr">Persona</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+          <button class="btn btn-muted" onclick="setPersona('spark')">&#x1F31F; spark</button>
+          <button class="btn btn-muted" onclick="setPersona('gremlin')">&#x1F479; gremlin</button>
+          <button class="btn btn-muted" onclick="setPersona('vixen')">&#x1F98A; vixen</button>
+          <button class="btn btn-muted" onclick="setPersona('')">&#x25CB; none</button>
+        </div>
+        <div class="sec-hdr">Log an event</div>
+        <input id="sh-mood" placeholder="Mood" style="background:var(--surface2);border:none;border-radius:8px;padding:10px 14px;color:var(--text);font-family:inherit;font-size:14px">
+        <input id="sh-detail" placeholder="What happened?" style="background:var(--surface2);border:none;border-radius:8px;padding:10px 14px;color:var(--text);font-family:inherit;font-size:14px">
+        <button class="btn btn-blue" onclick="logEvt()">&#x1F4DD; Log to sheets</button>
+      </div>
+    </div>
+  </div>
 </div>
 <nav id="tab-bar">
   <button class="tab-btn active" id="tab-chat"    onclick="sw('chat')"><span class="ti">&#x1F4AC;</span>Chat</button>
@@ -678,7 +741,95 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Nunito
 <script>
 const tok=()=>document.getElementById('tok').value;
 const api=(path,opts={})=>fetch(path,{headers:{'Authorization':'Bearer '+tok(),'Content-Type':'application/json',...(opts.headers||{})}, ...opts}).then(r=>r.json());
-function showPin(){}
+let _pinOk=false;
+function showPin(){
+  if(_pinOk)return;
+  document.getElementById('pin-gate').style.display='flex';
+  document.getElementById('admin-body').style.display='none';
+}
+async function subPin(){
+  const pin=document.getElementById('pin-inp').value;
+  try{
+    const r=await fetch('/api/v1/pin/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin})}).then(x=>x.json());
+    if(r.verified){
+      _pinOk=true;
+      document.getElementById('pin-gate').style.display='none';
+      document.getElementById('admin-body').style.display='flex';
+      loadSvcs();loadParental();initTools();
+    } else {
+      document.getElementById('pin-err').style.display='block';
+      document.getElementById('pin-inp').value='';
+    }
+  } catch(e){document.getElementById('pin-err').style.display='block';}
+}
+function swA(name){
+  document.querySelectorAll('.atab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.apanel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('at-'+name).classList.add('active');
+  document.getElementById('ap-'+name).classList.add('active');
+  if(name==='logs')loadLog('px-mind');
+}
+async function loadSvcs(){
+  try{
+    const r=await api('/api/v1/services');
+    const list=document.getElementById('svc-list');list.textContent='';
+    (r.services||[]).forEach(s=>{
+      const on=s.status==='active';
+      const n=s.service.replace('px-','');
+      const ico={'alive':'\U0001F916','mind':'\U0001F9E0','wake-listen':'\U0001F442','api-server':'\U0001F310'}[n]||'\u2699\uFE0F';
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;align-items:center;gap:10px;background:var(--surface2);padding:12px 14px;border-radius:12px';
+      const dot=document.createElement('span');dot.style.cssText='font-size:10px;color:'+(on?'var(--spark)':'var(--danger)');dot.textContent='\u25CF';
+      const ic=document.createElement('span');ic.style.cssText='font-size:18px';ic.textContent=ico;
+      const nm=document.createElement('span');nm.style.cssText='flex:1;font-weight:700;font-size:14px';nm.textContent=n;
+      const rb=document.createElement('button');rb.className='btn btn-muted';rb.style.cssText='min-height:36px;padding:6px 12px;font-size:12px;width:auto';rb.textContent='\u21BA Restart';rb.onclick=()=>svcAct(s.service,'restart');
+      const tb=document.createElement('button');tb.className='btn '+(on?'btn-danger':'btn-spark');tb.style.cssText='min-height:36px;padding:6px 12px;font-size:12px;width:auto';tb.textContent=on?'\u25A0 Stop':'\u25B6 Start';tb.onclick=()=>svcAct(s.service,on?'stop':'start');
+      row.appendChild(dot);row.appendChild(ic);row.appendChild(nm);row.appendChild(rb);row.appendChild(tb);
+      list.appendChild(row);
+    });
+  } catch(e){}
+}
+async function svcAct(svc,act){try{await api('/api/v1/services/'+svc+'/'+act,{method:'POST'});}catch(e){}setTimeout(loadSvcs,1500);}
+async function confirmDev(act){if(confirm('Really '+act+' the Pi?'))try{await api('/api/v1/device/'+act,{method:'POST'});}catch(e){}}
+async function loadParental(){
+  try{
+    const s=await api('/api/v1/session');
+    const bm=document.getElementById('btn-motion');
+    bm.textContent=s.confirm_motion_allowed?'\u2705 Motion: ON':'\U0001F6AB Motion: OFF';
+    bm.className='btn '+(s.confirm_motion_allowed?'btn-spark':'btn-danger');
+    const bq=document.getElementById('btn-quiet');
+    bq.textContent=s.spark_quiet_mode?'\U0001F92B Quiet: ON':'\U0001F4AC Quiet: OFF';
+  } catch(e){}
+}
+async function toggleMotion(){try{const s=await api('/api/v1/session');await api('/api/v1/session',{method:'PATCH',body:JSON.stringify({confirm_motion_allowed:!s.confirm_motion_allowed})});}catch(e){}loadParental();}
+async function toggleQuiet(){try{const s=await api('/api/v1/session');await api('/api/v1/session',{method:'PATCH',body:JSON.stringify({spark_quiet_mode:!s.spark_quiet_mode})});}catch(e){}loadParental();}
+async function setPersona(p){try{await api('/api/v1/session',{method:'PATCH',body:JSON.stringify({persona:p})});}catch(e){}}
+async function logEvt(){
+  const mood=document.getElementById('sh-mood').value;
+  const detail=document.getElementById('sh-detail').value;
+  if(!detail)return;
+  doTool('tool_gws_sheets_log',{event_type:'note',detail,mood});
+  document.getElementById('sh-mood').value='';
+  document.getElementById('sh-detail').value='';
+}
+async function initTools(){
+  try{
+    const r=await api('/api/v1/tools');
+    const sel=document.getElementById('tool-sel');sel.textContent='';
+    const def=document.createElement('option');def.value='';def.textContent='\u2014 select a tool \u2014';sel.appendChild(def);
+    (r.tools||[]).forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t.replace('tool_','').replace(/_/g,' ');sel.appendChild(o);});
+  } catch(e){}
+}
+async function runAdminTool(){
+  const tool=document.getElementById('tool-sel').value;if(!tool)return;
+  let params={};try{params=JSON.parse(document.getElementById('tool-prms').value||'{}');}catch(e){}
+  try{const r=await api('/api/v1/tool',{method:'POST',body:JSON.stringify({tool,params,dry:false})});document.getElementById('tool-out').textContent=JSON.stringify(r,null,2);}catch(e){document.getElementById('tool-out').textContent='Error: '+e.message;}
+}
+async function loadLog(svc){
+  try{const r=await api('/api/v1/logs/'+svc+'?lines=100');document.getElementById('log-out').textContent=(r.lines||[]).join('\n');}catch(e){}
+  const pre=document.getElementById('log-out');if(pre)pre.scrollTop=pre.scrollHeight;
+}
+setInterval(()=>{if(_pinOk&&document.getElementById('panel-admin').classList.contains('active'))loadSvcs();},15000);
 const MOOD_EMOJI={curious:'\U0001F914',content:'\U0001F60C',alert:'\U0001F440',playful:'\U0001F604',contemplative:'\U0001F319',bored:'\U0001F611',mischievous:'\U0001F60F',lonely:'\U0001F97A',excited:'\U0001F929',grumpy:'\U0001F624',peaceful:'\u2601\uFE0F',anxious:'\U0001F630'};
 const MOOD_COL={curious:'#00d4aa',content:'#5b9cf6',alert:'#f5a623',playful:'#f7d547',contemplative:'#9b7be8',bored:'#8884aa',mischievous:'#f5a623',lonely:'#5b9cf6',excited:'#f7d547',grumpy:'#e05c5c',peaceful:'#5b9cf6',anxious:'#e05c5c'};
 async function pollFace(){
