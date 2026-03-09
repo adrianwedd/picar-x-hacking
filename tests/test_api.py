@@ -421,3 +421,33 @@ class TestDeviceControl:
             resp = api_client.post("/api/v1/device/reboot", headers=auth_headers)
         assert resp.status_code == 500
         assert resp.json()["status"] == "error"
+
+
+class TestPinVerify:
+    def test_pin_verify_correct(self, api_client):
+        import unittest.mock
+        with unittest.mock.patch.dict(os.environ, {"PX_ADMIN_PIN": "9999"}):
+            resp = api_client.post("/api/v1/pin/verify", json={"pin": "9999"})
+        assert resp.status_code == 200
+        assert resp.json() == {"verified": True}
+
+    def test_pin_verify_wrong(self, api_client):
+        import unittest.mock
+        with unittest.mock.patch.dict(os.environ, {"PX_ADMIN_PIN": "9999"}):
+            resp = api_client.post("/api/v1/pin/verify", json={"pin": "0000"})
+        assert resp.status_code == 200
+        assert resp.json() == {"verified": False}
+
+    def test_pin_verify_not_set(self, api_client):
+        import unittest.mock
+        env_without_pin = {k: v for k, v in os.environ.items() if k != "PX_ADMIN_PIN"}
+        with unittest.mock.patch.dict(os.environ, env_without_pin, clear=True):
+            resp = api_client.post("/api/v1/pin/verify", json={"pin": "1234"})
+        assert resp.status_code == 200
+        assert resp.json() == {"verified": False}
+
+    def test_pin_verify_no_auth_required(self, api_client):
+        import unittest.mock
+        with unittest.mock.patch.dict(os.environ, {"PX_ADMIN_PIN": "9999"}):
+            resp = api_client.post("/api/v1/pin/verify", json={"pin": "9999"})
+        assert resp.status_code != 401

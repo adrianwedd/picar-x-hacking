@@ -127,6 +127,10 @@ class SessionPatch(BaseModel):
 PATCHABLE_FIELDS = {"listening", "confirm_motion_allowed", "wheels_on_blocks", "mode", "persona"}
 VALID_PERSONAS = {"vixen", "gremlin", "spark", "claude", ""}  # "claude" or "" clears persona
 
+
+class PinRequest(BaseModel):
+    pin: str
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -162,6 +166,16 @@ def _resolve_dry(requested: Optional[bool]) -> bool:
 @app.get("/api/v1/health")
 async def health() -> Dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/v1/pin/verify")
+async def verify_pin(body: PinRequest) -> Dict[str, bool]:
+    """Verify the admin PIN. Public endpoint — no Bearer token required."""
+    expected = os.environ.get("PX_ADMIN_PIN", "").strip()
+    if not expected:
+        return {"verified": False}
+    match = secrets.compare_digest(body.pin, expected)
+    return {"verified": match}
 
 
 @app.get("/api/v1/tools", dependencies=[Depends(_verify_token)])
