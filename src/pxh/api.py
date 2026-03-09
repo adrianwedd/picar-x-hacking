@@ -564,7 +564,17 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Nunito
 </head>
 <body>
 <div id="app">
-  <div id="panel-chat"    class="tab-panel active"><!-- CHAT --></div>
+  <div id="panel-chat"    class="tab-panel active">
+    <div id="av-bar" style="padding:12px 16px 8px;display:flex;align-items:center;gap:12px;background:var(--surface);border-bottom:1px solid var(--surface2);flex-shrink:0">
+      <div id="av-ring" style="width:52px;height:52px;border-radius:50%;border:3px solid var(--spark);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0;animation:pulse-ring 2s ease-in-out infinite">&#x1F914;</div>
+      <div><div style="font-size:13px;font-weight:800;color:var(--spark)">SPARK</div><div id="av-mood" style="font-size:11px;color:var(--muted)">curious &middot; ready</div></div>
+    </div>
+    <div id="msgs" style="flex:1;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:10px"></div>
+    <div style="padding:10px 12px;background:var(--surface);border-top:1px solid var(--surface2);flex-shrink:0;display:flex;gap:8px">
+      <input id="ci" type="text" placeholder="Talk to SPARK&#x2026;" style="flex:1;background:var(--surface2);border:2px solid transparent;border-radius:24px;padding:12px 18px;font-family:inherit;font-size:15px;color:var(--text);outline:none" onfocus="this.style.borderColor='var(--spark)'" onblur="this.style.borderColor='transparent'" onkeydown="if(event.key==='Enter')sendChat()">
+      <button onclick="sendChat()" id="sbtn" class="btn btn-spark" style="width:auto;padding:12px 20px;border-radius:24px;flex-shrink:0">Send</button>
+    </div>
+  </div>
   <div id="panel-actions" class="tab-panel"><!-- ACTIONS --></div>
   <div id="panel-spark"   class="tab-panel"><!-- SPARK FACE --></div>
   <div id="panel-admin"   class="tab-panel"><!-- ADMIN --></div>
@@ -581,6 +591,25 @@ const tok=()=>document.getElementById('tok').value;
 const api=(path,opts={})=>fetch(path,{headers:{'Authorization':'Bearer '+tok(),'Content-Type':'application/json',...(opts.headers||{})}, ...opts}).then(r=>r.json());
 function showPin(){}
 function pollFace(){}
+function addMsg(role,content,tool){
+  const feed=document.getElementById('msgs');
+  const d=document.createElement('div');
+  const isU=role==='user';
+  d.style.cssText='max-width:85%;padding:12px 16px;border-radius:'+(isU?'18px 18px 4px 18px':'18px 18px 18px 4px')+';background:'+(isU?'var(--spark)':'var(--surface2)')+';color:'+(isU?'#0a1a15':'var(--text)')+';align-self:'+(isU?'flex-end':'flex-start')+';font-size:15px;line-height:1.5;font-weight:'+(isU?'700':'600');
+  if(tool){const t=document.createElement('div');t.style.cssText='font-size:10px;font-weight:800;color:var(--spark);margin-bottom:4px';t.textContent='\u25b8 '+tool.replace('tool_','').replace(/_/g,' ').toUpperCase();d.appendChild(t)}
+  let txt=content;try{txt=JSON.stringify(JSON.parse(content),null,2)}catch(e){}
+  const p=document.createElement('pre');p.style.cssText='white-space:pre-wrap;font-family:inherit;font-size:inherit';p.textContent=txt;d.appendChild(p);
+  feed.appendChild(d);feed.scrollTop=feed.scrollHeight;
+}
+async function sendChat(){
+  const inp=document.getElementById('ci');const text=inp.value.trim();if(!text)return;
+  inp.value='';inp.disabled=true;document.getElementById('sbtn').disabled=true;
+  addMsg('user',text);
+  const th=document.createElement('div');th.id='thinking';th.style.cssText='color:var(--muted);font-size:13px;align-self:flex-start;padding:8px 4px';th.textContent='SPARK is thinking\u2026';document.getElementById('msgs').appendChild(th);
+  try{const r=await api('/api/v1/chat',{method:'POST',body:JSON.stringify({text})});document.getElementById('thinking')?.remove();addMsg('spark',r.result?.stdout||r.error||JSON.stringify(r),r.result?.tool)}
+  catch(e){document.getElementById('thinking')?.remove();addMsg('spark','Something went wrong.')}
+  inp.disabled=false;document.getElementById('sbtn').disabled=false;inp.focus();
+}
 function sw(name){
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
