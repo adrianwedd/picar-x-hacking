@@ -50,11 +50,22 @@ LOG_FILE     = Path(os.environ.get("PX_MIND_LOG", LOG_DIR / "px-mind.log"))
 PID_FILE     = Path(os.environ.get("PX_MIND_PID", LOG_DIR / "px-mind.pid"))
 
 AWARENESS_FILE = STATE_DIR / "awareness.json"
-THOUGHTS_FILE  = STATE_DIR / "thoughts.jsonl"
-NOTES_FILE     = STATE_DIR / "notes.jsonl"
-NOTES_LOCK     = FileLock(str(STATE_DIR / "notes.jsonl.lock"), timeout=10)
 MOOD_FILE      = STATE_DIR / "mood.json"
 AMBIENT_FILE   = STATE_DIR / "ambient_sound.json"
+
+
+def notes_file_for_persona(persona: str):
+    """Persona-scoped notes path — prevents cross-persona memory contamination."""
+    if persona:
+        return STATE_DIR / f"notes-{persona}.jsonl"
+    return STATE_DIR / "notes.jsonl"
+
+
+def thoughts_file_for_persona(persona: str):
+    """Persona-scoped thoughts path."""
+    if persona:
+        return STATE_DIR / f"thoughts-{persona}.jsonl"
+    return STATE_DIR / "thoughts.jsonl"
 
 # Tunable constants
 AWARENESS_INTERVAL_S   = 30
@@ -327,12 +338,13 @@ def fetch_weather(dry: bool) -> dict | None:
     return None
 
 
-def load_notes(n: int = 5) -> list[str]:
-    """Read last N notes from long-term memory."""
-    if not NOTES_FILE.exists():
+def load_notes(n: int = 5, persona: str = "") -> list[str]:
+    """Read last N notes from persona-scoped long-term memory."""
+    notes_file = notes_file_for_persona(persona)
+    if not notes_file.exists():
         return []
     try:
-        lines = NOTES_FILE.read_text(encoding="utf-8").strip().splitlines()
+        lines = notes_file.read_text(encoding="utf-8").strip().splitlines()
         notes = []
         for line in lines[-n:]:
             try:
@@ -514,12 +526,13 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
     return awareness, transitions
 
 
-def load_recent_thoughts(n: int = 5) -> list[dict]:
-    """Read last N thoughts from thoughts.jsonl."""
-    if not THOUGHTS_FILE.exists():
+def load_recent_thoughts(n: int = 5, persona: str = "") -> list[dict]:
+    """Read last N thoughts from persona-scoped thoughts file."""
+    thoughts_file = thoughts_file_for_persona(persona)
+    if not thoughts_file.exists():
         return []
     try:
-        lines = THOUGHTS_FILE.read_text(encoding="utf-8").strip().splitlines()
+        lines = thoughts_file.read_text(encoding="utf-8").strip().splitlines()
         thoughts = []
         for line in lines[-n:]:
             try:
@@ -531,31 +544,34 @@ def load_recent_thoughts(n: int = 5) -> list[dict]:
         return []
 
 
-def append_thought(thought: dict) -> None:
-    """Append thought to thoughts.jsonl and trim to THOUGHTS_LIMIT."""
+def append_thought(thought: dict, persona: str = "") -> None:
+    """Append thought to persona-scoped thoughts file and trim to THOUGHTS_LIMIT."""
+    thoughts_file = thoughts_file_for_persona(persona)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    with THOUGHTS_FILE.open("a", encoding="utf-8") as f:
+    with thoughts_file.open("a", encoding="utf-8") as f:
         f.write(json.dumps(thought) + "\n")
 
     # Trim if too long
     try:
-        lines = THOUGHTS_FILE.read_text(encoding="utf-8").strip().splitlines()
+        lines = thoughts_file.read_text(encoding="utf-8").strip().splitlines()
         if len(lines) > THOUGHTS_LIMIT:
-            THOUGHTS_FILE.write_text(
+            thoughts_file.write_text(
                 "\n".join(lines[-THOUGHTS_LIMIT:]) + "\n", encoding="utf-8"
             )
     except Exception:
         pass
 
 
-def auto_remember(thought: dict) -> None:
-    """Save high-salience thought to long-term memory (notes.jsonl)."""
+def auto_remember(thought: dict, persona: str = "") -> None:
+    """Save high-salience thought to persona-scoped long-term memory."""
+    notes_file = notes_file_for_persona(persona)
+    lock = FileLock(str(notes_file) + ".lock", timeout=10)
     record = {"ts": utc_timestamp(), "note": f"[mind] {thought['thought'][:450]}"}
-    NOTES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with NOTES_LOCK:
-        with NOTES_FILE.open("a", encoding="utf-8") as f:
+    notes_file.parent.mkdir(parents=True, exist_ok=True)
+    with lock:
+        with notes_file.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
-    log(f"auto-remembered: {thought['thought']}")
+    log(f"auto-remembered [{persona or 'shared'}]: {thought['thought']}")
 
 
 def extract_json(text: str) -> dict | None:
@@ -617,10 +633,11 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     """Layer 2: produce a thought via Ollama."""
     global _last_spoken_text
 
-    recent_thoughts = load_recent_thoughts(5)
     session = load_session()
+    persona = (awareness.get("persona") or session.get("persona") or "").lower().strip()
+    recent_thoughts = load_recent_thoughts(5, persona=persona)
     recent_history = (session.get("history") or [])[-5:]
-    notes = load_notes(3)
+    notes = load_notes(3, persona=persona)
 
     # Pick a random topic seed to inject variety
     topic_seed = random.choice(TOPIC_SEEDS)
@@ -682,13 +699,11 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
             "salience": 0.3,
         }
         log(f"reflection (dry): {thought['thought']}")
-        append_thought(thought)
+        append_thought(thought, persona=persona)
         return thought
 
     log("reflecting...")
     t0 = time.monotonic()
-    # Pick persona-specific reflection prompt if active
-    persona = (awareness.get("persona") or "").lower().strip()
     system_prompt = PERSONA_REFLECTION_SYSTEMS.get(persona, REFLECTION_SYSTEM)
     result = call_ollama(context, system_prompt)
     elapsed = time.monotonic() - t0
@@ -747,7 +762,7 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     if len(_mood_history) > 20:
         _mood_history[:] = _mood_history[-20:]
 
-    append_thought(thought)
+    append_thought(thought, persona=persona)
 
     # Write mood state for px-alive servo coordination
     try:
@@ -760,9 +775,9 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     except Exception:
         pass
 
-    # Auto-remember high-salience thoughts
+    # Auto-remember high-salience thoughts (persona-scoped)
     if thought["salience"] >= SALIENCE_THRESHOLD:
-        auto_remember(thought)
+        auto_remember(thought, persona=persona)
 
     return thought
 

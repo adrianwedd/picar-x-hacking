@@ -6,7 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/px-env"
 
 python - "$@" <<'PY'
-"""Tool: recall recent notes from state/notes.jsonl and speak them."""
+"""Tool: recall recent notes from state/notes[-persona].jsonl and speak them.
+
+Notes are persona-scoped — SPARK only recalls SPARK notes, VIXEN only VIXEN notes.
+"""
 from __future__ import annotations
 
 import json
@@ -17,20 +20,25 @@ from pathlib import Path
 
 from filelock import FileLock
 from pxh.logging import log_event
-from pxh.state import update_session
+from pxh.state import load_session, update_session
 
 PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 STATE_DIR    = Path(os.environ.get("PX_STATE_DIR", str(PROJECT_ROOT / "state")))
-NOTES_FILE   = STATE_DIR / "notes.jsonl"
-NOTES_LOCK   = FileLock(str(STATE_DIR / "notes.jsonl.lock"), timeout=10)
 
 
-def load_notes(limit: int) -> list[str]:
-    if not NOTES_FILE.exists():
+def notes_file_for_persona(persona: str) -> Path:
+    if persona:
+        return STATE_DIR / f"notes-{persona}.jsonl"
+    return STATE_DIR / "notes.jsonl"
+
+
+def load_notes(limit: int, notes_file: Path) -> list[str]:
+    if not notes_file.exists():
         return []
     rows: deque[str] = deque(maxlen=limit)
-    with NOTES_LOCK:
-        with NOTES_FILE.open("r", encoding="utf-8") as f:
+    lock = FileLock(str(notes_file) + ".lock", timeout=10)
+    with lock:
+        with notes_file.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -44,13 +52,15 @@ def load_notes(limit: int) -> list[str]:
 
 def main() -> int:
     dry_mode = os.environ.get("PX_DRY", "0") != "0"
+    persona = (load_session().get("persona") or "").lower().strip()
+    notes_file = notes_file_for_persona(persona)
     try:
         limit = int(os.environ.get("PX_RECALL_LIMIT", "5"))
         limit = max(1, min(limit, 20))
     except ValueError:
         limit = 5
 
-    notes = load_notes(limit)
+    notes = load_notes(limit, notes_file)
 
     if not notes:
         spoken = "I don't have any notes saved yet."
@@ -67,7 +77,8 @@ def main() -> int:
         history_entry={"event": "recall", "count": len(notes)},
     )
 
-    payload = {"status": "ok", "dry": dry_mode, "notes": notes, "spoken": spoken}
+    payload = {"status": "ok", "dry": dry_mode, "notes": notes, "spoken": spoken,
+               "persona_scope": persona or "shared"}
 
     if not dry_mode:
         result = subprocess.run(

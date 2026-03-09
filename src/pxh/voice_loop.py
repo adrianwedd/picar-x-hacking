@@ -295,8 +295,10 @@ def build_model_prompt(system_prompt: str, state: Dict[str, Any], user_text: str
         context_sections.append("Recent events:")
         context_sections.append(json.dumps(recent_events, indent=2))
 
-    # Inject inner thoughts from px-mind (if running)
-    thoughts_file = Path(os.environ.get("PX_STATE_DIR", str(PROJECT_ROOT / "state"))) / "thoughts.jsonl"
+    # Inject inner thoughts from px-mind — use persona-scoped file to prevent cross-persona leakage
+    _active_persona = (state.get("persona") or "").lower().strip()
+    _thoughts_name = f"thoughts-{_active_persona}.jsonl" if _active_persona else "thoughts.jsonl"
+    thoughts_file = Path(os.environ.get("PX_STATE_DIR", str(PROJECT_ROOT / "state"))) / _thoughts_name
     if thoughts_file.exists():
         try:
             lines = thoughts_file.read_text(encoding="utf-8").strip().splitlines()

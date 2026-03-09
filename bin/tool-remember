@@ -6,7 +6,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/px-env"
 
 python - "$@" <<'PY'
-"""Tool: persist a note to state/notes.jsonl."""
+"""Tool: persist a note to state/notes[-persona].jsonl.
+
+Notes are persona-scoped: SPARK notes go to notes-spark.jsonl,
+VIXEN notes go to notes-vixen.jsonl, etc. Unscoped notes use notes.jsonl.
+This prevents adult persona memories leaking into child-companion context.
+"""
 from __future__ import annotations
 
 import json
@@ -15,17 +20,25 @@ from pathlib import Path
 
 from filelock import FileLock
 from pxh.logging import log_event
-from pxh.state import update_session
+from pxh.state import load_session, update_session
 from pxh.time import utc_timestamp
 
 PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
 STATE_DIR    = Path(os.environ.get("PX_STATE_DIR", str(PROJECT_ROOT / "state")))
-NOTES_FILE   = STATE_DIR / "notes.jsonl"
-NOTES_LOCK   = FileLock(str(STATE_DIR / "notes.jsonl.lock"), timeout=10)
+
+
+def notes_file_for_persona(persona: str) -> Path:
+    """Return persona-scoped notes file path."""
+    if persona:
+        return STATE_DIR / f"notes-{persona}.jsonl"
+    return STATE_DIR / "notes.jsonl"
 
 
 def main() -> int:
     text = os.environ.get("PX_NOTE", "").strip()
+    persona = (load_session().get("persona") or "").lower().strip()
+    NOTES_FILE = notes_file_for_persona(persona)
+    NOTES_LOCK = FileLock(str(NOTES_FILE) + ".lock", timeout=10)
     if not text:
         payload = {"status": "error", "error": "PX_NOTE is required"}
         log_event("remember", payload)
@@ -46,7 +59,8 @@ def main() -> int:
         history_entry={"event": "remember", "note": text[:80]},
     )
 
-    payload = {"status": "ok", "note": text, "ts": record["ts"]}
+    payload = {"status": "ok", "note": text, "ts": record["ts"],
+               "persona_scope": persona or "shared"}
     log_event("remember", payload)
     print(json.dumps(payload))
     return 0
