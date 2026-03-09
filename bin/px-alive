@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/px-env"
 
 # Use system python3 explicitly — the venv has include-system-site-packages=false
 # so the venv python3 cannot see robot_hat/picarx which live in system site-packages.
-/usr/bin/python3 - "$@" <<'PY'
+exec /usr/bin/python3 - "$@" <<'PY'
 """Idle-alive daemon: keeps the robot looking alive with organic servo motion.
 
 Behaviours (no wheels):

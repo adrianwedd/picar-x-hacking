@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/px-env"
 
-"$PROJECT_ROOT/.venv/bin/python3" - "$@" <<'PY'
+exec "$PROJECT_ROOT/.venv/bin/python3" - "$@" <<'PY'
 """Wake-word listener: detects wake phrase via Vosk, captures utterance, pipes to voice loop.
 
 Flow:
@@ -915,6 +915,21 @@ def main(argv) -> int:
     PID_FILE.write_text(str(os.getpid()))
     persona_names = list(PERSONAS.keys())
     log(f"starting pid={os.getpid()} dry={args.dry_run}")
+
+    # Enable speaker amp once at startup — GPIO 20 stays high for the process lifetime.
+    # robot_hat is in system site-packages (not venv), so use system python fallback.
+    try:
+        from robot_hat import enable_speaker
+        enable_speaker()
+    except Exception:
+        try:
+            subprocess.run(
+                ["/usr/bin/python3", "-c",
+                 "from robot_hat import enable_speaker; enable_speaker()"],
+                capture_output=True, timeout=3,
+            )
+        except Exception:
+            pass
     log(f"personas available: {', '.join(persona_names)} (say name after wake word)")
 
     def _shutdown(sig, _frame):

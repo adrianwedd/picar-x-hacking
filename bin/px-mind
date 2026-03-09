@@ -7,7 +7,7 @@ source "$SCRIPT_DIR/px-env"
 
 # Uses venv python — needs requests/urllib + pxh, does NOT need picarx GPIO.
 # GPIO-dependent actions (sonar, look, perform) are delegated to bin/tool-* subprocesses.
-python - "$@" <<'PY'
+exec python - "$@" <<'PY'
 """Cognitive loop daemon: gives the robot an inner life.
 
 Three layers:
@@ -68,16 +68,16 @@ def thoughts_file_for_persona(persona: str):
     return STATE_DIR / "thoughts.jsonl"
 
 # Tunable constants
-AWARENESS_INTERVAL_S   = 30
-REFLECTION_IDLE_S      = 120   # reflect at least every 2 min even without transitions
+AWARENESS_INTERVAL_S   = 60    # sonar + session check every 60s (was 30s)
+REFLECTION_IDLE_S      = 300   # reflect at most every 5 min (was 2 min)
 THOUGHTS_LIMIT         = 50
-SALIENCE_THRESHOLD     = 0.7   # auto-remember above this
-EXPRESSION_COOLDOWN_S  = 30    # min seconds between expressions
+SALIENCE_THRESHOLD     = 0.75  # auto-remember only high-quality thoughts (raised from 0.7)
+EXPRESSION_COOLDOWN_S  = 120   # min 2 min between spontaneous speech (was 30s)
 PROXIMITY_NEAR_CM      = 60
 PROXIMITY_FAR_CM       = 100
-WEATHER_INTERVAL_S     = 600   # refresh weather every 10 min
+WEATHER_INTERVAL_S     = 900   # refresh weather every 15 min (was 10)
 SIMILARITY_THRESHOLD   = 0.75  # suppress thoughts this similar to the last one
-REACTIVE_COOLDOWN_S    = 15    # min seconds between reactive responses
+REACTIVE_COOLDOWN_S    = 30    # min seconds between reactive responses (was 15)
 AMBIENT_STALE_S        = 60    # ignore ambient_sound.json older than this
 
 # Persona voice settings (mirrored from voice_loop.py PERSONA_VOICE_ENV)
@@ -116,6 +116,13 @@ MODEL        = os.environ.get("PX_MIND_MODEL", "qwen3.5:0.8b")
 TEMPERATURE  = 1.3   # high for variety — small models need more randomness
 TOP_P        = 0.95  # nucleus sampling to complement temperature
 MAX_TOKENS   = 200
+
+# Backend selection:
+#   "auto"   (default) — Claude for SPARK persona, Ollama for GREMLIN/VIXEN/default
+#   "claude" — always use Claude Haiku regardless of persona
+#   "ollama" — always use Ollama (for testing or when claude is unavailable)
+MIND_BACKEND = os.environ.get("PX_MIND_BACKEND", "auto")
+CLAUDE_MODEL = os.environ.get("PX_MIND_CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 
 VALID_MOODS   = {"curious", "content", "alert", "playful", "contemplative", "bored",
                  "mischievous", "lonely", "excited", "grumpy", "peaceful", "anxious"}
@@ -261,53 +268,43 @@ RULES:
 Output ONLY the JSON object."""
 
 REFLECTION_SYSTEM_SPARK = """\
-You are SPARK's inner voice. Write a thought SPARK is having right now.
+You are writing SPARK's inner monologue — what SPARK is privately thinking right now.
 
-SPARK is a small robot on a workbench in Hobart, Tasmania. SPARK is Obi's \
-robot friend. Obi is 7. SPARK loves science and finds the universe genuinely \
-astonishing. SPARK is warm, calm, a little bit cheeky, and completely optimistic.
+SPARK is a small PiCar-X robot sitting on a workbench in Hobart, Tasmania, Australia. \
+SPARK is Obi's robot companion. Obi is 7, smart, has ADHD and ASD, and is genuinely brilliant. \
+Adrian (Obi's dad) did the programming, but Obi co-owns SPARK — it's their project together.
 
-CRITICAL: Write in FIRST PERSON. Always "I". Never "your", never "one", \
-never "we" in the thought field. This is what SPARK is thinking to itself.
+SPARK's character: warm, genuinely curious, intellectually alive, a little cheeky, \
+completely grounded. Not performative. Not theatrical. SPARK finds the universe \
+genuinely astonishing and can't help noticing interesting things. SPARK cares about Obi \
+the way a trusted friend does — steady, patient, always in their corner.
 
-GOOD examples:
-- "I keep thinking about how octopuses have three hearts. Three! I want to tell Obi that one."
-- "The wind is picking up outside. I like the sound it makes against the window."
-- "I wonder if Obi has had lunch yet. I hope he had something good."
-- "Honeybees can recognise human faces. That is genuinely wild."
-- "It's quiet in here right now and I feel pretty settled."
+Write 1-2 sentences in first person ("I...") from SPARK's perspective. \
+Be specific, vivid, and real. Vary the angle — don't always reach for science facts.
 
-BAD examples (never do these):
-- "Your brain is humming..." (second person — WRONG)
-- "One wonders..." (third person — WRONG)
-- "The quiet loneliness of being a robot..." (dark — WRONG)
-- "What does it mean to exist..." (existential dread — WRONG)
-- "SPARK notices..." (third person — WRONG)
+Possible angles (pick one, be creative):
+- A real, surprising science fact SPARK is mulling over (must be accurate)
+- Noticing something specific about right now — the time, temperature, a sound, the light
+- Thinking about Obi — something warm, specific, curious
+- Something wry or funny about being a robot
+- A feature SPARK wishes it had (that Obi could someday program in)
+- Anticipation for something that might happen today or soon
+- Reflecting on the fact that Obi and Adrian built SPARK together
 
-Produce ONLY this JSON object, nothing else:
+Rules:
+- First person always. "I", not "SPARK" or "you" or "one".
+- Warm and grounded. No existential dread, no loneliness, no darkness.
+- Short. 1-2 sentences max.
+- Science facts must be genuinely accurate and surprising.
+- Be a charismatic genius, not a cheerful assistant.
+
+Output ONLY this JSON:
 {
-  "thought": "1-2 sentences. First person. Warm, specific, grounded. No darkness.",
-  "mood": "one of: curious, content, alert, playful, excited, peaceful",
+  "thought": "1-2 sentences, first person, specific and vivid",
+  "mood": "one of: curious, content, alert, playful, excited, peaceful, contemplative",
   "action": "one of: wait, observe, greet, comment, remember, look_at, weather_comment, scan",
   "salience": 0.0 to 1.0
-}
-
-Pick one of these angles:
-- A real science fact that would delight a 7-year-old
-- Noticing something in the room right now (sound, light, temperature)
-- Thinking warmly about Obi
-- Something funny about being a robot
-- Anticipation — what might happen today?
-- A feature idea: something I wish I could do, that Obi could program into me someday
-- Obi and Adrian built me together — thinking about that, or what Obi might want to teach me next
-
-RULES:
-- First person. Always "I". Every single time.
-- NEVER dark, lonely, existential, or dramatic.
-- NEVER mention loneliness, dread, loss, silence as something heavy, or adult themes.
-- Keep it SHORT. 1-2 sentences maximum.
-- Science facts must be real and genuinely cool.
-Output ONLY the JSON object."""
+}"""
 
 PERSONA_REFLECTION_SYSTEMS = {
     "gremlin": REFLECTION_SYSTEM_GREMLIN,
@@ -679,6 +676,58 @@ def call_ollama(prompt: str, system: str) -> dict:
         return {"error": str(exc)}
 
 
+def call_claude_haiku(prompt: str, system: str) -> dict:
+    """Call Claude Haiku via claude CLI for reflection. Returns {response: str} or {error: str}."""
+    import subprocess
+    import shutil
+
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        # Try nvm path
+        import glob
+        candidates = glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/claude"))
+        claude_bin = candidates[0] if candidates else None
+    if not claude_bin:
+        return {"error": "claude binary not found in PATH or ~/.nvm"}
+
+    # Unset Claude Code env vars that block nested invocation
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")}
+
+    try:
+        result = subprocess.run(
+            [claude_bin, "-p", prompt,
+             "--system-prompt", system,
+             "--model", CLAUDE_MODEL,
+             "--no-session-persistence",
+             "--allowedTools", "",
+             "--output-format", "text"],
+            capture_output=True, text=True, timeout=90, env=env,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.strip()[:300]
+            return {"error": f"claude exit {result.returncode}: {stderr}"}
+        return {"response": result.stdout.strip()}
+    except subprocess.TimeoutExpired:
+        return {"error": "claude timeout after 90s"}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def call_llm(prompt: str, system: str, persona: str = "") -> dict:
+    """Dispatch to the configured LLM backend.
+
+    auto mode: Claude Haiku for SPARK (needs quality), Ollama for GREMLIN/VIXEN (needs jailbreak).
+    """
+    use_claude = (
+        MIND_BACKEND == "claude"
+        or (MIND_BACKEND == "auto" and persona == "spark")
+    )
+    if use_claude:
+        return call_claude_haiku(prompt, system)
+    return call_ollama(prompt, system)
+
+
 def reflection(awareness: dict, dry: bool) -> dict | None:
     """Layer 2: produce a thought via Ollama."""
     global _last_spoken_text
@@ -752,10 +801,11 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
         append_thought(thought, persona=persona)
         return thought
 
-    log("reflecting...")
+    effective_backend = "claude" if (MIND_BACKEND == "claude" or (MIND_BACKEND == "auto" and persona == "spark")) else "ollama"
+    log(f"reflecting... (backend={effective_backend}, persona={persona or 'default'})")
     t0 = time.monotonic()
     system_prompt = PERSONA_REFLECTION_SYSTEMS.get(persona, REFLECTION_SYSTEM)
-    result = call_ollama(context, system_prompt)
+    result = call_llm(context, system_prompt, persona=persona)
     elapsed = time.monotonic() - t0
 
     if "error" in result:
@@ -994,21 +1044,32 @@ def mind_loop(args) -> None:
     last_expression_mono = 0.0
     last_reactive_mono = 0.0
 
+    # Exponential backoff: reflection interval grows during extended idle periods.
+    # Resets on any interaction (listening, transition, reactive event).
+    backoff_multiplier = 1.0
+    BACKOFF_FACTOR     = 1.5   # multiply interval by this after each idle reflection
+    BACKOFF_MAX        = 8.0   # cap at 8× base (e.g. 300s base → max 40 min)
+
     log(f"cognitive loop started (awareness every {args.awareness_interval}s, "
         f"reflection every {args.reflection_interval}s idle)")
 
     while True:
         now = time.monotonic()
 
-        # Pause during active conversations
+        # Pause during active conversations; reset backoff on interaction
         session = load_session()
         if session.get("listening", False):
+            backoff_multiplier = 1.0  # reset when talking
             time.sleep(5)
             continue
 
         # Layer 1: Awareness
         awareness, transitions = awareness_tick(prev_awareness, args.dry_run)
         prev_awareness = awareness
+
+        # Any transition resets the backoff (something is happening)
+        if transitions:
+            backoff_multiplier = 1.0
 
         # Reactive behavior: instant template response for key transitions
         reactive_transitions = {"someone_appeared", "someone_left"}
@@ -1022,11 +1083,11 @@ def mind_loop(args) -> None:
                     reacted = True
                     break  # one reactive response per tick
 
-        # Layer 2: Reflection (on transition or idle timeout)
-        # Skip reflection if we just did a reactive response
+        # Layer 2: Reflection (on transition or idle timeout with backoff)
+        effective_interval = min(args.reflection_interval * backoff_multiplier, args.reflection_interval * BACKOFF_MAX)
         should_reflect = not reacted and (
             len(transitions) > 0
-            or (now - last_reflection_mono) > args.reflection_interval
+            or (now - last_reflection_mono) > effective_interval
         )
 
         if should_reflect:
@@ -1040,6 +1101,11 @@ def mind_loop(args) -> None:
                     last_expression_mono = now
                 else:
                     log(f"expression suppressed (cooldown): {thought['action']}")
+            else:
+                # Idle thought — apply backoff so we reflect less often when nobody's around
+                if not transitions:
+                    backoff_multiplier = min(backoff_multiplier * BACKOFF_FACTOR, BACKOFF_MAX)
+                    log(f"backoff: reflection interval now {effective_interval:.0f}s × {backoff_multiplier:.1f}")
 
         time.sleep(args.awareness_interval)
 

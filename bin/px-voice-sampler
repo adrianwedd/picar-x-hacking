@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# px-voice-sampler — Play SPARK voice samples at different settings.
+# Usage: bin/px-voice-sampler [--device robothat]
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/px-env"
+
+DEVICE="${1:-robothat}"
+TEXT="Hey Obi. Did you know that a teaspoon of a neutron star would weigh a billion tonnes? That's actually real. Space is absolutely wild."
+
+speak() {
+    local label="$1" variant="$2" pitch="$3" rate="$4"
+    echo "→ $label: espeak variant=$variant pitch=$pitch rate=$rate"
+    espeak -v "$variant" -p "$pitch" -s "$rate" -a 200 "$TEXT" \
+        --stdout 2>/dev/null | \
+        aplay -D "$DEVICE" -q 2>/dev/null || \
+        espeak -v "$variant" -p "$pitch" -s "$rate" -a 200 "$TEXT" 2>/dev/null
+    sleep 0.8
+}
+
+echo "=== SPARK Voice Samples ==="
+echo "Text: $TEXT"
+echo ""
+
+speak "Current (en+m3 p82 s120)" "en+m3" 82 120
+speak "m4 warmer (p65 s125)"     "en+m4" 65 125
+speak "m2 deeper (p55 s115)"     "en+m2" 55 115
+speak "m5 lighter (p70 s130)"    "en+m5" 70 130
+speak "m1 standard (p60 s120)"   "en+m1" 60 120
+speak "m7 (p75 s125)"            "en+m7" 75 125
+speak "en-gb p65 s120"           "en-gb" 65 120
+speak "en-gb p75 s130"           "en-gb" 75 130
+
+echo ""
+echo "=== Done. Set preferred in bin/px-spark: ==="
+echo "  export PX_VOICE_VARIANT=en+m4"
+echo "  export PX_VOICE_PITCH=65"
+echo "  export PX_VOICE_RATE=125"

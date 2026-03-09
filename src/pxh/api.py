@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import os
 import secrets
+import subprocess
 import threading
 import uuid
 from pathlib import Path
@@ -348,6 +349,82 @@ async def chat(body: ChatRequest) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Service management — restart/stop/start allowlisted systemd services
+# ---------------------------------------------------------------------------
+
+# Only these services can be controlled via the API (prevents privilege abuse)
+_MANAGED_SERVICES = {"px-alive", "px-wake-listen", "px-mind", "px-api-server"}
+
+
+def _run_systemctl(action: str, service: str) -> Dict[str, Any]:
+    """Run systemctl {action} {service}. Returns status dict."""
+    try:
+        result = subprocess.run(
+            ["sudo", "systemctl", action, service],
+            capture_output=True, text=True, timeout=15,
+        )
+        return {
+            "status": "ok" if result.returncode == 0 else "error",
+            "service": service,
+            "action": action,
+            "returncode": result.returncode,
+            "stdout": result.stdout.strip()[-500:],
+            "stderr": result.stderr.strip()[-500:],
+        }
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "service": service, "action": action, "error": "timeout"}
+    except Exception as exc:
+        return {"status": "error", "service": service, "action": action, "error": str(exc)}
+
+
+def _get_service_status(service: str) -> Dict[str, Any]:
+    """Get systemd service status. Returns simplified state dict."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", service],
+            capture_output=True, text=True, timeout=5,
+        )
+        active = result.stdout.strip()
+        result2 = subprocess.run(
+            ["systemctl", "is-enabled", service],
+            capture_output=True, text=True, timeout=5,
+        )
+        enabled = result2.stdout.strip()
+        return {"service": service, "active": active, "enabled": enabled}
+    except Exception as exc:
+        return {"service": service, "active": "unknown", "enabled": "unknown", "error": str(exc)}
+
+
+@app.get("/api/v1/services", dependencies=[Depends(_verify_token)])
+async def list_services() -> JSONResponse:
+    """Get status of all managed services."""
+    loop = asyncio.get_running_loop()
+    statuses = await asyncio.gather(*[
+        loop.run_in_executor(None, _get_service_status, svc)
+        for svc in sorted(_MANAGED_SERVICES)
+    ])
+    return JSONResponse(content={"services": list(statuses)})
+
+
+@app.post("/api/v1/services/{service}/{action}", dependencies=[Depends(_verify_token)])
+async def control_service(service: str, action: str) -> JSONResponse:
+    """Restart/stop/start a managed service. Action: restart | stop | start."""
+    if service not in _MANAGED_SERVICES:
+        raise HTTPException(status_code=400, detail=f"Service '{service}' not managed. Allowed: {sorted(_MANAGED_SERVICES)}")
+    if action not in ("restart", "stop", "start", "status"):
+        raise HTTPException(status_code=400, detail="action must be: restart, stop, start, status")
+    loop = asyncio.get_running_loop()
+    if action == "status":
+        result = await loop.run_in_executor(None, _get_service_status, service)
+    else:
+        result = await loop.run_in_executor(None, _run_systemctl, action, service)
+    return JSONResponse(
+        status_code=200 if result.get("status") == "ok" else 500,
+        content=result,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Web UI — single-page SPARK dashboard served at /
 # ---------------------------------------------------------------------------
 
@@ -461,6 +538,10 @@ _HTML_UI = """<!DOCTYPE html>
       <button class="btn" onclick="doTool('tool_gws_calendar',{action:'today'})">📅 Today</button>
       <button class="btn" onclick="doTool('tool_gws_calendar',{action:'next'})">➡ Next event</button>
     </div>
+    <h2>Services</h2>
+    <div id="services-panel" class="btn-group">
+      <span class="muted" style="font-size:0.8em">Loading…</span>
+    </div>
   </div>
   <div id="chat-panel">
     <div id="messages">
@@ -552,6 +633,48 @@ async function sendChat() {
 document.getElementById('chat-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') sendChat();
 });
+
+// Service management
+const SERVICES = ['px-alive','px-mind','px-wake-listen','px-api-server'];
+const SVC_ICONS = {'px-alive':'🤖','px-mind':'🧠','px-wake-listen':'👂','px-api-server':'🌐'};
+
+async function loadServices() {
+  try {
+    const r = await api('/api/v1/services');
+    const data = await r.json();
+    const panel = document.getElementById('services-panel');
+    panel.innerHTML = '';
+    (data.services || []).forEach(s => {
+      const active = s.active === 'active';
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:.8em';
+      const dot = active ? '<span style="color:#4caf50">●</span>' : '<span style="color:#e94560">●</span>';
+      const icon = SVC_ICONS[s.service] || '⚙';
+      row.innerHTML = `${dot} ${icon} <span style="flex:1">${s.service.replace('px-','')}</span>
+        <button class="btn" style="padding:2px 8px;font-size:.75em" onclick="svcAction('${s.service}','restart')">↺</button>
+        ${active ? `<button class="btn danger" style="padding:2px 8px;font-size:.75em" onclick="svcAction('${s.service}','stop')">■</button>` : `<button class="btn" style="padding:2px 8px;font-size:.75em;background:#2a5a2a" onclick="svcAction('${s.service}','start')">▶</button>`}`;
+      panel.appendChild(row);
+    });
+  } catch(e) {
+    document.getElementById('services-panel').innerHTML = '<span class="muted" style="font-size:.8em">Error loading</span>';
+  }
+}
+
+async function svcAction(service, action) {
+  addMsg('system', `→ service ${action}: ${service}`);
+  try {
+    const r = await api(`/api/v1/services/${service}/${action}`, {method:'POST'});
+    const data = await r.json();
+    const cls = data.status === 'ok' ? 'bot' : 'error';
+    addMsg(cls, `<div class="tool-tag">${service}</div><pre style="white-space:pre-wrap;font-size:.75rem">${action}: ${data.status}${data.stderr ? '\\n' + data.stderr : ''}</pre>`);
+    setTimeout(loadServices, 2000);
+  } catch(e) {
+    addMsg('error', 'Service error: ' + e.message);
+  }
+}
+
+loadServices();
+setInterval(loadServices, 15000);
 </script>
 </body>
 </html>"""

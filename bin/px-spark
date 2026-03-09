@@ -32,6 +32,9 @@ export PX_VOICE_VARIANT=en+m3
 export PX_VOICE_PITCH=82
 export PX_VOICE_RATE=120
 
+# Use Claude Haiku for SPARK's inner thoughts (much better quality than Ollama small models)
+export PX_MIND_BACKEND=claude
+
 # Greet — calm, warm, not performative
 python3 - <<'PY'
 import os, subprocess
