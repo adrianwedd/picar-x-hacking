@@ -356,6 +356,7 @@ class TestLogs:
         r = api_client.get("/api/v1/logs/px-alive", headers=auth_headers)
         assert r.status_code == 200
         assert isinstance(r.json()["lines"], list)
+        assert r.json()["service"] == "px-alive"
 
     def test_log_returns_content_structure(self, api_client, auth_headers, isolated_project):
         # Write a real log file into the isolated LOG_DIR

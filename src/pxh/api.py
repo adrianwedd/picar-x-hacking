@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -434,7 +434,7 @@ _LOG_ALLOWLIST = {
 
 
 @app.get("/api/v1/logs/{service}", dependencies=[Depends(_verify_token)])
-async def tail_log(service: str, lines: int = 100) -> JSONResponse:
+async def tail_log(service: str, lines: int = Query(default=100, ge=1, le=2000)) -> JSONResponse:
     """Return last N lines from a named log file."""
     if service not in _LOG_ALLOWLIST:
         raise HTTPException(status_code=400, detail=f"unknown log: {service}")
