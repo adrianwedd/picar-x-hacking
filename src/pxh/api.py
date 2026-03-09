@@ -575,7 +575,36 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Nunito
       <button onclick="sendChat()" id="sbtn" class="btn btn-spark" style="width:auto;padding:12px 20px;border-radius:24px;flex-shrink:0">Send</button>
     </div>
   </div>
-  <div id="panel-actions" class="tab-panel"><!-- ACTIONS --></div>
+  <div id="panel-actions" class="tab-panel">
+    <div style="padding:12px 16px 80px;display:flex;flex-direction:column;gap:6px">
+      <div class="sec-hdr" style="color:var(--spark)">&#x1F9D8; I need help</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <button class="btn btn-spark" onclick="doTool('tool_breathe',{rounds:2})">&#x1F4A8; Breathe with me</button>
+        <button class="btn btn-spark" onclick="doTool('tool_quiet',{mode:'on'})">&#x1F92B; Go quiet</button>
+        <button class="btn btn-muted"  onclick="doTool('tool_quiet',{mode:'off'})">&#x2705; End quiet</button>
+        <button class="btn btn-spark" onclick="doTool('tool_sensory_check',{})">&#x1F9E0; Body check</button>
+        <button class="btn btn-spark" onclick="doTool('tool_dopamine_menu',{energy:'medium'})">&#x1F3B2; What can I do?</button>
+        <button class="btn btn-spark" onclick="doTool('tool_repair',{})">&#x1F91D; Make things better</button>
+      </div>
+      <div class="sec-hdr" style="color:var(--yellow)">&#x1F49B; How are we doing?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <button class="btn btn-yellow" onclick="doTool('tool_checkin',{})">&#x1F60A; How are you?</button>
+        <button class="btn btn-yellow" onclick="doTool('tool_celebrate',{})">&#x1F389; Celebrate!</button>
+        <button class="btn btn-yellow" onclick="doTool('tool_gws_calendar',{action:'today'})">&#x1F4C5; What&apos;s today?</button>
+        <button class="btn btn-yellow" onclick="doTool('tool_gws_calendar',{action:'next'})">&#x27A1;&#xFE0F; Next thing</button>
+        <button class="btn btn-yellow" onclick="doTool('tool_time',{})">&#x1F550; What time is it?</button>
+        <button class="btn btn-yellow" onclick="doTool('tool_weather',{})">&#x26C5; Weather</button>
+      </div>
+      <div class="sec-hdr" style="color:var(--blue)">&#x1F50A; Sounds &amp; memory</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <button class="btn btn-blue" onclick="doTool('tool_play_sound',{sound:'happy'})">&#x1F3B5; Play a sound</button>
+        <button class="btn btn-blue" onclick="promptTimer()">&#x23F1;&#xFE0F; Set a timer</button>
+        <button class="btn btn-blue" onclick="promptRemember()">&#x1F4AD; Remember this</button>
+        <button class="btn btn-blue" onclick="doTool('tool_recall',{})">&#x1F50D; What do you remember?</button>
+      </div>
+      <!-- routines + move SPARK added next -->
+    </div>
+  </div>
   <div id="panel-spark"   class="tab-panel"><!-- SPARK FACE --></div>
   <div id="panel-admin"   class="tab-panel"><!-- ADMIN --></div>
 </div>
@@ -601,6 +630,18 @@ function addMsg(role,content,tool){
   const p=document.createElement('pre');p.style.cssText='white-space:pre-wrap;font-family:inherit;font-size:inherit';p.textContent=txt;d.appendChild(p);
   feed.appendChild(d);feed.scrollTop=feed.scrollHeight;
 }
+async function doTool(tool,params){
+  try{const r=await api('/api/v1/tool',{method:'POST',body:JSON.stringify({tool,params,dry:false})});
+  const out=r.stdout||r.error||JSON.stringify(r);
+  sw('chat');addMsg('spark',out,tool);}
+  catch(e){sw('chat');addMsg('spark','Error: '+e.message,tool);}
+}
+function promptTimer(){
+  const label=prompt('Timer name?');if(!label)return;
+  const mins=prompt('How many minutes?');if(!mins||isNaN(mins))return;
+  doTool('tool_timer',{duration_s:parseFloat(mins)*60,label});
+}
+function promptRemember(){const t=prompt('What should SPARK remember?');if(t)doTool('tool_remember',{text:t});}
 async function sendChat(){
   const inp=document.getElementById('ci');const text=inp.value.trim();if(!text)return;
   inp.value='';inp.disabled=true;document.getElementById('sbtn').disabled=true;
