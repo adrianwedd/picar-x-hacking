@@ -413,9 +413,8 @@ _HTML_UI = """<!DOCTYPE html>
   <h1>⚡ SPARK</h1>
   <span class="status" id="status-line">Connecting…</span>
 </header>
-<div id="token-bar">
-  <label for="token-input">API Token:</label>
-  <input id="token-input" type="password" placeholder="paste PX_API_TOKEN here" autocomplete="off">
+<div id="token-bar" style="display:none">
+  <input id="token-input" type="hidden" value="__SPARK_TOKEN__" autocomplete="off">
 </div>
 <div class="main">
   <div id="sidebar">
@@ -465,7 +464,7 @@ _HTML_UI = """<!DOCTYPE html>
   </div>
   <div id="chat-panel">
     <div id="messages">
-      <div class="msg system">SPARK web interface. Enter your API token above, then chat or use the quick buttons.</div>
+      <div class="msg system">SPARK web interface — chat or tap a button to get started.</div>
     </div>
     <div id="input-bar">
       <input id="chat-input" type="text" placeholder="Type a message to SPARK…" autocomplete="off">
@@ -560,5 +559,7 @@ document.getElementById('chat-input').addEventListener('keydown', e => {
 
 @app.get("/", response_class=HTMLResponse)
 async def web_ui():
-    """Serve the SPARK web dashboard (no auth — token entered in UI)."""
-    return HTMLResponse(content=_HTML_UI)
+    """Serve the SPARK web dashboard. Token injected server-side — no paste required."""
+    token = os.environ.get("PX_API_TOKEN", "")
+    html = _HTML_UI.replace("__SPARK_TOKEN__", token)
+    return HTMLResponse(content=html)
