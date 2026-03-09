@@ -617,7 +617,37 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Nunito
         <button class="btn btn-orange" onclick="doTool('tool_transition',{minutes:2})">&#x23F0; 2 min warning</button>
         <button class="btn btn-orange" onclick="doTool('tool_transition',{action:'arrived'})">&#x2705; I&apos;m here now</button>
       </div>
-      <!-- move SPARK added next -->
+      <div class="sec-hdr" style="color:var(--purple)">&#x1F916; Move SPARK!</div>
+      <div style="background:var(--surface2);border-radius:var(--radius);padding:16px;margin-bottom:8px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:auto auto auto;gap:8px;max-width:240px;margin:0 auto 12px">
+          <div></div>
+          <button class="btn btn-purple" style="min-height:64px;font-size:24px" onpointerdown="rcStart('forward',0)" onpointerup="rcStop()" onpointerleave="rcStop()">&#x25B2;</button>
+          <div></div>
+          <button class="btn btn-purple" style="min-height:64px;font-size:24px" onpointerdown="rcStart('forward',-28)" onpointerup="rcStop()" onpointerleave="rcStop()">&#x25C4;</button>
+          <button class="btn btn-danger" style="min-height:64px;font-size:20px;font-weight:900" onclick="doTool('tool_stop',{})">&#x26D4;</button>
+          <button class="btn btn-purple" style="min-height:64px;font-size:24px" onpointerdown="rcStart('forward',28)" onpointerup="rcStop()" onpointerleave="rcStop()">&#x25BA;</button>
+          <div></div>
+          <button class="btn btn-purple" style="min-height:64px;font-size:24px" onpointerdown="rcStart('backward',0)" onpointerup="rcStop()" onpointerleave="rcStop()">&#x25BC;</button>
+          <div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;max-width:240px;margin:0 auto">
+          <span style="font-size:12px;color:var(--muted);white-space:nowrap">Speed</span>
+          <input type="range" id="rc-speed" min="10" max="50" value="30" style="flex:1;accent-color:var(--purple)" oninput="document.getElementById('rc-spd-val').textContent=this.value">
+          <span id="rc-spd-val" style="font-size:13px;font-weight:800;color:var(--purple);min-width:28px">30</span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <button class="btn btn-purple" onclick="doTool('tool_circle',{speed:30,duration:4})">&#x2B55; Spin in a circle</button>
+        <button class="btn btn-purple" onclick="doTool('tool_figure8',{speed:25,duration:6})">&#x221E; Figure-8</button>
+        <button class="btn btn-purple" onclick="doTool('tool_wander',{})">&#x1F3B2; Explore the room</button>
+        <button class="btn btn-purple" onclick="doTool('tool_perform',{performance:'dance'})">&#x1F57A; Do a trick</button>
+        <button class="btn btn-purple" onclick="doTool('tool_look',{direction:'left'})">&#x1F448; Look left</button>
+        <button class="btn btn-purple" onclick="doTool('tool_look',{direction:'right'})">&#x1F449; Look right</button>
+        <button class="btn btn-purple" onclick="doTool('tool_look',{direction:'up'})">&#x261D;&#xFE0F; Look up</button>
+        <button class="btn btn-purple" onclick="doTool('tool_emote',{emotion:'happy'})">&#x1F604; Happy face</button>
+        <button class="btn btn-purple" onclick="doTool('tool_describe_scene',{})">&#x1F4F8; What do you see?</button>
+        <button class="btn btn-purple" onclick="doTool('tool_sonar',{})">&#x1F4E1; How far away?</button>
+      </div>
     </div>
   </div>
   <div id="panel-spark"   class="tab-panel"><!-- SPARK FACE --></div>
@@ -657,6 +687,14 @@ function promptTimer(){
   doTool('tool_timer',{duration_s:parseFloat(mins)*60,label});
 }
 function promptRemember(){const t=prompt('What should SPARK remember?');if(t)doTool('tool_remember',{text:t});}
+let _rcT=null;
+function rcStart(dir,steer){
+  if(_rcT)return;
+  const spd=parseInt(document.getElementById('rc-speed').value);
+  const fire=()=>api('/api/v1/tool',{method:'POST',body:JSON.stringify({tool:'tool_drive',params:{direction:dir,speed:spd,duration:0.6,steer},dry:false})});
+  fire();_rcT=setInterval(fire,500);
+}
+function rcStop(){if(_rcT){clearInterval(_rcT);_rcT=null;}api('/api/v1/tool',{method:'POST',body:JSON.stringify({tool:'tool_stop',params:{},dry:false})});}
 async function sendChat(){
   const inp=document.getElementById('ci');const text=inp.value.trim();if(!text)return;
   inp.value='';inp.disabled=true;document.getElementById('sbtn').disabled=true;
