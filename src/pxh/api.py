@@ -522,252 +522,75 @@ _HTML_UI = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>SPARK</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg: #1a1a2e; --surface: #16213e; --accent: #0f3460;
-    --spark: #e94560; --text: #eee; --muted: #888; --radius: 8px;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif;
-         display: flex; flex-direction: column; height: 100vh; }
-  header { background: var(--surface); padding: 12px 20px; display: flex;
-           align-items: center; gap: 12px; border-bottom: 2px solid var(--spark); }
-  header h1 { font-size: 1.3rem; color: var(--spark); letter-spacing: 2px; }
-  header .status { margin-left: auto; font-size: .8rem; color: var(--muted); }
-  #token-bar { background: var(--accent); padding: 8px 16px; display: flex;
-               gap: 8px; align-items: center; font-size: .85rem; }
-  #token-bar input { flex: 1; background: #111; color: var(--text); border: 1px solid var(--muted);
-                     border-radius: var(--radius); padding: 4px 8px; font-size: .85rem; }
-  .main { display: flex; flex: 1; overflow: hidden; }
-  #sidebar { width: 220px; background: var(--surface); overflow-y: auto; padding: 12px;
-             border-right: 1px solid #2a2a4a; }
-  #sidebar h2 { font-size: .8rem; text-transform: uppercase; color: var(--muted);
-                margin-bottom: 8px; letter-spacing: 1px; }
-  .btn-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
-  .btn { background: var(--accent); color: var(--text); border: none; border-radius: var(--radius);
-         padding: 8px 10px; font-size: .8rem; cursor: pointer; text-align: left;
-         transition: background .15s; }
-  .btn:hover { background: var(--spark); }
-  .btn.danger { background: #5a1e2e; }
-  .btn.danger:hover { background: #8b2535; }
-  #chat-panel { flex: 1; display: flex; flex-direction: column; }
-  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex;
-              flex-direction: column; gap: 10px; }
-  .msg { max-width: 80%; padding: 10px 14px; border-radius: var(--radius); font-size: .9rem;
-         line-height: 1.5; }
-  .msg.user { background: var(--accent); align-self: flex-end; }
-  .msg.bot { background: var(--surface); border: 1px solid #2a2a4a; align-self: flex-start; }
-  .msg.bot .tool-tag { font-size: .75rem; color: var(--spark); margin-bottom: 4px; }
-  .msg.error { background: #3a1020; border-color: var(--spark); }
-  .msg.system { background: #1a2a1a; font-size: .8rem; color: var(--muted); align-self: center; }
-  #input-bar { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #2a2a4a; }
-  #input-bar input { flex: 1; background: var(--surface); color: var(--text);
-                     border: 1px solid #2a2a4a; border-radius: var(--radius);
-                     padding: 10px 14px; font-size: .95rem; }
-  #input-bar input:focus { outline: none; border-color: var(--spark); }
-  #send-btn { background: var(--spark); color: #fff; border: none; border-radius: var(--radius);
-              padding: 10px 18px; font-size: .9rem; cursor: pointer; }
-  #send-btn:hover { opacity: .85; }
-  #send-btn:disabled { opacity: .4; cursor: default; }
-  .dry-tag { font-size: .7rem; background: #2a4a2a; color: #8f8; border-radius: 4px;
-             padding: 2px 6px; margin-left: 8px; }
+:root {
+  --bg:#12111a; --surface:#1e1c2e; --surface2:#2a2840;
+  --spark:#00d4aa; --spark-dim:#00937a; --text:#f0eeff; --muted:#8884aa;
+  --danger:#e05c5c; --orange:#f5a623; --yellow:#f7d547;
+  --purple:#9b7be8; --blue:#5b9cf6;
+  --tab-h:64px; --radius:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Nunito',sans-serif;overflow:hidden}
+#tab-bar{position:fixed;bottom:0;left:0;right:0;height:var(--tab-h);background:var(--surface);border-top:1px solid var(--surface2);display:flex;z-index:100}
+.tab-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:none;background:none;color:var(--muted);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;transition:color .15s;padding:4px 0}
+.tab-btn .ti{font-size:22px;line-height:1}
+.tab-btn.active{color:var(--spark)}
+#app{position:fixed;top:0;left:0;right:0;bottom:var(--tab-h);overflow:hidden}
+.tab-panel{display:none;height:100%;overflow-y:auto;flex-direction:column}
+.tab-panel.active{display:flex}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;padding:14px 20px;border-radius:var(--radius);border:none;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;transition:opacity .1s,transform .1s;min-height:56px;width:100%}
+.btn:active{opacity:.8;transform:scale(.97)}
+.btn-spark{background:var(--spark);color:#0a1a15}
+.btn-orange{background:var(--orange);color:#1a0f00}
+.btn-yellow{background:var(--yellow);color:#1a1500}
+.btn-purple{background:var(--purple);color:#0e0820}
+.btn-blue{background:var(--blue);color:#040e20}
+.btn-muted{background:var(--surface2);color:var(--text)}
+.btn-danger{background:var(--danger);color:#fff}
+.sec-hdr{padding:10px 16px 6px;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+@keyframes pulse-ring{0%,100%{box-shadow:0 0 0 0 rgba(0,212,170,.4)}50%{box-shadow:0 0 0 8px rgba(0,212,170,0)}}
+@keyframes ring-listen{from{box-shadow:0 0 10px rgba(0,212,170,.6)}to{box-shadow:0 0 40px rgba(0,212,170,.9)}}
+.spark-stat{text-align:center;background:var(--surface2);padding:10px 16px;border-radius:12px;font-size:14px;font-weight:800}
+.stat-lbl{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.atab-btn{flex:1;padding:12px 4px;border:none;background:none;color:var(--muted);font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent}
+.atab-btn.active{color:var(--spark);border-bottom-color:var(--spark)}
+.apanel{display:none}.apanel.active{display:block}
 </style>
 </head>
 <body>
-<header>
-  <h1>⚡ SPARK</h1>
-  <span class="status" id="status-line">Connecting…</span>
-</header>
-<div id="token-bar" style="display:none">
-  <input id="token-input" type="hidden" value="__SPARK_TOKEN__" autocomplete="off">
+<div id="app">
+  <div id="panel-chat"    class="tab-panel active"><!-- CHAT --></div>
+  <div id="panel-actions" class="tab-panel"><!-- ACTIONS --></div>
+  <div id="panel-spark"   class="tab-panel"><!-- SPARK FACE --></div>
+  <div id="panel-admin"   class="tab-panel"><!-- ADMIN --></div>
 </div>
-<div class="main">
-  <div id="sidebar">
-    <h2>Routines</h2>
-    <div class="btn-group">
-      <button class="btn" onclick="doTool('tool_routine',{action:'load',name:'morning'})">🌅 Morning</button>
-      <button class="btn" onclick="doTool('tool_routine',{action:'load',name:'homework'})">📚 Homework</button>
-      <button class="btn" onclick="doTool('tool_routine',{action:'load',name:'bedtime'})">🌙 Bedtime</button>
-      <button class="btn" onclick="doTool('tool_routine',{action:'next'})">▶ Next step</button>
-      <button class="btn" onclick="doTool('tool_routine',{action:'status'})">? Current step</button>
-    </div>
-    <h2>Regulation</h2>
-    <div class="btn-group">
-      <button class="btn" onclick="doTool('tool_quiet',{action:'start'})">🤫 Quiet mode</button>
-      <button class="btn" onclick="doTool('tool_quiet',{action:'end'})">✅ End quiet</button>
-      <button class="btn" onclick="doTool('tool_breathe',{type:'simple',rounds:2})">💨 Breathe</button>
-      <button class="btn" onclick="doTool('tool_breathe',{type:'box',rounds:2})">📦 Box breathe</button>
-      <button class="btn" onclick="doTool('tool_dopamine_menu',{energy:'medium',context:'free'})">🎲 Ideas</button>
-      <button class="btn" onclick="doTool('tool_sensory_check',{action:'ask'})">🔍 Body check</button>
-    </div>
-    <h2>Check-in</h2>
-    <div class="btn-group">
-      <button class="btn" onclick="doTool('tool_checkin',{action:'ask'})">😊 How are you?</button>
-      <button class="btn" onclick="doTool('tool_celebrate',{})">🎉 Celebrate!</button>
-      <button class="btn" onclick="doTool('tool_repair',{})">🤝 Repair</button>
-    </div>
-    <h2>Transitions</h2>
-    <div class="btn-group">
-      <button class="btn" onclick="doTool('tool_transition',{action:'warn',minutes:5,label:'next thing'})">⏰ 5 min warn</button>
-      <button class="btn" onclick="doTool('tool_transition',{action:'warn',minutes:2,label:'next thing'})">⏰ 2 min warn</button>
-      <button class="btn" onclick="doTool('tool_transition',{action:'arrived'})">✅ Arrived</button>
-    </div>
-    <h2>Robot</h2>
-    <div class="btn-group">
-      <button class="btn" onclick="doTool('tool_status',{})">📊 Status</button>
-      <button class="btn" onclick="doTool('tool_sonar',{})">📡 Sonar</button>
-      <button class="btn" onclick="doTool('tool_time',{})">🕐 Time</button>
-      <button class="btn" onclick="doTool('tool_emote',{name:'happy'})">😄 Happy</button>
-      <button class="btn" onclick="doTool('tool_emote',{name:'idle'})">😐 Idle</button>
-      <button class="btn danger" onclick="doTool('tool_stop',{})">⛔ Stop</button>
-    </div>
-    <h2>Calendar</h2>
-    <div class="btn-group">
-      <button class="btn" onclick="doTool('tool_gws_calendar',{action:'today'})">📅 Today</button>
-      <button class="btn" onclick="doTool('tool_gws_calendar',{action:'next'})">➡ Next event</button>
-    </div>
-    <h2>Services</h2>
-    <div id="services-panel" class="btn-group">
-      <span class="muted" style="font-size:0.8em">Loading…</span>
-    </div>
-  </div>
-  <div id="chat-panel">
-    <div id="messages">
-      <div class="msg system">SPARK web interface — chat or tap a button to get started.</div>
-    </div>
-    <div id="input-bar">
-      <input id="chat-input" type="text" placeholder="Type a message to SPARK…" autocomplete="off">
-      <button id="send-btn" onclick="sendChat()">Send</button>
-    </div>
-  </div>
-</div>
+<nav id="tab-bar">
+  <button class="tab-btn active" id="tab-chat"    onclick="sw('chat')"><span class="ti">&#x1F4AC;</span>Chat</button>
+  <button class="tab-btn"        id="tab-actions" onclick="sw('actions')"><span class="ti">&#x26A1;</span>Actions</button>
+  <button class="tab-btn"        id="tab-spark"   onclick="sw('spark')"><span class="ti">&#x1F916;</span>SPARK</button>
+  <button class="tab-btn"        id="tab-admin"   onclick="sw('admin')"><span class="ti">&#x1F527;&#x1F512;</span>Adrian</button>
+</nav>
+<input type="hidden" id="tok" value="__SPARK_TOKEN__">
 <script>
-const api = (path, opts={}) => {
-  const token = document.getElementById('token-input').value.trim();
-  return fetch(path, {
-    headers: {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'},
-    ...opts,
-  });
-};
-
-const msgs = document.getElementById('messages');
-function addMsg(cls, html) {
-  const d = document.createElement('div');
-  d.className = 'msg ' + cls;
-  d.innerHTML = html;
-  msgs.appendChild(d);
-  msgs.scrollTop = msgs.scrollHeight;
+const tok=()=>document.getElementById('tok').value;
+const api=(path,opts={})=>fetch(path,{headers:{'Authorization':'Bearer '+tok(),'Content-Type':'application/json',...(opts.headers||{})}, ...opts}).then(r=>r.json());
+function showPin(){}
+function pollFace(){}
+function sw(name){
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('panel-'+name).classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
+  if(name==='admin')showPin();
+  if(name==='spark')pollFace();
 }
-
-async function pollStatus() {
-  try {
-    const r = await api('/api/v1/session');
-    if (r.ok) {
-      const s = await r.json();
-      const persona = s.persona || 'spark';
-      const mood = s.obi_mood || '—';
-      const routine = s.obi_routine ? ` • ${s.obi_routine}` : '';
-      const dry = document.getElementById('status-line').dataset.dry === '1' ? ' <span class="dry-tag">DRY</span>' : '';
-      document.getElementById('status-line').innerHTML = `${persona}${routine} • mood: ${mood}${dry}`;
-    }
-  } catch(e) {}
-}
-setInterval(pollStatus, 5000);
-pollStatus();
-
-async function doTool(tool, params, dry=undefined) {
-  addMsg('system', `→ ${tool}`);
-  try {
-    const r = await api('/api/v1/tool', {
-      method: 'POST',
-      body: JSON.stringify({tool, params, dry}),
-    });
-    const data = await r.json();
-    let out = '';
-    if (data.stdout) {
-      try { out = JSON.stringify(JSON.parse(data.stdout), null, 2); } catch { out = data.stdout; }
-    }
-    const cls = data.status === 'ok' || data.status === 'accepted' ? 'bot' : 'error';
-    addMsg(cls, `<div class="tool-tag">${tool}</div><pre style="white-space:pre-wrap;font-size:.8rem">${out || data.detail || JSON.stringify(data)}</pre>`);
-  } catch(e) {
-    addMsg('error', 'Network error: ' + e.message);
-  }
-}
-
-async function sendChat() {
-  const inp = document.getElementById('chat-input');
-  const text = inp.value.trim();
-  if (!text) return;
-  inp.value = '';
-  addMsg('user', text);
-  document.getElementById('send-btn').disabled = true;
-  try {
-    const r = await api('/api/v1/chat', {
-      method: 'POST',
-      body: JSON.stringify({text}),
-    });
-    const data = await r.json();
-    const cls = data.status === 'ok' ? 'bot' : 'error';
-    const toolTag = data.tool ? `<div class="tool-tag">${data.tool}</div>` : '';
-    let out = data.tool_output || data.error || JSON.stringify(data);
-    try { out = JSON.stringify(JSON.parse(out), null, 2); } catch {}
-    addMsg(cls, `${toolTag}<pre style="white-space:pre-wrap;font-size:.8rem">${out}</pre>`);
-  } catch(e) {
-    addMsg('error', 'Network error: ' + e.message);
-  }
-  document.getElementById('send-btn').disabled = false;
-}
-
-document.getElementById('chat-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') sendChat();
-});
-
-// Service management
-const SERVICES = ['px-alive','px-mind','px-wake-listen','px-api-server'];
-const SVC_ICONS = {'px-alive':'🤖','px-mind':'🧠','px-wake-listen':'👂','px-api-server':'🌐'};
-
-async function loadServices() {
-  try {
-    const r = await api('/api/v1/services');
-    const data = await r.json();
-    const panel = document.getElementById('services-panel');
-    panel.innerHTML = '';
-    (data.services || []).forEach(s => {
-      const active = s.active === 'active';
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:.8em';
-      const dot = active ? '<span style="color:#4caf50">●</span>' : '<span style="color:#e94560">●</span>';
-      const icon = SVC_ICONS[s.service] || '⚙';
-      row.innerHTML = `${dot} ${icon} <span style="flex:1">${s.service.replace('px-','')}</span>
-        <button class="btn" style="padding:2px 8px;font-size:.75em" onclick="svcAction('${s.service}','restart')">↺</button>
-        ${active ? `<button class="btn danger" style="padding:2px 8px;font-size:.75em" onclick="svcAction('${s.service}','stop')">■</button>` : `<button class="btn" style="padding:2px 8px;font-size:.75em;background:#2a5a2a" onclick="svcAction('${s.service}','start')">▶</button>`}`;
-      panel.appendChild(row);
-    });
-  } catch(e) {
-    document.getElementById('services-panel').innerHTML = '<span class="muted" style="font-size:.8em">Error loading</span>';
-  }
-}
-
-async function svcAction(service, action) {
-  addMsg('system', `→ service ${action}: ${service}`);
-  try {
-    const r = await api(`/api/v1/services/${service}/${action}`, {method:'POST'});
-    const data = await r.json();
-    const cls = data.status === 'ok' ? 'bot' : 'error';
-    addMsg(cls, `<div class="tool-tag">${service}</div><pre style="white-space:pre-wrap;font-size:.75rem">${action}: ${data.status}${data.stderr ? '\\n' + data.stderr : ''}</pre>`);
-    setTimeout(loadServices, 2000);
-  } catch(e) {
-    addMsg('error', 'Service error: ' + e.message);
-  }
-}
-
-loadServices();
-setInterval(loadServices, 15000);
 </script>
-</body>
-</html>"""
+</body></html>"""
 
 
 @app.get("/", response_class=HTMLResponse)
