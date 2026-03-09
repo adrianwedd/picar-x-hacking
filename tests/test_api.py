@@ -337,3 +337,16 @@ class TestMotionGate:
                                 json={"confirm_motion_allowed": False})
         assert resp.status_code == 200
         assert resp.json()["confirm_motion_allowed"] is False
+
+
+class TestWebUI:
+    def test_root_returns_html(self, api_client):
+        resp = api_client.get("/")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+        assert "SPARK" in resp.text
+
+    def test_root_no_auth_required(self, api_client):
+        """Web UI is unauthenticated — token is entered in the browser."""
+        resp = api_client.get("/")
+        assert resp.status_code == 200

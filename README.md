@@ -231,8 +231,10 @@ bin/px-api-server --dry-run    # FORCE_DRY — remote callers cannot override
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
+| GET | `/` | No | SPARK web dashboard (text chat + quick-action buttons) |
 | GET | `/api/v1/health` | No | Liveness probe |
-| POST | `/api/v1/tool` | Yes | Execute a tool: `{"tool": "tool_voice", "params": {"text": "hey"}}` |
+| POST | `/api/v1/chat` | Yes | Send text; SPARK picks a tool via LLM and executes it |
+| POST | `/api/v1/tool` | Yes | Execute a tool directly: `{"tool": "tool_voice", "params": {"text": "hey"}}` |
 | GET | `/api/v1/session` | Yes | Full session state |
 | PATCH | `/api/v1/session` | Yes | Update: `listening`, `confirm_motion_allowed`, `wheels_on_blocks`, `persona` |
 | GET | `/api/v1/tools` | Yes | List available tools |

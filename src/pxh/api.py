@@ -1,5 +1,7 @@
 """PiCar-X REST API — thin HTTP facade over the voice_loop tool pipeline.
 
+Also serves the SPARK web UI at / (text chat + quick-action buttons).
+
 Usage:
     # Via launcher (preferred — sets up env correctly):
     bin/px-api-server --dry-run
@@ -14,17 +16,24 @@ import os
 import secrets
 import threading
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .state import load_session, update_session
 from .voice_loop import (
     ALLOWED_TOOLS,
+    PERSONA_PROMPTS,
+    PROJECT_ROOT,
     VoiceLoopError,
+    build_model_prompt,
     execute_tool,
+    extract_action,
+    read_prompt,
+    run_codex,
     validate_action,
 )
 
@@ -258,3 +267,291 @@ async def get_job(job_id: str) -> Dict[str, Any]:
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
     return job
+
+
+# ---------------------------------------------------------------------------
+# Chat endpoint — one voice-loop turn via LLM
+# ---------------------------------------------------------------------------
+
+class ChatRequest(BaseModel):
+    text: str
+    dry: Optional[bool] = None
+
+
+_DEFAULT_PROMPT_PATH = PROJECT_ROOT / "docs" / "prompts" / "spark-voice-system.md"
+_CODEX_CMD = os.environ.get(
+    "CODEX_CHAT_CMD",
+    "codex exec --model gpt-5-codex --full-auto -",
+)
+
+
+def _do_chat_turn(text: str, dry: bool) -> Dict[str, Any]:
+    """Run one LLM turn: build prompt → LLM → parse action → execute tool."""
+    session = load_session()
+    # Pick system prompt based on active persona
+    active_persona = (session.get("persona") or "").lower().strip()
+    prompt_path = PERSONA_PROMPTS.get(active_persona, _DEFAULT_PROMPT_PATH)
+    if not prompt_path.exists():
+        prompt_path = _DEFAULT_PROMPT_PATH
+    if not prompt_path.exists():
+        return {"status": "error", "error": "system prompt not found"}
+
+    system_prompt = read_prompt(prompt_path)
+    prompt = build_model_prompt(system_prompt, session, text)
+
+    codex_cmd = os.environ.get("CODEX_CHAT_CMD", _CODEX_CMD)
+    rc, stdout, stderr = run_codex(codex_cmd, prompt)
+    if rc != 0:
+        return {"status": "error", "error": f"LLM error (rc={rc}): {stderr.strip()[-500:]}"}
+
+    action = extract_action(stdout)
+    if not action:
+        return {"status": "error", "error": "LLM returned no valid JSON action", "raw": stdout[-500:]}
+
+    try:
+        tool, env_overrides = validate_action(action)
+    except VoiceLoopError as exc:
+        return {"status": "error", "error": str(exc), "action": action}
+
+    t_rc, t_stdout, t_stderr = execute_tool(tool, env_overrides, dry)
+    return {
+        "status": "ok" if t_rc == 0 else "error",
+        "tool": tool,
+        "action": action,
+        "tool_output": t_stdout[-2048:],
+        "dry": dry,
+    }
+
+
+@app.post("/api/v1/chat", dependencies=[Depends(_verify_token)])
+async def chat(body: ChatRequest) -> JSONResponse:
+    """Send a text message; SPARK picks a tool and executes it."""
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="text must not be empty")
+    dry = _resolve_dry(body.dry)
+    loop = asyncio.get_running_loop()
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, _do_chat_turn, body.text.strip(), dry),
+            timeout=SYNC_TIMEOUT_SLOW,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="chat turn timed out")
+    return JSONResponse(status_code=200 if result.get("status") == "ok" else 500, content=result)
+
+
+# ---------------------------------------------------------------------------
+# Web UI — single-page SPARK dashboard served at /
+# ---------------------------------------------------------------------------
+
+_HTML_UI = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPARK</title>
+<style>
+  :root {
+    --bg: #1a1a2e; --surface: #16213e; --accent: #0f3460;
+    --spark: #e94560; --text: #eee; --muted: #888; --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif;
+         display: flex; flex-direction: column; height: 100vh; }
+  header { background: var(--surface); padding: 12px 20px; display: flex;
+           align-items: center; gap: 12px; border-bottom: 2px solid var(--spark); }
+  header h1 { font-size: 1.3rem; color: var(--spark); letter-spacing: 2px; }
+  header .status { margin-left: auto; font-size: .8rem; color: var(--muted); }
+  #token-bar { background: var(--accent); padding: 8px 16px; display: flex;
+               gap: 8px; align-items: center; font-size: .85rem; }
+  #token-bar input { flex: 1; background: #111; color: var(--text); border: 1px solid var(--muted);
+                     border-radius: var(--radius); padding: 4px 8px; font-size: .85rem; }
+  .main { display: flex; flex: 1; overflow: hidden; }
+  #sidebar { width: 220px; background: var(--surface); overflow-y: auto; padding: 12px;
+             border-right: 1px solid #2a2a4a; }
+  #sidebar h2 { font-size: .8rem; text-transform: uppercase; color: var(--muted);
+                margin-bottom: 8px; letter-spacing: 1px; }
+  .btn-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
+  .btn { background: var(--accent); color: var(--text); border: none; border-radius: var(--radius);
+         padding: 8px 10px; font-size: .8rem; cursor: pointer; text-align: left;
+         transition: background .15s; }
+  .btn:hover { background: var(--spark); }
+  .btn.danger { background: #5a1e2e; }
+  .btn.danger:hover { background: #8b2535; }
+  #chat-panel { flex: 1; display: flex; flex-direction: column; }
+  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex;
+              flex-direction: column; gap: 10px; }
+  .msg { max-width: 80%; padding: 10px 14px; border-radius: var(--radius); font-size: .9rem;
+         line-height: 1.5; }
+  .msg.user { background: var(--accent); align-self: flex-end; }
+  .msg.bot { background: var(--surface); border: 1px solid #2a2a4a; align-self: flex-start; }
+  .msg.bot .tool-tag { font-size: .75rem; color: var(--spark); margin-bottom: 4px; }
+  .msg.error { background: #3a1020; border-color: var(--spark); }
+  .msg.system { background: #1a2a1a; font-size: .8rem; color: var(--muted); align-self: center; }
+  #input-bar { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #2a2a4a; }
+  #input-bar input { flex: 1; background: var(--surface); color: var(--text);
+                     border: 1px solid #2a2a4a; border-radius: var(--radius);
+                     padding: 10px 14px; font-size: .95rem; }
+  #input-bar input:focus { outline: none; border-color: var(--spark); }
+  #send-btn { background: var(--spark); color: #fff; border: none; border-radius: var(--radius);
+              padding: 10px 18px; font-size: .9rem; cursor: pointer; }
+  #send-btn:hover { opacity: .85; }
+  #send-btn:disabled { opacity: .4; cursor: default; }
+  .dry-tag { font-size: .7rem; background: #2a4a2a; color: #8f8; border-radius: 4px;
+             padding: 2px 6px; margin-left: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ SPARK</h1>
+  <span class="status" id="status-line">Connecting…</span>
+</header>
+<div id="token-bar">
+  <label for="token-input">API Token:</label>
+  <input id="token-input" type="password" placeholder="paste PX_API_TOKEN here" autocomplete="off">
+</div>
+<div class="main">
+  <div id="sidebar">
+    <h2>Routines</h2>
+    <div class="btn-group">
+      <button class="btn" onclick="doTool('tool_routine',{action:'load',name:'morning'})">🌅 Morning</button>
+      <button class="btn" onclick="doTool('tool_routine',{action:'load',name:'homework'})">📚 Homework</button>
+      <button class="btn" onclick="doTool('tool_routine',{action:'load',name:'bedtime'})">🌙 Bedtime</button>
+      <button class="btn" onclick="doTool('tool_routine',{action:'next'})">▶ Next step</button>
+      <button class="btn" onclick="doTool('tool_routine',{action:'status'})">? Current step</button>
+    </div>
+    <h2>Regulation</h2>
+    <div class="btn-group">
+      <button class="btn" onclick="doTool('tool_quiet',{action:'start'})">🤫 Quiet mode</button>
+      <button class="btn" onclick="doTool('tool_quiet',{action:'end'})">✅ End quiet</button>
+      <button class="btn" onclick="doTool('tool_breathe',{type:'simple',rounds:2})">💨 Breathe</button>
+      <button class="btn" onclick="doTool('tool_breathe',{type:'box',rounds:2})">📦 Box breathe</button>
+      <button class="btn" onclick="doTool('tool_dopamine_menu',{energy:'medium',context:'free'})">🎲 Ideas</button>
+      <button class="btn" onclick="doTool('tool_sensory_check',{action:'ask'})">🔍 Body check</button>
+    </div>
+    <h2>Check-in</h2>
+    <div class="btn-group">
+      <button class="btn" onclick="doTool('tool_checkin',{action:'ask'})">😊 How are you?</button>
+      <button class="btn" onclick="doTool('tool_celebrate',{})">🎉 Celebrate!</button>
+      <button class="btn" onclick="doTool('tool_repair',{})">🤝 Repair</button>
+    </div>
+    <h2>Transitions</h2>
+    <div class="btn-group">
+      <button class="btn" onclick="doTool('tool_transition',{action:'warn',minutes:5,label:'next thing'})">⏰ 5 min warn</button>
+      <button class="btn" onclick="doTool('tool_transition',{action:'warn',minutes:2,label:'next thing'})">⏰ 2 min warn</button>
+      <button class="btn" onclick="doTool('tool_transition',{action:'arrived'})">✅ Arrived</button>
+    </div>
+    <h2>Robot</h2>
+    <div class="btn-group">
+      <button class="btn" onclick="doTool('tool_status',{})">📊 Status</button>
+      <button class="btn" onclick="doTool('tool_sonar',{})">📡 Sonar</button>
+      <button class="btn" onclick="doTool('tool_time',{})">🕐 Time</button>
+      <button class="btn" onclick="doTool('tool_emote',{name:'happy'})">😄 Happy</button>
+      <button class="btn" onclick="doTool('tool_emote',{name:'idle'})">😐 Idle</button>
+      <button class="btn danger" onclick="doTool('tool_stop',{})">⛔ Stop</button>
+    </div>
+    <h2>Calendar</h2>
+    <div class="btn-group">
+      <button class="btn" onclick="doTool('tool_gws_calendar',{action:'today'})">📅 Today</button>
+      <button class="btn" onclick="doTool('tool_gws_calendar',{action:'next'})">➡ Next event</button>
+    </div>
+  </div>
+  <div id="chat-panel">
+    <div id="messages">
+      <div class="msg system">SPARK web interface. Enter your API token above, then chat or use the quick buttons.</div>
+    </div>
+    <div id="input-bar">
+      <input id="chat-input" type="text" placeholder="Type a message to SPARK…" autocomplete="off">
+      <button id="send-btn" onclick="sendChat()">Send</button>
+    </div>
+  </div>
+</div>
+<script>
+const api = (path, opts={}) => {
+  const token = document.getElementById('token-input').value.trim();
+  return fetch(path, {
+    headers: {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'},
+    ...opts,
+  });
+};
+
+const msgs = document.getElementById('messages');
+function addMsg(cls, html) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls;
+  d.innerHTML = html;
+  msgs.appendChild(d);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+async function pollStatus() {
+  try {
+    const r = await api('/api/v1/session');
+    if (r.ok) {
+      const s = await r.json();
+      const persona = s.persona || 'spark';
+      const mood = s.obi_mood || '—';
+      const routine = s.obi_routine ? ` • ${s.obi_routine}` : '';
+      const dry = document.getElementById('status-line').dataset.dry === '1' ? ' <span class="dry-tag">DRY</span>' : '';
+      document.getElementById('status-line').innerHTML = `${persona}${routine} • mood: ${mood}${dry}`;
+    }
+  } catch(e) {}
+}
+setInterval(pollStatus, 5000);
+pollStatus();
+
+async function doTool(tool, params, dry=undefined) {
+  addMsg('system', `→ ${tool}`);
+  try {
+    const r = await api('/api/v1/tool', {
+      method: 'POST',
+      body: JSON.stringify({tool, params, dry}),
+    });
+    const data = await r.json();
+    let out = '';
+    if (data.stdout) {
+      try { out = JSON.stringify(JSON.parse(data.stdout), null, 2); } catch { out = data.stdout; }
+    }
+    const cls = data.status === 'ok' || data.status === 'accepted' ? 'bot' : 'error';
+    addMsg(cls, `<div class="tool-tag">${tool}</div><pre style="white-space:pre-wrap;font-size:.8rem">${out || data.detail || JSON.stringify(data)}</pre>`);
+  } catch(e) {
+    addMsg('error', 'Network error: ' + e.message);
+  }
+}
+
+async function sendChat() {
+  const inp = document.getElementById('chat-input');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  addMsg('user', text);
+  document.getElementById('send-btn').disabled = true;
+  try {
+    const r = await api('/api/v1/chat', {
+      method: 'POST',
+      body: JSON.stringify({text}),
+    });
+    const data = await r.json();
+    const cls = data.status === 'ok' ? 'bot' : 'error';
+    const toolTag = data.tool ? `<div class="tool-tag">${data.tool}</div>` : '';
+    let out = data.tool_output || data.error || JSON.stringify(data);
+    try { out = JSON.stringify(JSON.parse(out), null, 2); } catch {}
+    addMsg(cls, `${toolTag}<pre style="white-space:pre-wrap;font-size:.8rem">${out}</pre>`);
+  } catch(e) {
+    addMsg('error', 'Network error: ' + e.message);
+  }
+  document.getElementById('send-btn').disabled = false;
+}
+
+document.getElementById('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendChat();
+});
+</script>
+</body>
+</html>"""
+
+
+@app.get("/", response_class=HTMLResponse)
+async def web_ui():
+    """Serve the SPARK web dashboard (no auth — token entered in UI)."""
+    return HTMLResponse(content=_HTML_UI)
