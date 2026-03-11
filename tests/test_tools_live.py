@@ -110,7 +110,7 @@ class TestNonGpioLive:
     def test_tool_weather(self):
         payload = run_tool(["bin/tool-weather"], live_env(), timeout=20)
         assert payload["status"] == "ok"
-        assert "temp_C" in payload
+        assert "temp_c" in payload
         assert "summary" in payload
 
     def test_tool_voice(self):

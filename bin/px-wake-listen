@@ -50,6 +50,11 @@ FOLLOWUP_SILENCE_S  = 3.5  # silence threshold ending a follow-up utterance
 FOLLOWUP_MAX_S      = 20.0  # hard cap for follow-up recording
 FOLLOWUP_TIMEOUT_S  = 30.0  # seconds to wait for follow-up speech to begin (timeout → end session)
 END_PHRASES = {"stop", "bye", "goodbye", "that's all", "done", "end", "no thanks"}
+# Pre-compiled word-boundary regex for END_PHRASES — prevents "end" matching "defends", etc.
+import re as _re
+_END_PHRASE_RE = _re.compile(
+    r"\b(" + "|".join(_re.escape(p) for p in END_PHRASES) + r")\b"
+)
 
 DEFAULT_MODEL = str(PROJECT_ROOT / "models" / "vosk-model-small-en-us-0.15")
 DEFAULT_WAKE  = "hey robot"
@@ -510,6 +515,16 @@ def transcribe_sensevoice(sv, audio_bytes: bytes) -> str:
             log(f"sensevoice hallucination (repetitive): {text!r}")
             return ""
 
+    # Word-rate filter: real speech ≤ 4 words/sec; hallucinated word-salad on
+    # short ambient noise can be 10-15 words/sec (audio_bytes is 44100 Hz 16-bit mono)
+    if len(words) >= 6:
+        duration_sec = len(audio_bytes) / (44100 * 2)
+        if duration_sec > 0:
+            word_rate = len(words) / duration_sec
+            if word_rate > 5.0:
+                log(f"sensevoice hallucination (word rate {word_rate:.1f}/s for {duration_sec:.1f}s): {text!r}")
+                return ""
+
     return text
 
 
@@ -692,7 +707,7 @@ def run_persona_conversation(persona_name: str, initial_text: str, dry: bool,
 
             log(f"persona conversation: follow-up: {follow_text!r}")
 
-            if any(phrase in follow_text.lower() for phrase in END_PHRASES):
+            if _END_PHRASE_RE.search(follow_text.lower()):
                 log("persona conversation: end phrase — final turn")
                 env["PX_TEXT"] = follow_text
                 subprocess.run(
@@ -760,7 +775,7 @@ def run_conversation(initial_text: str, voice_cmd: str, dry: bool,
             log(f"conversation: follow-up: {follow_text!r}")
 
             # Check for end-of-conversation phrases
-            if any(phrase in follow_text.lower() for phrase in END_PHRASES):
+            if _END_PHRASE_RE.search(follow_text.lower()):
                 log("conversation: end phrase — one final turn")
                 subprocess.run(
                     [voice_cmd, "--max-turns", "3"],
