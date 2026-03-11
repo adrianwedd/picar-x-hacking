@@ -235,6 +235,15 @@ async def patch_session(body: SessionPatch) -> Dict[str, Any]:
     return update_session(fields=fields)
 
 
+@app.post("/api/v1/session/history/clear", dependencies=[Depends(_verify_token)])
+async def clear_session_history() -> Dict[str, Any]:
+    """Wipe session conversation history. Keeps all other session fields intact."""
+    session = load_session()
+    count = len(session.get("history", []))
+    update_session(fields={"history": []})
+    return {"status": "ok", "cleared": count}
+
+
 @app.post("/api/v1/tool", dependencies=[Depends(_verify_token)])
 async def run_tool(body: ToolRequest) -> JSONResponse:
     dry = _resolve_dry(body.dry)
@@ -727,6 +736,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Nunito
           <button class="btn btn-muted" onclick="setPersona('vixen')">&#x1F98A; vixen</button>
           <button class="btn btn-muted" onclick="setPersona('')">&#x25CB; none</button>
         </div>
+        <div class="sec-hdr">Session</div>
+        <button class="btn btn-danger" onclick="clearHistory()">&#x1F5D1; Clear Session History</button>
         <div class="sec-hdr">Log an event</div>
         <input id="sh-mood" placeholder="Mood" style="background:var(--surface2);border:none;border-radius:8px;padding:10px 14px;color:var(--text);font-family:inherit;font-size:14px">
         <input id="sh-detail" placeholder="What happened?" style="background:var(--surface2);border:none;border-radius:8px;padding:10px 14px;color:var(--text);font-family:inherit;font-size:14px">
@@ -809,6 +820,7 @@ async function loadParental(){
 async function toggleMotion(){try{const s=await api('/api/v1/session');await api('/api/v1/session',{method:'PATCH',body:JSON.stringify({confirm_motion_allowed:!s.confirm_motion_allowed})});}catch(e){}loadParental();}
 async function toggleQuiet(){try{const s=await api('/api/v1/session');await api('/api/v1/session',{method:'PATCH',body:JSON.stringify({spark_quiet_mode:!s.spark_quiet_mode})});}catch(e){}loadParental();}
 async function setPersona(p){try{await api('/api/v1/session',{method:'PATCH',body:JSON.stringify({persona:p})});}catch(e){}}
+async function clearHistory(){if(!confirm('Wipe all session history? SPARK will stop ruminating on old phrases.'))return;const r=await api('/api/v1/session/history/clear',{method:'POST'});chat('History cleared ('+r.cleared+' entries removed).');}
 async function logEvt(){
   const mood=document.getElementById('sh-mood').value;
   const detail=document.getElementById('sh-detail').value;
