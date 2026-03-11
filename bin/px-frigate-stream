@@ -59,10 +59,10 @@ def build_commands(args) -> Dict[str, List[str]]:
         "pipe:0",
         "-fflags",
         "+genpts",
-        "-preset",
-        "ultrafast",
-        "-tune",
-        "zerolatency",
+        # Stream-copy H264 from rpicam-vid — no re-encode.
+        # -preset/-tune are software encoder flags and cause mpeg4 fallback without -c:v copy.
+        "-c:v",
+        "copy",
         "-f",
         "rtsp",
         "-rtsp_transport",
@@ -87,7 +87,9 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    target_url = f"rtsp://{args.host}:{args.port}/api/stream?push={args.stream}"
+    # go2rtc RTSP push: the stream name IS the URL path on the RTSP port.
+    # The /api/stream?push= form is go2rtc's HTTP API, not valid for RTSP ANNOUNCE.
+    target_url = f"rtsp://{args.host}:{args.port}/{args.stream}"
     args.url = target_url
     commands = build_commands(args)
 
