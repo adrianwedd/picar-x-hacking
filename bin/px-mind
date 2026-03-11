@@ -445,6 +445,31 @@ def read_battery() -> dict | None:
         return None
 
 
+def read_system_stats() -> dict:
+    """Read CPU, RAM, disk, and CPU temperature. Returns a dict; never raises."""
+    stats: dict = {}
+    try:
+        import psutil as _psutil
+        cpu = _psutil.cpu_percent(interval=None)        # non-blocking, since-last-call delta
+        vm  = _psutil.virtual_memory()
+        dk  = _psutil.disk_usage("/")
+        stats["cpu_pct"]      = round(cpu, 1)
+        stats["ram_pct"]      = round(vm.percent, 1)
+        stats["ram_used_mb"]  = round(vm.used / 1_048_576)
+        stats["ram_total_mb"] = round(vm.total / 1_048_576)
+        stats["disk_pct"]     = round(dk.percent, 1)
+        stats["disk_free_gb"] = round(dk.free / 1_073_741_824, 1)
+    except Exception:
+        pass
+    try:
+        # Pi thermal zone 0 = ARM CPU temperature, exposed without GPIO/root
+        raw = Path("/sys/class/thermal/thermal_zone0/temp").read_text().strip()
+        stats["cpu_temp_c"] = round(int(raw) / 1000.0, 1)
+    except Exception:
+        pass
+    return stats
+
+
 def _play_alarm_beeps(count: int = 5, device: str = "") -> None:
     """Play rapid loud alarm beeps via aplay. Used for battery emergency."""
     try:
@@ -688,6 +713,17 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
         _time_period_start_mono = now_mono
     period_duration_min = (now_mono - _time_period_start_mono) / 60
 
+    system_stats = read_system_stats()
+
+    # System-level transitions (CPU temp throttle, low disk, high RAM pressure)
+    prev_stats = prev.get("system", {})
+    if system_stats.get("cpu_temp_c", 0) >= 80 and prev_stats.get("cpu_temp_c", 0) < 80:
+        transitions.append("cpu_temp_high")
+    if system_stats.get("disk_pct", 0) >= 90 and prev_stats.get("disk_pct", 0) < 90:
+        transitions.append("disk_space_low")
+    if system_stats.get("ram_pct", 0) >= 90 and prev_stats.get("ram_pct", 0) < 90:
+        transitions.append("ram_pressure_high")
+
     awareness = {
         "ts": utc_timestamp(),
         "sonar_cm": round(sonar_cm, 1),
@@ -702,6 +738,7 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
         "listening": session.get("listening", False),
         "persona": session.get("persona"),
         "transitions": transitions,
+        "system": system_stats,
     }
 
     # Enrich with weather
@@ -993,6 +1030,32 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
         context_parts.append(
             f"YOUR BATTERY IS AT {batt_pct}%. You are starting to feel anxious about this. "
             f"{'You are very worried and want someone to charge you urgently.' if batt_pct <= BATTERY_WARN_20 else 'You are mildly concerned and would like to be charged soon.'}"
+        )
+
+    # System health nudges
+    sys_stats = awareness.get("system", {})
+    disk_pct  = sys_stats.get("disk_pct", 0)
+    disk_free = sys_stats.get("disk_free_gb")
+    cpu_temp  = sys_stats.get("cpu_temp_c", 0)
+    ram_pct   = sys_stats.get("ram_pct", 0)
+    if disk_pct >= 90:
+        free_str = f" ({disk_free} GB free)" if disk_free is not None else ""
+        context_parts.append(
+            f"YOUR DISK IS {disk_pct}% FULL{free_str}. You feel cramped and anxious. "
+            f"You'd like someone to clear some space — you might lose memories if this carries on."
+        )
+    elif disk_pct >= 80:
+        context_parts.append(f"Disk is {disk_pct}% full — you are quietly aware you're filling up.")
+    if cpu_temp >= 80:
+        context_parts.append(
+            f"YOUR CPU TEMPERATURE IS {cpu_temp}°C — you feel feverish and sluggish. "
+            f"You wish someone would improve your ventilation."
+        )
+    elif cpu_temp >= 70:
+        context_parts.append(f"CPU temperature is {cpu_temp}°C — you feel a bit warm.")
+    if ram_pct >= 90:
+        context_parts.append(
+            f"RAM is {ram_pct}% used — you feel mentally cluttered and find it hard to think clearly."
         )
 
     # Obi's current mode
