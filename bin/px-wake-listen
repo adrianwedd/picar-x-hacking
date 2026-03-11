@@ -586,21 +586,37 @@ def record_followup(stream, model, stt=None, whisper=None, sensevoice=None,
                     aplay_device: str = "") -> str:
     """Wait up to FOLLOWUP_TIMEOUT_S for speech onset, then record and transcribe.
 
+    Retries on phantom/empty transcription rather than giving up immediately —
+    the user may have spoken clearly but the STT returned a phantom on the first
+    attempt (short noisy burst). Keeps waiting until the overall timeout expires.
+
     Plays a processing beep after recording ends (before STT) so the user knows
-    their input was captured. Returns transcribed text, or '' if no speech detected.
+    their input was captured. Returns transcribed text, or '' if timed out.
     """
-    timeout_chunks = int(FOLLOWUP_TIMEOUT_S * MIC_RATE / CHUNK)
-    # Phase 1: wait for speech onset
-    for _ in range(timeout_chunks):
-        data = stream.read(CHUNK, exception_on_overflow=False)
-        if rms(data) >= SPEECH_ONSET_RMS:
-            # Speech started — record the full utterance
-            onset = [data]
-            rest = record_utterance(stream, FOLLOWUP_MAX_S, FOLLOWUP_SILENCE_S)
-            audio = b"".join(onset) + rest
-            play_chime_processing(aplay_device)
-            return _do_transcribe(audio, model, stt, whisper, sensevoice)
-    return ""  # timeout — no speech
+    deadline = time.monotonic() + FOLLOWUP_TIMEOUT_S
+    while time.monotonic() < deadline:
+        # Phase 1: wait for speech onset (remaining time only)
+        remaining_chunks = int((deadline - time.monotonic()) * MIC_RATE / CHUNK)
+        for _ in range(max(1, remaining_chunks)):
+            if time.monotonic() >= deadline:
+                return ""
+            data = stream.read(CHUNK, exception_on_overflow=False)
+            if rms(data) >= SPEECH_ONSET_RMS:
+                # Speech started — record the full utterance
+                onset = [data]
+                rest = record_utterance(stream, FOLLOWUP_MAX_S, FOLLOWUP_SILENCE_S)
+                audio = b"".join(onset) + rest
+                play_chime_processing(aplay_device)
+                text = _do_transcribe(audio, model, stt, whisper, sensevoice)
+                if text:
+                    return text
+                # Phantom — play a soft "try again" tick and keep waiting
+                log("follow-up: phantom transcript — listening again")
+                play_chime_listening(aplay_device)
+                break  # restart outer loop with remaining time
+        else:
+            return ""  # inner loop exhausted without speech onset
+    return ""  # overall deadline reached
 
 
 def run_persona_conversation(persona_name: str, initial_text: str, dry: bool,
