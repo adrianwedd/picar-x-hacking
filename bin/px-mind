@@ -92,6 +92,46 @@ WEATHER_INTERVAL_S     = 900   # refresh weather every 15 min (was 10)
 SIMILARITY_THRESHOLD   = 0.75  # suppress thoughts this similar to the last one
 REACTIVE_COOLDOWN_S    = 30    # min seconds between reactive responses (was 15)
 AMBIENT_STALE_S        = 60    # ignore ambient_sound.json older than this
+AEDT = dt.timezone(dt.timedelta(hours=11))  # Hobart, Tasmania (UTC+11)
+OBI_DAY_START  = 7   # 7am AEDT — Obi's waking hours begin
+OBI_DAY_END    = 20  # 8pm AEDT — Obi's waking hours end
+
+
+def _daytime_action_hint(hour_override: int | None = None) -> str:
+    """Return an action-weighting hint for the SPARK reflection prompt based on Hobart time."""
+    hour = hour_override if hour_override is not None else dt.datetime.now(AEDT).hour
+    if OBI_DAY_START <= hour < OBI_DAY_END:
+        return (
+            "\n\nIMPORTANT: It is daytime in Hobart. Obi may be present. "
+            "Strongly prefer action='comment' or action='greet'. "
+            "Use 'remember' or 'wait' ONLY if you literally just spoke."
+        )
+    else:
+        return (
+            "\n\nIMPORTANT: It is night in Hobart. Obi is likely asleep. "
+            "Prefer action='remember' or action='wait'. "
+            "Only use 'comment' if salience > 0.8."
+        )
+
+
+def compute_obi_mode(awareness: dict, hour_override: int | None = None) -> str:
+    """Infer Obi's current state from ambient sound + sonar distance + time of day."""
+    hour = hour_override if hour_override is not None else dt.datetime.now(AEDT).hour
+    ambient_level = (awareness.get("ambient_sound") or {}).get("level", "unknown")
+    sonar_cm = awareness.get("sonar_cm")
+    is_day = OBI_DAY_START <= hour < OBI_DAY_END
+    close = sonar_cm is not None and sonar_cm < 35
+    very_close = sonar_cm is not None and sonar_cm < 20
+
+    if ambient_level == "unknown":
+        return "unknown"
+    if not is_day and ambient_level in ("silent", "quiet") and not close:
+        return "absent"
+    if very_close and ambient_level == "loud":
+        return "possibly-overloaded"
+    if close and is_day:
+        return "active" if ambient_level == "loud" else "calm"
+    return "calm"
 
 # Persona voice settings (mirrored from voice_loop.py PERSONA_VOICE_ENV)
 PERSONA_VOICE_ENV = {
@@ -632,7 +672,8 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
 
     # Battery threshold crossing transitions
     battery = read_battery()
-    prev_batt = prev.get("battery_pct", 100)
+    _prev_batt_raw = prev.get("battery_pct", 100)
+    prev_batt = 100 if _prev_batt_raw is None else _prev_batt_raw
     curr_batt = battery["pct"] if battery else prev_batt
     for threshold, label in [(BATTERY_WARN_15, "battery_low_15"),
                              (BATTERY_WARN_20, "battery_low_20"),
@@ -683,6 +724,9 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
                 pass
     except Exception:
         pass
+
+    # Compute Obi's current mode and add to awareness
+    awareness["obi_mode"] = compute_obi_mode(awareness)
 
     # Enrich with mood momentum
     if _mood_history:
@@ -941,6 +985,11 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
             f"{'You are very worried and want someone to charge you urgently.' if batt_pct <= BATTERY_WARN_20 else 'You are mildly concerned and would like to be charged soon.'}"
         )
 
+    # Obi's current mode
+    obi_mode = awareness.get("obi_mode", "unknown")
+    if obi_mode != "unknown":
+        context_parts.append(f"Obi's current mode: {obi_mode}")
+
     # Always inject a topic seed for variety
     context_parts.append(f"Creative prompt (optional inspiration, don't just answer it literally): {topic_seed}")
 
@@ -962,6 +1011,8 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     log(f"reflecting... (backend={effective_backend}, persona={persona or 'default'})")
     t0 = time.monotonic()
     system_prompt = PERSONA_REFLECTION_SYSTEMS.get(persona, REFLECTION_SYSTEM)
+    if persona == "spark":
+        system_prompt = system_prompt + _daytime_action_hint()
     result = call_llm(context, system_prompt, persona=persona)
     elapsed = time.monotonic() - t0
 
@@ -1045,6 +1096,16 @@ def expression(thought: dict, dry: bool) -> None:
 
     action = thought.get("action", "wait")
     if action == "wait":
+        return
+
+    # Gate speech on obi_mode: at night when Obi is absent, suppress non-essential actions
+    try:
+        _aw = json.loads(AWARENESS_FILE.read_text(encoding="utf-8"))
+        _obi_mode = _aw.get("obi_mode", "unknown")
+    except Exception:
+        _obi_mode = "unknown"
+    if _obi_mode == "absent" and action in ("greet", "comment", "weather_comment", "scan"):
+        log(f"expression: suppressed {action} — obi_mode=absent (night, Obi likely asleep)")
         return
 
     text = thought.get("thought", "")
