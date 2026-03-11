@@ -767,7 +767,11 @@ def listen_loop(pa, model, args, stt=None, whisper=None, sensevoice=None) -> Non
 
     # Grammar recognizer for wake word (fast, low-CPU)
     wake_phrase = args.wake_word.lower().strip()
-    grammar = json.dumps([wake_phrase, "[unk]"])
+    # Include all valid wake phrases so Vosk can recognise them all;
+    # without this, e.g. "hey spark" collapses to just "hey" and never triggers.
+    _extra_wake = ["hey spark"] + list(PERSONA_WAKE.keys())
+    all_wake_phrases = [wake_phrase] + [p for p in _extra_wake if p != wake_phrase] + ["[unk]"]
+    grammar = json.dumps(all_wake_phrases)
     wake_rec = vosk.KaldiRecognizer(model, VOSK_RATE, grammar)
     resample_state = None  # audioop.ratecv state for wake recognizer
 
@@ -781,7 +785,7 @@ def listen_loop(pa, model, args, stt=None, whisper=None, sensevoice=None) -> Non
     )
     stream.start_stream()
     persona_names = [k.split()[-1] for k in PERSONA_WAKE]
-    log(f"listening for wake word: '{wake_phrase}' (say 'vixen' or 'gremlin' after wake to switch persona)")
+    log(f"listening for wake word: '{wake_phrase}' or 'hey spark' / 'hey vixen' / 'hey gremlin'")
 
     # Ambient sound tracking for px-mind
     STATE_DIR = Path(os.environ.get("PX_STATE_DIR", PROJECT_ROOT / "state"))
@@ -825,7 +829,8 @@ def listen_loop(pa, model, args, stt=None, whisper=None, sensevoice=None) -> Non
                 result = json.loads(wake_rec.Result())
                 text = result.get("text", "")
                 if text and text != "[unk]":
-                    if wake_phrase in text:
+                    _is_wake = any(p in text for p in all_wake_phrases if p != "[unk]")
+                    if _is_wake:
                         log(f"vosk heard: {text!r}")
                     else:
                         _now_partial = time.monotonic()
@@ -833,7 +838,7 @@ def listen_loop(pa, model, args, stt=None, whisper=None, sensevoice=None) -> Non
                             log(f"vosk heard: {text!r}")
                             _vosk_partial_last_log = _now_partial
 
-                if wake_phrase in text:
+                if any(p in text for p in all_wake_phrases if p != "[unk]"):
                     log(f"wake word detected: {text!r}")
                     # Pre-enable speaker amp so it's warm before chime audio arrives
                     try:
@@ -925,7 +930,7 @@ def listen_loop(pa, model, args, stt=None, whisper=None, sensevoice=None) -> Non
                     # Reset wake recognizer after conversation ends
                     wake_rec = vosk.KaldiRecognizer(model, VOSK_RATE, grammar)
                     resample_state = None
-                    log(f"listening for wake word: '{wake_phrase}'")
+                    log(f"listening for wake word: '{wake_phrase}' (also: hey spark, hey vixen, hey gremlin)")
 
     finally:
         stream.stop_stream()
