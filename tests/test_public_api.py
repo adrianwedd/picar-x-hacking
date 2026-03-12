@@ -93,7 +93,7 @@ class TestPublicStatus:
     def test_has_required_keys(self, public_client):
         resp = public_client.get("/api/v1/public/status")
         data = resp.json()
-        for key in ("persona", "mood", "last_thought", "last_action", "ts", "listening"):
+        for key in ("persona", "mood", "last_thought", "last_action", "salience", "ts", "listening"):
             assert key in data, f"missing key: {key}"
 
 
@@ -219,7 +219,7 @@ class TestPublicAwareness:
         resp = public_client.get("/api/v1/public/awareness")
         data = resp.json()
         assert data["obi_mode"] is None
-        assert data["person_present"] is False   # false (not null) when frigate absent
+        assert data["person_present"] is None    # null when Frigate absent (hides indicator)
         assert data["weather"] is None
 
     def test_flattened_projection_from_awareness_file(self, public_client, state_dir):
@@ -266,17 +266,38 @@ class TestPublicAwareness:
         assert abs(data["weather"]["temp_c"] - 14.2) < 0.01
         assert "temp_C" not in data["weather"]
 
-    def test_person_present_false_when_frigate_key_absent(self, public_client, state_dir):
-        # awareness.json with no frigate key at all
+    def test_person_present_null_when_frigate_key_absent(self, public_client, state_dir):
+        # awareness.json with no frigate key → Frigate offline → null hides indicator
         (state_dir / "awareness.json").write_text(json.dumps({"obi_mode": "absent"}))
         data = public_client.get("/api/v1/public/awareness").json()
-        assert data["person_present"] is False  # false, not null
+        assert data["person_present"] is None
 
-    def test_person_present_false_when_frigate_is_none(self, public_client, state_dir):
-        # awareness.json with frigate: null (offline)
+    def test_person_present_null_when_frigate_is_none(self, public_client, state_dir):
+        # awareness.json with frigate: null (Frigate offline) → null hides indicator
         (state_dir / "awareness.json").write_text(json.dumps({"frigate": None}))
         data = public_client.get("/api/v1/public/awareness").json()
-        assert data["person_present"] is False
+        assert data["person_present"] is None
+
+    def test_no_500_on_json_array_awareness_file(self, public_client, state_dir):
+        # awareness.json is a JSON array (corrupted) → 200 with null fields, no 500
+        (state_dir / "awareness.json").write_text(json.dumps([{"obi_mode": "calm"}]))
+        resp = public_client.get("/api/v1/public/awareness")
+        assert resp.status_code == 200
+        assert resp.json()["obi_mode"] is None
+
+    def test_no_500_on_non_json_awareness_file(self, public_client, state_dir):
+        # awareness.json is garbage bytes → 200 with null fields, no 500
+        (state_dir / "awareness.json").write_text("not valid json {{{")
+        resp = public_client.get("/api/v1/public/awareness")
+        assert resp.status_code == 200
+        assert resp.json()["obi_mode"] is None
+
+    def test_no_500_when_weather_is_string(self, public_client, state_dir):
+        # weather field is a string not a dict → treated as null, no 500
+        (state_dir / "awareness.json").write_text(json.dumps({"weather": "Cloudy"}))
+        resp = public_client.get("/api/v1/public/awareness")
+        assert resp.status_code == 200
+        assert resp.json()["weather"] is None
 
     def test_weather_null_when_weather_key_absent(self, public_client, state_dir):
         (state_dir / "awareness.json").write_text(json.dumps({"obi_mode": "calm"}))

@@ -127,8 +127,6 @@ import collections as _collections
 _history_buf: "_collections.deque[Dict[str, Any]]" = _collections.deque(maxlen=60)
 _history_lock = threading.Lock()
 
-_THERMAL_ZONE = Path("/sys/class/thermal/thermal_zone0/temp")
-
 
 def _collect_history_sample(state_dir: "Path") -> "Dict[str, Any]":
     """Collect one vitals + sonar + ambient reading. Extracted for testability."""
@@ -297,6 +295,7 @@ async def public_status() -> Dict[str, Any]:
         "mood": last.get("mood"),
         "last_thought": last.get("thought"),
         "last_action": last.get("action"),
+        "salience": last.get("salience"),
         "ts": last.get("ts"),
         "listening": session.get("listening", False),
     }
@@ -369,17 +368,25 @@ async def public_sonar() -> Dict[str, Any]:
 async def public_awareness() -> Dict[str, Any]:
     """SPARK awareness snapshot: mode, Frigate, ambient, weather, time context. No auth."""
     try:
-        awareness = json.loads((_public_state_dir() / "awareness.json").read_text())
+        parsed = json.loads((_public_state_dir() / "awareness.json").read_text())
+        awareness = parsed if isinstance(parsed, dict) else {}
     except Exception:
         awareness = {}
 
-    # frigate can be None (offline) or a dict — handle both
-    frigate = awareness.get("frigate") or {}
-    frigate_present = awareness.get("frigate") is not None
-    ambient = awareness.get("ambient_sound") or {}
-    raw_weather = awareness.get("weather")
+    # frigate: absent/None → Frigate offline → person_present=None (hidden in UI)
+    # frigate: dict → Frigate online → use its person_present value
+    raw_frigate = awareness.get("frigate")
+    if isinstance(raw_frigate, dict):
+        person_present: Any = raw_frigate.get("person_present", False)
+        frigate_score: Any = raw_frigate.get("score")
+    else:
+        person_present = None
+        frigate_score = None
 
-    if raw_weather is not None:
+    ambient = awareness.get("ambient_sound") or {}
+
+    raw_weather = awareness.get("weather")
+    if isinstance(raw_weather, dict):
         weather_out: Any = {
             "temp_c": raw_weather.get("temp_C"),      # normalise uppercase → lowercase
             "wind_kmh": raw_weather.get("wind_kmh"),
@@ -391,8 +398,8 @@ async def public_awareness() -> Dict[str, Any]:
 
     return {
         "obi_mode": awareness.get("obi_mode"),
-        "person_present": frigate.get("person_present", False) if frigate_present else False,
-        "frigate_score": frigate.get("score"),
+        "person_present": person_present,
+        "frigate_score": frigate_score,
         "ambient_level": ambient.get("level"),
         "ambient_rms": ambient.get("rms"),
         "weather": weather_out,

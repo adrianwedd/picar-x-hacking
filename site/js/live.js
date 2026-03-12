@@ -233,11 +233,21 @@
     catch (_) {}
   }
 
+  // ── Prefetch history on load (spec: once on page load + on sparkline open) ─
+
+  async function prefetchHistory() {
+    try {
+      const remote = await fetchWithTimeout(API + '/history');
+      if (Array.isArray(remote)) remote.forEach(accumulate);
+    } catch (_) {}
+  }
+
   // ── Init ─────────────────────────────────────────────────────────────────
 
   SparkDashboard.initToggle();
   initSparklines();
   hydrateFromCache();
+  prefetchHistory();
   poll();
   setInterval(poll, POLL_MS);
   setInterval(tickWaveform, 2_000);

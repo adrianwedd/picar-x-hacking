@@ -188,15 +188,16 @@ details > *:not(summary) { margin-top: 0.75rem; }
   text-align: center;
 }
 
-/* ── Last Thought ─────────────────────────────────────────────── */
+/* ── Last Thought (dashboard — overrides hero pull-quote style) ── */
 
-.pull-quote {
+.presence-thought .pull-quote {
   font-size: 1.15rem;
   font-style: italic;
   line-height: 1.6;
   margin: 0 0 0.75rem;
   padding: 0;
   border: none;
+  background: none;
 }
 
 .thought-meta {
