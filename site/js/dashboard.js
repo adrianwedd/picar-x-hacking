@@ -35,6 +35,12 @@ window.SparkDashboard = (function () {
     const quote = $('dashboard-last-thought');
     if (quote) quote.textContent = state.last_thought || 'Nothing on my mind just now…';
 
+    // Also update hero section elements
+    const heroThought = $('last-thought');
+    if (heroThought) heroThought.textContent = state.last_thought || 'Waiting for SPARK\'s thoughts…';
+    const moodBubble = $('mood-bubble');
+    if (moodBubble) moodBubble.textContent = state.mood || '…';
+
     const thoughtMood = $('thought-mood-word');
     if (thoughtMood) thoughtMood.textContent = state.mood || '';
 
@@ -178,7 +184,17 @@ window.SparkDashboard = (function () {
       else if (state.disk_pct >= 80) tileDisk.classList.add('disk-warn');
     }
 
-    _setBar('bar-battery', state.battery_pct, 15, 10);
+    // Battery: inverted thresholds — warn when LOW, not high
+    const battBar = $('bar-battery');
+    if (battBar) {
+      battBar.classList.remove('warn', 'crit');
+      if (state.battery_pct == null) { battBar.style.width = '0%'; }
+      else {
+        battBar.style.width = Math.min(100, Math.max(0, state.battery_pct)) + '%';
+        if (state.battery_pct <= 10) battBar.classList.add('crit');
+        else if (state.battery_pct <= 20) battBar.classList.add('warn');
+      }
+    }
     const valBattery = $('val-battery');
     if (valBattery) {
       const pct = state.battery_pct != null ? (state.battery_pct + '%') : '—';
