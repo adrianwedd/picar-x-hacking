@@ -1,6 +1,6 @@
 // live.js — polls api.spark.wedd.au every 30s; falls back to localStorage
 (function () {
-  const API = 'https://api.spark.wedd.au/api/v1/public';
+  const API = 'https://spark-api.wedd.au/api/v1/public';
   const CACHE_KEY = 'spark_last_known';
   const POLL_MS = 30_000;
   const TIMEOUT_MS = 5_000;
