@@ -196,9 +196,17 @@
     } catch (_) {}
   }
 
+  function _sortThoughts(thoughts) {
+    if (thoughts.length <= 1) return thoughts;
+    const [latest, ...rest] = thoughts;          // newest is index 0 (API returns newest-first)
+    rest.sort((a, b) => (b.salience || 0) - (a.salience || 0));
+    return [latest, ...rest];
+  }
+
   function _buildCarousel(thoughts) {
     const container = document.getElementById('thought-carousel');
     if (!container) return;
+    thoughts = _sortThoughts(thoughts);
     while (container.firstChild) container.removeChild(container.firstChild);
 
     const MOOD_COLOR = SparkDashboard.MOOD_FAVICON_COLOR || {};
