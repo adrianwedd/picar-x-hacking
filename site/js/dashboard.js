@@ -96,7 +96,6 @@ window.SparkDashboard = (function () {
 
     // Last spoken text (what SPARK actually said)
     _renderInline($('last-spoken-text'), state.last_spoken || 'Nothing spoken yet…');
-    _renderInline($('mood-bubble'), state.mood || '…');
 
     const salienceDots = $('thought-salience');
     if (salienceDots && typeof state.salience === 'number') {

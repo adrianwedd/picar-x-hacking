@@ -541,8 +541,8 @@ details > *:not(summary) { margin-top: 0.75rem; }
 
 .thought-carousel {
   position: relative;
-  min-height: 6rem;
-  margin-top: 1.5rem;
+  min-height: 9rem;
+  margin-top: 2rem;
 }
 
 .carousel-slide {
@@ -573,21 +573,21 @@ details > *:not(summary) { margin-top: 0.75rem; }
 
 .carousel-quote {
   font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(1rem, 2.5vw, 1.25rem);
+  font-size: clamp(1.15rem, 3vw, 1.6rem);
   font-style: italic;
-  line-height: 1.6;
+  line-height: 1.65;
   color: var(--warm-text);
   margin: 0 auto;
-  max-width: 36rem;
+  max-width: 42rem;
   padding: 0;
   border: none;
   background: none;
 }
 
 .carousel-meta {
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   color: var(--warm-muted);
-  margin-top: 0.5rem;
+  margin-top: 0.6rem;
 }
 
 .carousel-dots {
