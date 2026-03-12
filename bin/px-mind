@@ -1078,6 +1078,13 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
             f"RAM is {ram_pct}% used — you feel mentally cluttered and find it hard to think clearly."
         )
 
+    # Always report system vitals as plain text so the LLM registers them
+    cpu_pct = sys_stats.get("cpu_pct")
+    if cpu_pct is not None:
+        context_parts.append(
+            f"Your system vitals: CPU {cpu_pct}%, RAM {ram_pct}%, temperature {cpu_temp}°C."
+        )
+
     # Obi's current mode
     obi_mode = awareness.get("obi_mode", "unknown")
     if obi_mode != "unknown":
