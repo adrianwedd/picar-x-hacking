@@ -119,7 +119,7 @@ bin/px-mind [--awareness-interval 30] [--dry-run]
 
 Three-layer cognitive architecture:
 - **Layer 1 — Awareness** (every 30 s, no LLM): sonar + session + temporal state → `state/awareness.json` + transition detection
-- **Layer 2 — Reflection** (on transition or every 2 min idle): Claude CLI for SPARK persona, Ollama qwen3.5:0.8b for others. Generates thought with mood/action/salience → `state/thoughts.jsonl`
+- **Layer 2 — Reflection** (on transition or every 2 min idle): three-tier fallback — Claude CLI (SPARK, internet) → Ollama on M1.local (LAN) → Ollama on Pi localhost (offline). Falls back automatically on any error; each fallback step is logged. Generates thought with mood/action/salience → `state/thoughts.jsonl`
 - **Layer 3 — Expression** (30 s cooldown): dispatches to tool-voice/tool-look/tool-remember. Valid actions: `wait, greet, comment, remember, look_at, weather_comment, scan`. Photo capture (`tool-describe-scene`) is **on-request only** — not dispatched autonomously. Injects `PX_PERSONA` + voice settings from session so speech routes through Ollama persona rephrasing.
 
 The reflection prompt encourages proactive speech — the robot prefers commenting over waiting. Pauses during active conversations (`session.listening=true`) and during quiet mode. Auto-remembers high-salience (>0.7) thoughts to `state/notes.jsonl`. Thoughts injected into voice loop context via `build_model_prompt()`.
@@ -205,4 +205,6 @@ Every tool must: emit a single JSON object to stdout, support `PX_DRY=1`, handle
 | `PX_CHAT_TEMPERATURE` | GREMLIN sampling temperature (default: `0.9`) |
 | `PX_VIXEN_TEMPERATURE` | VIXEN sampling temperature (default: `0.9`) |
 | `PX_OLLAMA_HOST` | Ollama server (default: `http://M1.local:11434`) |
+| `PX_MIND_LOCAL_OLLAMA_HOST` | Tier-3 fallback Ollama host on Pi (default: `http://localhost:11434`) |
+| `PX_MIND_LOCAL_MODEL` | Tier-3 fallback model (default: `deepseek-r1:1.5b`) |
 | `PX_STATE_DIR` | Override state directory (used by tests) |
