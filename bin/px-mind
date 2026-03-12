@@ -201,6 +201,8 @@ REACTIVE_TEMPLATES = {
             "Hey. Good to see you.",
             "Hello, Obi. I just noticed you.",
             "Oh — you're here. Hello.",
+            "Hello. I was just thinking — {thought}",
+            "Oh, hello. I had something on my mind actually — {thought}",
         ],
         "gremlin": [
             "Well well well, a visitor from the present timeline! How's linear time treating you?",
@@ -1482,6 +1484,17 @@ def reactive_response(transition: str, awareness: dict, dry: bool) -> None:
     text = random.choice(available)
     recent.append(text)
     _last_reactive_phrases[key] = recent[-3:]  # keep only last 3
+
+    # Substitute {thought} placeholder with the latest thought for this persona
+    if "{thought}" in text:
+        thoughts = load_recent_thoughts(1, persona)
+        latest = thoughts[0].get("thought", "").strip() if thoughts else ""
+        if latest:
+            text = text.replace("{thought}", latest)
+        else:
+            # No thought available — fall back to the previous available phrase without placeholder
+            fallback = [p for p in available if "{thought}" not in p]
+            text = random.choice(fallback) if fallback else text.replace(" {thought}", "").rstrip(" —")
 
     env = os.environ.copy()
     env["PX_DRY"] = "1" if dry else "0"
