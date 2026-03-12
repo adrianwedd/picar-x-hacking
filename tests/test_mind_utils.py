@@ -22,7 +22,7 @@ def _load_mind_helpers():
 
     import datetime as _dt
 
-    stub_keys = ("pxh", "pxh.state", "pxh.logging", "pxh.time")
+    stub_keys = ("pxh", "pxh.state", "pxh.logging", "pxh.time", "pxh.token_log")
     saved_modules = {k: sys.modules.get(k) for k in stub_keys}
 
     # Stub out hardware/network imports only for the duration of exec
@@ -35,11 +35,14 @@ def _load_mind_helpers():
     stubs_logging.log_event = lambda *a, **kw: None
     stubs_time = types.ModuleType("pxh.time")
     stubs_time.utc_timestamp = lambda: _dt.datetime.now(_dt.timezone.utc).isoformat()
+    stubs_token_log = types.ModuleType("pxh.token_log")
+    stubs_token_log.log_usage = lambda *a, **kw: None
 
     sys.modules["pxh"] = stubs_pxh
     sys.modules["pxh.state"] = stubs_state
     sys.modules["pxh.logging"] = stubs_logging
     sys.modules["pxh.time"] = stubs_time
+    sys.modules["pxh.token_log"] = stubs_token_log
 
     env_patch = {
         "PROJECT_ROOT": str(PROJECT_ROOT),

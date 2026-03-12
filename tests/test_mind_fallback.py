@@ -15,7 +15,7 @@ def _load_mind():
     py_src = src[start:end]
 
     import datetime as _dt
-    stub_keys = ("pxh", "pxh.state", "pxh.logging", "pxh.time")
+    stub_keys = ("pxh", "pxh.state", "pxh.logging", "pxh.time", "pxh.token_log")
     saved = {k: sys.modules.get(k) for k in stub_keys}
 
     stub_pxh   = types.ModuleType("pxh")
@@ -27,9 +27,12 @@ def _load_mind():
     stub_log.log_event = lambda *a, **kw: None
     stub_time = types.ModuleType("pxh.time")
     stub_time.utc_timestamp = lambda: _dt.datetime.now(_dt.timezone.utc).isoformat()
+    stub_token_log = types.ModuleType("pxh.token_log")
+    stub_token_log.log_usage = lambda *a, **kw: None
 
     for k, m in [("pxh", stub_pxh), ("pxh.state", stub_state),
-                 ("pxh.logging", stub_log), ("pxh.time", stub_time)]:
+                 ("pxh.logging", stub_log), ("pxh.time", stub_time),
+                 ("pxh.token_log", stub_token_log)]:
         sys.modules[k] = m
 
     env_patch = {

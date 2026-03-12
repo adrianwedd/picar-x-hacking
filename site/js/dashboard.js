@@ -214,6 +214,17 @@ window.SparkDashboard = (function () {
       valBattery.textContent = pct + (state.charging ? ' ⚡' : '');
     }
 
+    const valTokens = $('val-tokens');
+    if (valTokens) {
+      const tin = state.tokens_in, tout = state.tokens_out;
+      if (tin == null) {
+        valTokens.textContent = '—';
+      } else {
+        const fmt = n => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+        valTokens.textContent = fmt(tin) + ' in / ' + fmt(tout != null ? tout : 0) + ' out';
+      }
+    }
+
     // Services dots — built with createElement, not innerHTML
     const dotsContainer = $('services-dots');
     if (dotsContainer && state.services) {

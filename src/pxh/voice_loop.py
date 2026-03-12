@@ -696,6 +696,12 @@ def supervisor_loop(args: argparse.Namespace) -> None:
         heartbeat_q.put(time.monotonic())
         rc, stdout, stderr = run_codex(args.codex_cmd, prompt)
         heartbeat_q.put(time.monotonic())
+        if rc == 0 and stdout.strip():
+            try:
+                from .token_log import log_usage
+                log_usage(prompt, stdout)
+            except Exception:
+                pass
 
         if args.auto_log:
             log_event(

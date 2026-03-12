@@ -94,13 +94,19 @@
     if (anySuccess) {
       lastSuccessMs = Date.now();
       accumulate({
-        ts:          state.ts || new Date().toISOString(),
-        cpu_pct:     state.cpu_pct     != null ? state.cpu_pct     : null,
-        cpu_temp_c:  state.cpu_temp_c  != null ? state.cpu_temp_c  : null,
-        ram_pct:     state.ram_pct     != null ? state.ram_pct     : null,
-        battery_pct: state.battery_pct != null ? state.battery_pct : null,
-        sonar_cm:    state.sonar_cm    != null ? state.sonar_cm    : null,
-        ambient_rms: state.ambient_rms != null ? state.ambient_rms : null,
+        ts:              state.ts || new Date().toISOString(),
+        cpu_pct:         state.cpu_pct         != null ? state.cpu_pct         : null,
+        cpu_temp_c:      state.cpu_temp_c      != null ? state.cpu_temp_c      : null,
+        ram_pct:         state.ram_pct         != null ? state.ram_pct         : null,
+        disk_pct:        state.disk_pct        != null ? state.disk_pct        : null,
+        battery_pct:     state.battery_pct     != null ? state.battery_pct     : null,
+        sonar_cm:        state.sonar_cm        != null ? state.sonar_cm        : null,
+        ambient_rms:     state.ambient_rms     != null ? state.ambient_rms     : null,
+        tokens_in:       state.tokens_in       != null ? state.tokens_in       : null,
+        tokens_out:      state.tokens_out      != null ? state.tokens_out      : null,
+        weather_temp_c:  state.weather?.temp_c  != null ? state.weather.temp_c  : null,
+        wind_kmh:        state.weather?.wind_kmh != null ? state.weather.wind_kmh : null,
+        humidity_pct:    state.weather?.humidity_pct != null ? state.weather.humidity_pct : null,
       });
       try {
         localStorage.setItem(CACHE_KEY, JSON.stringify(

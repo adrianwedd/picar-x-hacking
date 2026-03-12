@@ -297,8 +297,6 @@ details > *:not(summary) { margin-top: 0.75rem; }
   box-shadow: 0 1px 6px rgba(0,0,0,0.06);
   cursor: default;
 }
-.metric-tile[data-sparkline] { cursor: pointer; }
-.metric-tile[data-sparkline]:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.12); }
 
 .metric-label {
   font-size: 0.75rem;
@@ -328,9 +326,6 @@ details > *:not(summary) { margin-top: 0.75rem; }
 .metric-tile.disk-warn .metric-value { color: #d97706; }
 .metric-tile.disk-crit .metric-value { color: #dc2626; }
 
-.gauge-ok   .gauge-fill { stroke: #16a34a; }
-.gauge-warn .gauge-fill { stroke: #d97706; }
-.gauge-crit .gauge-fill { stroke: #dc2626; }
 
 /* Arc fill colours (proximity arc in SVG) */
 .arc-close { fill: var(--warm-accent); opacity: 0.85; }

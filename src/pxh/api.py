@@ -134,14 +134,16 @@ def _collect_history_sample(state_dir: "Path") -> "Dict[str, Any]":
 
     sample: Dict[str, Any] = {"ts": utc_timestamp()}
 
-    # CPU / RAM
+    # CPU / RAM / disk
     try:
         import psutil as _psutil
         sample["cpu_pct"] = round(_psutil.cpu_percent(interval=None), 1)
         sample["ram_pct"] = round(_psutil.virtual_memory().percent, 1)
+        sample["disk_pct"] = round(_psutil.disk_usage("/").percent, 1)
     except Exception:
         sample["cpu_pct"] = None
         sample["ram_pct"] = None
+        sample["disk_pct"] = None
 
     # CPU temperature
     try:
@@ -165,6 +167,15 @@ def _collect_history_sample(state_dir: "Path") -> "Dict[str, Any]":
     except Exception:
         sample["sonar_cm"] = None
 
+    # Token usage (cumulative since last restart)
+    try:
+        tdata = json.loads((state_dir / "token_usage.json").read_text())
+        sample["tokens_in"] = tdata.get("input_tokens", 0)
+        sample["tokens_out"] = tdata.get("output_tokens", 0)
+    except Exception:
+        sample["tokens_in"] = None
+        sample["tokens_out"] = None
+
     # Ambient RMS + weather fields from awareness.json (single read)
     try:
         aw = json.loads((state_dir / "awareness.json").read_text())
@@ -174,7 +185,8 @@ def _collect_history_sample(state_dir: "Path") -> "Dict[str, Any]":
         sample["ambient_rms"] = ambient.get("rms") if isinstance(ambient, dict) else None
         weather = aw.get("weather")
         if isinstance(weather, dict):
-            sample["weather_temp_c"] = weather.get("temp_C") or weather.get("temp_c")
+            tc = weather.get("temp_C")
+            sample["weather_temp_c"] = tc if tc is not None else weather.get("temp_c")
             sample["wind_kmh"] = weather.get("wind_kmh")
             sample["humidity_pct"] = weather.get("humidity_pct")
         else:
@@ -347,12 +359,22 @@ async def public_vitals() -> Dict[str, Any]:
     except Exception:
         pass
 
+    tokens_in = tokens_out = None
+    try:
+        tdata = json.loads((_public_state_dir() / "token_usage.json").read_text())
+        tokens_in = tdata.get("input_tokens", 0)
+        tokens_out = tdata.get("output_tokens", 0)
+    except Exception:
+        pass
+
     return {
         "cpu_pct": cpu_pct,
         "ram_pct": ram_pct,
         "cpu_temp_c": cpu_temp_c,
         "battery_pct": battery_pct,
         "disk_pct": disk_pct,
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
         "ts": utc_timestamp(),
     }
 

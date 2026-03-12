@@ -82,42 +82,6 @@ window.SparkCharts = (function () {
     return 'M ' + sx + ' ' + sy + ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + ex + ' ' + ey;
   }
 
-  // ── CPU Temperature Gauge Arc (SVG) ─────────────────────────────────────
-  function drawGaugeArc(svgEl, tempC) {
-    if (!svgEl) return;
-    while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
-
-    const NS = 'http://www.w3.org/2000/svg';
-    const CX = 40, CY = 42, R = 35;
-
-    // Background track
-    const track = document.createElementNS(NS, 'path');
-    track.setAttribute('d', _arcPath(CX, CY, R, 0, 180));
-    track.setAttribute('fill', 'none');
-    track.setAttribute('stroke', '#e5e7eb');
-    track.setAttribute('stroke-width', '6');
-    track.setAttribute('stroke-linecap', 'round');
-    svgEl.appendChild(track);
-
-    if (tempC !== null && tempC !== undefined) {
-      const pct = Math.min(1, Math.max(0, tempC / 85));
-      const fillAngle = Math.round(pct * 180);
-
-      let gaugeClass = 'gauge-ok';
-      if (tempC >= 75) gaugeClass = 'gauge-crit';
-      else if (tempC >= 65) gaugeClass = 'gauge-warn';
-      svgEl.setAttribute('class', gaugeClass);
-
-      const fill = document.createElementNS(NS, 'path');
-      fill.setAttribute('d', _arcPath(CX, CY, R, 0, Math.max(1, fillAngle)));
-      fill.setAttribute('fill', 'none');
-      fill.setAttribute('class', 'gauge-fill');
-      fill.setAttribute('stroke-width', '6');
-      fill.setAttribute('stroke-linecap', 'round');
-      svgEl.appendChild(fill);
-    }
-  }
-
   // ── Sparkline ────────────────────────────────────────────────────────────
   function drawSparkline(canvas, points, field) {
     if (!canvas || !points || points.length < 2) return;
@@ -157,5 +121,5 @@ window.SparkCharts = (function () {
     ctx.fillText(maxV.toFixed(0), 2, 9);
   }
 
-  return { drawWaveform, drawProximityArc, drawGaugeArc, drawSparkline };
+  return { drawWaveform, drawProximityArc, drawSparkline };
 })();
