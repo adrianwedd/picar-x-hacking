@@ -405,7 +405,7 @@ git commit -m "feat(mind): wire Frigate detection into awareness_tick and comput
 - Modify: `bin/px-alive`
 - Create: `tests/test_alive_frigate.py`
 
-Context: `bin/px-alive` follows the same bash-wrapping-Python-heredoc pattern as px-mind. The proximity-react block is at ~line 313. Currently eases to `(pan=0, tilt=5)`. We extract pan-angle logic into a pure function `_pan_from_frigate()` so it's testable. Camera FOV ~80° horizontal; formula: `clamp(int((x_center - 0.5) * 80), -40, 40)`.
+Context: `bin/px-alive` follows the same bash-wrapping-Python-heredoc pattern as px-mind. The proximity-react block is at ~line 313. Currently eases to `(pan=0, tilt=5)`. We extract pan-angle logic into a pure function `_pan_from_frigate()` so it's testable. Camera FOV ~80° horizontal. PiCarX pan convention: **positive = left, negative = right** (confirmed from face-tracking code: `new_pan = cur_pan - int(err_x * gain)` where positive err_x = face right of centre). Formula: `clamp(int((0.5 - x_center) * 80), -40, 40)`.
 
 - [ ] **Step 1: Write failing tests**
 
@@ -462,16 +462,20 @@ def test_pan_center():
     assert _pan_from_frigate({"person_present": True, "x_center": 0.5}) == 0
 
 def test_pan_right():
-    assert _pan_from_frigate({"person_present": True, "x_center": 0.8}) > 0
+    # Person right of frame (x=0.8) → negative pan (picarx: positive=left, negative=right)
+    assert _pan_from_frigate({"person_present": True, "x_center": 0.8}) < 0
 
 def test_pan_left():
-    assert _pan_from_frigate({"person_present": True, "x_center": 0.2}) < 0
+    # Person left of frame (x=0.2) → positive pan
+    assert _pan_from_frigate({"person_present": True, "x_center": 0.2}) > 0
 
 def test_pan_clamped_max():
-    assert _pan_from_frigate({"person_present": True, "x_center": 1.0}) <= 40
+    # Extreme left (x=0.0) → clamped to +40 max
+    assert _pan_from_frigate({"person_present": True, "x_center": 0.0}) <= 40
 
 def test_pan_clamped_min():
-    assert _pan_from_frigate({"person_present": True, "x_center": 0.0}) >= -40
+    # Extreme right (x=1.0) → clamped to -40 min
+    assert _pan_from_frigate({"person_present": True, "x_center": 1.0}) >= -40
 
 def test_pan_no_detection():
     assert _pan_from_frigate({"person_present": False, "x_center": None}) == 0
@@ -508,7 +512,7 @@ def _pan_from_frigate(presence: dict | None) -> int:
     x = presence.get("x_center")
     if x is None:
         return 0
-    return max(-40, min(40, int((x - 0.5) * 80)))
+    return max(-40, min(40, int((0.5 - x) * 80)))  # positive=left, negative=right (picarx convention)
 ```
 
 - [ ] **Step 4: Update proximity-react to use directional pan**
