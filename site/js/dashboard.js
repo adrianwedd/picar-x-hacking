@@ -116,9 +116,14 @@ window.SparkDashboard = (function () {
     // Last spoken — secondary, shown only when something has been voiced
     const spokenRow = $('last-spoken-row');
     const spokenEl = $('last-spoken-text');
+    const spokenAgeEl = $('last-spoken-age');
     if (state.last_spoken) {
       if (spokenRow) spokenRow.classList.remove('hidden');
       if (spokenEl) spokenEl.textContent = state.last_spoken;
+      if (spokenAgeEl && state.last_spoken_ts) {
+        const mins = Math.round((Date.now() - new Date(state.last_spoken_ts).getTime()) / 60000);
+        spokenAgeEl.textContent = mins <= 1 ? 'just now' : ('last spoken ' + mins + ' min ago');
+      }
     } else {
       if (spokenRow) spokenRow.classList.add('hidden');
     }

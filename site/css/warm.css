@@ -247,6 +247,13 @@ details > *:not(summary) { margin-top: 0.75rem; }
   margin: 0.2rem 0 0;
 }
 
+.last-spoken-age {
+  font-size: 0.7rem;
+  color: var(--warm-muted);
+  opacity: 0.65;
+  margin-top: 0.2rem;
+}
+
 .thought-salience-trend {
   margin-top: 0.4rem;
   border-top: 1px solid rgba(0,0,0,0.05);
