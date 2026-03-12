@@ -130,12 +130,15 @@ def main() -> int:
                         payload["status"] = "error"
                     elif shutil.which("aplay"):
                         play_cmd = ["aplay", "-q", "-D", "pulse"]
+                        pulse_env = os.environ.copy()
+                        pulse_env.setdefault("PULSE_SERVER", "unix:/run/user/1000/pulse/native")
                         play_res = subprocess.run(
                             play_cmd,
                             input=es_res.stdout,
                             capture_output=True,
                             text=False,
                             check=False,
+                            env=pulse_env,
                         )
                         payload["player"] = f"espeak+aplay({play_descriptor})"
                         payload["returncode"] = play_res.returncode
