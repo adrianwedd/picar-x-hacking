@@ -171,8 +171,10 @@ REACTIVE_TEMPLATES = {
 }
 
 # Ollama config (same host as tool-chat)
-OLLAMA_HOST  = os.environ.get("PX_OLLAMA_HOST", "http://M1.local:11434")
-MODEL        = os.environ.get("PX_MIND_MODEL", "qwen3.5:0.8b")
+OLLAMA_HOST       = os.environ.get("PX_OLLAMA_HOST", "http://M1.local:11434")
+MODEL             = os.environ.get("PX_MIND_MODEL", "qwen3.5:0.8b")
+LOCAL_OLLAMA_HOST = os.environ.get("PX_MIND_LOCAL_OLLAMA_HOST", "http://localhost:11434")
+LOCAL_MODEL       = os.environ.get("PX_MIND_LOCAL_MODEL", "deepseek-r1:1.5b")
 TEMPERATURE  = 1.3   # high for variety — small models need more randomness
 TOP_P        = 0.95  # nucleus sampling to complement temperature
 MAX_TOKENS   = 200
@@ -887,10 +889,15 @@ def extract_json(text: str) -> dict | None:
     return None
 
 
-def call_ollama(prompt: str, system: str) -> dict:
-    """Call Ollama for reflection. Returns parsed response or error dict."""
+def call_ollama(prompt: str, system: str,
+                host: str | None = None,
+                model: str | None = None) -> dict:
+    """Call Ollama for reflection. host defaults to OLLAMA_HOST (M1.local)."""
+    _host  = host  or OLLAMA_HOST
+    _model = model or MODEL
+
     payload = json.dumps({
-        "model": MODEL,
+        "model": _model,
         "prompt": prompt,
         "system": system,
         "stream": False,
@@ -903,7 +910,7 @@ def call_ollama(prompt: str, system: str) -> dict:
     }).encode()
 
     req = urllib.request.Request(
-        f"{OLLAMA_HOST}/api/generate",
+        f"{_host}/api/generate",
         data=payload,
         headers={"Content-Type": "application/json"},
     )
@@ -911,7 +918,7 @@ def call_ollama(prompt: str, system: str) -> dict:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read())
     except urllib.error.URLError as exc:
-        return {"error": f"ollama unreachable: {exc}"}
+        return {"error": f"ollama unreachable ({_host}): {exc}"}
     except Exception as exc:
         return {"error": str(exc)}
 
@@ -955,17 +962,30 @@ def call_claude_haiku(prompt: str, system: str) -> dict:
 
 
 def call_llm(prompt: str, system: str, persona: str = "") -> dict:
-    """Dispatch to the configured LLM backend.
+    """Three-tier LLM fallback.
 
-    auto mode: Claude Haiku for SPARK (needs quality), Ollama for GREMLIN/VIXEN (needs jailbreak).
+    Tier 1 — Claude Haiku (internet):  SPARK in auto mode, or MIND_BACKEND=claude
+    Tier 2 — Ollama M1.local (LAN):    all personas, or when Claude fails
+    Tier 3 — Ollama localhost (Pi):     final fallback when LAN/internet both down
     """
     use_claude = (
         MIND_BACKEND == "claude"
         or (MIND_BACKEND == "auto" and persona == "spark")
     )
     if use_claude:
-        return call_claude_haiku(prompt, system)
-    return call_ollama(prompt, system)
+        result = call_claude_haiku(prompt, system)
+        if "error" not in result:
+            return result
+        log(f"claude failed ({result['error']}), falling back to ollama")
+
+    # Tier 2: M1 Ollama
+    result = call_ollama(prompt, system)
+    if "error" not in result:
+        return result
+
+    # Tier 3: local Pi Ollama
+    log(f"M1 ollama failed ({result['error']}), falling back to local ollama")
+    return call_ollama(prompt, system, host=LOCAL_OLLAMA_HOST, model=LOCAL_MODEL)
 
 
 def reflection(awareness: dict, dry: bool) -> dict | None:
