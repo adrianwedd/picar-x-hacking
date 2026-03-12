@@ -208,3 +208,5 @@ Every tool must: emit a single JSON object to stdout, support `PX_DRY=1`, handle
 | `PX_MIND_LOCAL_OLLAMA_HOST` | Tier-3 fallback Ollama host on Pi (default: `http://localhost:11434`) |
 | `PX_MIND_LOCAL_MODEL` | Tier-3 fallback model (default: `deepseek-r1:1.5b`) |
 | `PX_STATE_DIR` | Override state directory (used by tests) |
+| `PX_FRIGATE_HOST` | Frigate API base URL (default: `http://pi5-hailo.local:5000`) |
+| `PX_FRIGATE_CAMERA` | Frigate camera name (default: `picar_x`) |

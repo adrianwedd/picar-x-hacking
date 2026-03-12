@@ -59,6 +59,7 @@ STATE_DIR    = Path(os.environ.get("PX_STATE_DIR", PROJECT_ROOT / "state"))
 MOOD_FILE       = STATE_DIR / "mood.json"
 SESSION_FILE    = STATE_DIR / "session.json"
 SONAR_LIVE_FILE = STATE_DIR / "sonar_live.json"
+FRIGATE_FILE = STATE_DIR / "frigate_presence.json"
 MOOD_CHECK_S = 10    # how often to read mood file
 SPARK_GREET_COOLDOWN_S = 120   # minimum seconds between SPARK proximity greetings
 
@@ -82,6 +83,19 @@ def log(msg: str) -> None:
     with LOG_FILE.open("a", encoding="utf-8") as f:
         f.write(f"{ts} [alive] {msg}\n")
     print(f"{ts} [alive] {msg}", flush=True)
+
+
+def _pan_from_frigate(presence: dict | None) -> int:
+    """Pan angle (degrees) toward Frigate-detected person. Returns 0 if no detection.
+    x_center 0=left 1=right, 0.5=centre. Clamped to +-40 degrees.
+    PiCarX pan convention: positive=left, negative=right (confirmed from face-tracking code).
+    """
+    if not presence or not presence.get("person_present"):
+        return 0
+    x = presence.get("x_center")
+    if x is None:
+        return 0
+    return max(-40, min(40, int((0.5 - x) * 80)))
 
 
 def ease(px, from_pan: int, from_tilt: int, to_pan: int, to_tilt: int, duration: float) -> None:
@@ -311,9 +325,14 @@ def idle_loop(args) -> None:
                         if prox_near_since is None:
                             prox_near_since = now
                         elif now - prox_near_since >= PROX_HOLD_S:
-                            log(f"proximity react: object at {dist:.1f}cm — facing forward")
-                            ease(get_px(), cur_pan, cur_tilt, 0, 5, 0.5)
-                            cur_pan, cur_tilt = 0, 5
+                            try:
+                                _fp = json.loads(FRIGATE_FILE.read_text())
+                            except Exception:
+                                _fp = None
+                            target_pan = _pan_from_frigate(_fp)
+                            log(f"proximity react: {dist:.1f}cm — facing pan={target_pan}")
+                            ease(get_px(), cur_pan, cur_tilt, target_pan, 5, 0.5)
+                            cur_pan, cur_tilt = target_pan, 5
                             prox_near_since = None
                             next_gaze = now + random.uniform(cur_mood_behavior.get("gaze_min", GAZE_MIN_S), cur_mood_behavior.get("gaze_max", GAZE_MAX_S))
                             # SPARK greeting — speak only when SPARK persona active + cooldown ok
