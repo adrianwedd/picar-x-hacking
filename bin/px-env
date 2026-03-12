@@ -65,3 +65,7 @@ mkdir -p "$LOG_DIR"
 # Default audio output: HifiBerry DAC via robot_hat ALSA plug device.
 # Override with e.g. PX_VOICE_DEVICE=plughw:1,0 for direct HW access.
 export PX_VOICE_DEVICE="${PX_VOICE_DEVICE:-robothat}"
+
+# PulseAudio socket lives at /run/user/1000/pulse — systemd services run as
+# User=pi but don't inherit XDG_RUNTIME_DIR, so aplay -D pulse can't find it.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/1000}"
