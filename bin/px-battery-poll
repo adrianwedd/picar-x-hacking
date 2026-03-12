@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/px-env"
 
 /usr/bin/python3 - <<'PY'
+from __future__ import annotations
 import json, math, os, shutil, struct, subprocess, sys, tempfile, time, wave
 from datetime import datetime, timezone
 from pathlib import Path

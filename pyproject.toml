@@ -2,3 +2,4 @@
 markers = [
     "live: tests that require PiCar-X hardware (run with sudo, deselect with -m 'not live')",
 ]
+norecursedirs = ["picar-x-hacking", ".venv", "node_modules"]

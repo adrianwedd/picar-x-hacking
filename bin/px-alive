@@ -18,6 +18,8 @@ Behaviours (no wheels):
 
 Run with sudo (needs picarx). Writes PID file; handles SIGTERM cleanly.
 """
+from __future__ import annotations
+
 import argparse
 import datetime as dt
 import json

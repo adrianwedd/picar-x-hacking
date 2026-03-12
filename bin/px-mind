@@ -84,6 +84,7 @@ BATTERY_CRITICAL       = 10    # emergency: beep + speak + shutdown
 BATTERY_WARN_20_INTERVAL = 900    # 15 min
 BATTERY_WARN_15_INTERVAL = 300    # 5 min
 THOUGHTS_LIMIT         = 50
+NOTES_LIMIT            = 500   # max long-term memory entries per persona
 SALIENCE_THRESHOLD     = 0.75  # auto-remember only high-quality thoughts (raised from 0.7)
 EXPRESSION_COOLDOWN_S  = 120   # min 2 min between spontaneous speech (was 30s)
 PROXIMITY_NEAR_CM      = 60
@@ -811,6 +812,15 @@ def auto_remember(thought: dict, persona: str = "") -> None:
     with lock:
         with notes_file.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
+        # Trim to NOTES_LIMIT to prevent unbounded growth
+        try:
+            lines = notes_file.read_text(encoding="utf-8").strip().splitlines()
+            if len(lines) > NOTES_LIMIT:
+                notes_file.write_text(
+                    "\n".join(lines[-NOTES_LIMIT:]) + "\n", encoding="utf-8"
+                )
+        except Exception:
+            pass
     log(f"auto-remembered [{persona or 'shared'}]: {thought['thought']}")
 
 

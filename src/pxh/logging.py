@@ -25,6 +25,9 @@ def _resolve_log_dir() -> Path:
 LOG_DIR = _resolve_log_dir()
 
 
+_LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MB per log file
+
+
 def log_event(name: str, payload: Mapping[str, Any]) -> None:
     """Append a structured log entry under logs/tool-<name>.log."""
     log_path = LOG_DIR / f"tool-{name}.log"
@@ -38,3 +41,11 @@ def log_event(name: str, payload: Mapping[str, Any]) -> None:
         with log_path.open("a", encoding="utf-8") as handle:
             json.dump(record, handle)
             handle.write("\n")
+        # Simple rotation: if file exceeds max, keep the last half
+        try:
+            if log_path.stat().st_size > _LOG_MAX_BYTES:
+                lines = log_path.read_text(encoding="utf-8").splitlines()
+                half = len(lines) // 2
+                log_path.write_text("\n".join(lines[half:]) + "\n", encoding="utf-8")
+        except Exception:
+            pass

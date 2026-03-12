@@ -1,6 +1,9 @@
 import json
 import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -320,6 +323,7 @@ def test_tool_perform_dry_run(isolated_project):
     assert payload["steps"] == 2
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="/proc/{pid} only exists on Linux")
 def test_px_alive_pid_race_not_duplicate(isolated_project):
     """Second px-alive start should exit cleanly if PID file already shows a live process."""
     import os
@@ -680,6 +684,7 @@ def test_tool_gws_sheets_log_missing_id(isolated_project):
     assert "PX_SHEETS_ID" in payload["error"]
 
 
+@pytest.mark.skipif(not __import__("importlib").util.find_spec("fastapi"), reason="fastapi not installed")
 def test_session_history_clear(isolated_project, monkeypatch):
     """POST /api/v1/session/history/clear should wipe history and return count."""
     import os
@@ -710,6 +715,7 @@ def test_session_history_clear(isolated_project, monkeypatch):
     assert load_session().get("history", []) == []
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="/proc/{pid} only exists on Linux")
 def test_tool_photograph_camera_busy(isolated_project):
     """tool-photograph should fail gracefully when frigate stream PID file is present."""
     pid_file = Path(isolated_project["log_dir"]) / "px-frigate-stream.pid"

@@ -701,5 +701,15 @@ picar-x-hacking/
 
 ---
 
+## Documentation
+
+| Document | Audience | Description |
+|---|---|---|
+| [How Spark's Brain Works](docs/how-sparks-brain-works.md) | Kids / non-technical | ELI7 explanation of the cognitive architecture — ears, eyes, brain, and how they connect |
+| [SPARK Prompt Audit](docs/spark-prompt-audit.md) | Developers | Complete inventory of every prompt SPARK uses — system-level and tool-embedded, with full text |
+| [FAQ](docs/faq.md) | Everyone | Common questions about what SPARK is, how it works, and why it writes the way it does |
+
+---
+
 *"Neurodivergence is not a tragedy. It's a different operating system running on the same hardware."*
 *— [This Wasn't in the Brochure](https://thiswasntinthebrochure.wtf)*
