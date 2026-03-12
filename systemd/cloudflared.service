@@ -1,0 +1,14 @@
+[Unit]
+Description=Cloudflare Tunnel — api.spark.wedd.au → localhost:8420
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/home/pi/picar-x-hacking/.env
+ExecStart=/usr/bin/cloudflared tunnel run --token ${CF_TUNNEL_TOKEN}
+Restart=always
+RestartSec=5
+User=pi
+
+[Install]
+WantedBy=multi-user.target
