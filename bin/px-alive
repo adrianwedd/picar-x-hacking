@@ -90,10 +90,10 @@ def _pan_from_frigate(presence: dict | None) -> int:
     x_center 0=left 1=right, 0.5=centre. Clamped to +-40 degrees.
     PiCarX pan convention: positive=left, negative=right (confirmed from face-tracking code).
     """
-    if not presence or not presence.get("person_present"):
+    if not isinstance(presence, dict) or not presence.get("person_present"):
         return 0
     x = presence.get("x_center")
-    if x is None:
+    if not isinstance(x, (int, float)):
         return 0
     return max(-40, min(40, int((0.5 - x) * 80)))
 

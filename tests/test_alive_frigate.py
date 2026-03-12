@@ -53,23 +53,23 @@ def test_pan_center():
 
 
 def test_pan_right():
-    # Person right of frame (x=0.8) → negative pan (picarx: positive=left, negative=right)
-    assert _pan_from_frigate({"person_present": True, "x_center": 0.8}) < 0
+    # Person right of frame (x=0.8) → -24 (picarx: positive=left, negative=right)
+    assert _pan_from_frigate({"person_present": True, "x_center": 0.8}) == -24
 
 
 def test_pan_left():
-    # Person left of frame (x=0.2) → positive pan
-    assert _pan_from_frigate({"person_present": True, "x_center": 0.2}) > 0
+    # Person left of frame (x=0.2) → +24
+    assert _pan_from_frigate({"person_present": True, "x_center": 0.2}) == 24
 
 
 def test_pan_clamped_max():
-    # Extreme left (x=0.0) → clamped to +40 max
-    assert _pan_from_frigate({"person_present": True, "x_center": 0.0}) <= 40
+    # Extreme left (x=0.0) → exactly +40
+    assert _pan_from_frigate({"person_present": True, "x_center": 0.0}) == 40
 
 
 def test_pan_clamped_min():
-    # Extreme right (x=1.0) → clamped to -40 min
-    assert _pan_from_frigate({"person_present": True, "x_center": 1.0}) >= -40
+    # Extreme right (x=1.0) → exactly -40
+    assert _pan_from_frigate({"person_present": True, "x_center": 1.0}) == -40
 
 
 def test_pan_no_detection():
@@ -78,3 +78,15 @@ def test_pan_no_detection():
 
 def test_pan_none_input():
     assert _pan_from_frigate(None) == 0
+
+
+def test_pan_non_dict_input():
+    # JSON array or other non-dict values must not crash the daemon
+    assert _pan_from_frigate([1, 2, 3]) == 0
+    assert _pan_from_frigate("person") == 0
+
+
+def test_pan_non_numeric_x_center():
+    # Non-numeric x_center must not crash the daemon
+    assert _pan_from_frigate({"person_present": True, "x_center": "left"}) == 0
+    assert _pan_from_frigate({"person_present": True, "x_center": None}) == 0
