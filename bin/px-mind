@@ -83,6 +83,8 @@ BATTERY_WARN_15        = 15    # warn every 5 min, anxious tone
 BATTERY_CRITICAL       = 10    # emergency: beep + speak + shutdown
 BATTERY_WARN_20_INTERVAL = 900    # 15 min
 BATTERY_WARN_15_INTERVAL = 300    # 5 min
+BATTERY_MAX_DROP_PER_TICK = 15    # max plausible % drop in one awareness tick (~60s)
+BATTERY_GLITCH_CONFIRMS  = 3     # require N consecutive low readings before acting
 THOUGHTS_LIMIT         = 50
 NOTES_LIMIT            = 500   # max long-term memory entries per persona
 SALIENCE_THRESHOLD     = 0.75  # auto-remember only high-quality thoughts (raised from 0.7)
@@ -589,6 +591,57 @@ def read_battery() -> dict | None:
         return None
 
 
+# Battery glitch detection: tracks recent readings to reject sensor errors.
+# A real battery cannot drop from 70% to 0% in one tick — that's an ADC glitch.
+_battery_history: list[int] = []        # last N pct readings (newest last)
+_battery_glitch_count: int = 0          # consecutive suspicious readings
+
+
+def filter_battery(raw: dict | None, prev_pct: int) -> dict | None:
+    """Return the battery reading, or None if it looks like a sensor glitch.
+
+    A reading is suspicious if it drops more than BATTERY_MAX_DROP_PER_TICK
+    from the median of recent history. Suspicious readings must repeat
+    BATTERY_GLITCH_CONFIRMS times before being accepted (genuinely dead battery).
+    """
+    global _battery_glitch_count
+    if raw is None:
+        return None
+
+    pct = raw["pct"]
+
+    # First reading or no history — accept and seed
+    if not _battery_history:
+        _battery_history.append(pct)
+        _battery_glitch_count = 0
+        return raw
+
+    # Median of recent readings as baseline
+    sorted_hist = sorted(_battery_history)
+    median = sorted_hist[len(sorted_hist) // 2]
+    drop = median - pct
+
+    if drop > BATTERY_MAX_DROP_PER_TICK:
+        _battery_glitch_count += 1
+        log(f"battery: suspicious reading {pct}% (median={median}%, drop={drop}%, "
+            f"glitch_count={_battery_glitch_count}/{BATTERY_GLITCH_CONFIRMS})")
+        if _battery_glitch_count < BATTERY_GLITCH_CONFIRMS:
+            # Reject — return previous known-good value
+            return {"pct": prev_pct, "volts": raw["volts"]}
+        else:
+            # Confirmed — battery really is low (or sensor is consistently broken)
+            log(f"battery: accepting {pct}% after {_battery_glitch_count} consecutive confirmations")
+            _battery_history.append(pct)
+            _battery_history[:] = _battery_history[-10:]
+            return raw
+    else:
+        # Normal reading — reset glitch counter
+        _battery_glitch_count = 0
+        _battery_history.append(pct)
+        _battery_history[:] = _battery_history[-10:]  # keep last 10
+        return raw
+
+
 def read_system_stats() -> dict:
     """Read CPU, RAM, disk, and CPU temperature. Returns a dict; never raises."""
     stats: dict = {}
@@ -842,10 +895,10 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
     if mins_interaction > 10 and prev.get("minutes_since_interaction", 0) <= 10:
         transitions.append("long_silence")
 
-    # Battery threshold crossing transitions
-    battery = read_battery()
+    # Battery threshold crossing transitions (with glitch rejection)
     _prev_batt_raw = prev.get("battery_pct", 100)
     prev_batt = 100 if _prev_batt_raw is None else _prev_batt_raw
+    battery = filter_battery(read_battery(), prev_batt)
     curr_batt = battery["pct"] if battery else prev_batt
     for threshold, label in [(BATTERY_WARN_15, "battery_low_15"),
                              (BATTERY_WARN_20, "battery_low_20"),

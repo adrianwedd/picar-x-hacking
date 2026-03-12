@@ -103,6 +103,10 @@ _MIND = _load_mind_helpers()
 _daytime_action_hint = _MIND["_daytime_action_hint"]
 compute_obi_mode = _MIND["compute_obi_mode"]
 _fetch_frigate_presence = _MIND["_fetch_frigate_presence"]
+filter_battery = _MIND["filter_battery"]
+_battery_history = _MIND["_battery_history"]
+_BATTERY_MAX_DROP = _MIND["BATTERY_MAX_DROP_PER_TICK"]
+_BATTERY_GLITCH_CONFIRMS = _MIND["BATTERY_GLITCH_CONFIRMS"]
 
 
 # ---------------------------------------------------------------------------
@@ -283,3 +287,92 @@ def test_obi_mode_sonar_fallback_when_frigate_offline():
     """No frigate key → original sonar/ambient logic unchanged."""
     awareness = {"ambient_sound": {"level": "quiet"}, "sonar_cm": 25}
     assert compute_obi_mode(awareness, hour_override=10) == "calm"
+
+
+# ---------------------------------------------------------------------------
+# filter_battery — glitch detection
+# ---------------------------------------------------------------------------
+
+
+def _reset_battery_state():
+    """Clear battery history between tests."""
+    _battery_history.clear()
+    _MIND["_battery_glitch_count"] = 0
+
+
+def test_battery_filter_accepts_normal_reading():
+    _reset_battery_state()
+    result = filter_battery({"pct": 72, "volts": 7.8}, prev_pct=75)
+    assert result is not None
+    assert result["pct"] == 72
+
+
+def test_battery_filter_rejects_sudden_drop_to_zero():
+    """A 0% reading when history says 72% is a sensor glitch."""
+    _reset_battery_state()
+    # Seed history with normal readings
+    for pct in [75, 74, 73, 72]:
+        filter_battery({"pct": pct, "volts": 7.8}, prev_pct=pct + 1)
+    # Now a 0% reading should be rejected
+    result = filter_battery({"pct": 0, "volts": 5.0}, prev_pct=72)
+    assert result is not None
+    assert result["pct"] == 72  # returns prev_pct, not 0
+
+
+def test_battery_filter_rejects_implausible_large_drop():
+    """A drop larger than BATTERY_MAX_DROP_PER_TICK is suspicious."""
+    _reset_battery_state()
+    for pct in [80, 79, 78]:
+        filter_battery({"pct": pct, "volts": 8.0}, prev_pct=pct + 1)
+    # Drop of 50% in one tick — impossible
+    result = filter_battery({"pct": 28, "volts": 6.5}, prev_pct=78)
+    assert result["pct"] == 78  # rejected
+
+
+def test_battery_filter_accepts_after_confirmed_consecutive():
+    """After BATTERY_GLITCH_CONFIRMS consecutive low readings, accept it."""
+    _reset_battery_state()
+    for pct in [50, 49, 48]:
+        filter_battery({"pct": pct, "volts": 7.2}, prev_pct=pct + 1)
+    # Send BATTERY_GLITCH_CONFIRMS consecutive glitch readings
+    for i in range(_BATTERY_GLITCH_CONFIRMS - 1):
+        r = filter_battery({"pct": 5, "volts": 6.0}, prev_pct=48)
+        assert r["pct"] == 48, f"should reject on attempt {i+1}"
+    # The Nth consecutive reading should be accepted
+    r = filter_battery({"pct": 5, "volts": 6.0}, prev_pct=48)
+    assert r["pct"] == 5
+
+
+def test_battery_filter_resets_on_normal_reading():
+    """A normal reading after a glitch resets the counter."""
+    _reset_battery_state()
+    for pct in [60, 59, 58]:
+        filter_battery({"pct": pct, "volts": 7.5}, prev_pct=pct + 1)
+    # One glitch
+    filter_battery({"pct": 0, "volts": 5.0}, prev_pct=58)
+    # Normal reading resets
+    filter_battery({"pct": 57, "volts": 7.4}, prev_pct=58)
+    # Another glitch should start counter from 1 again
+    r = filter_battery({"pct": 0, "volts": 5.0}, prev_pct=57)
+    assert r["pct"] == 57  # still rejected (only 1 consecutive)
+
+
+def test_battery_filter_passes_through_none():
+    _reset_battery_state()
+    assert filter_battery(None, prev_pct=50) is None
+
+
+def test_battery_filter_accepts_first_reading():
+    _reset_battery_state()
+    result = filter_battery({"pct": 85, "volts": 8.1}, prev_pct=100)
+    assert result["pct"] == 85
+
+
+def test_battery_filter_accepts_gradual_decline():
+    """Gradual decline within threshold is always accepted."""
+    _reset_battery_state()
+    prev = 80
+    for pct in range(80, 65, -1):
+        r = filter_battery({"pct": pct, "volts": 7.0}, prev_pct=prev)
+        assert r["pct"] == pct
+        prev = pct
