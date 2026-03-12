@@ -118,13 +118,13 @@
     <!-- ─── MACHINE TOGGLE ────────────────────────────────────────── -->
     <div class="band-machine-toggle">
       <button id="machine-toggle" class="toggle-btn" type="button"
-              aria-expanded="false" aria-controls="band-machine">
-        show internals ↓
+              aria-expanded="true" aria-controls="band-machine">
+        hide internals ↑
       </button>
     </div>
 
     <!-- ─── BAND 3: MACHINE ───────────────────────────────────────── -->
-    <div class="band band-machine" id="band-machine" aria-hidden="true">
+    <div class="band band-machine open" id="band-machine" aria-hidden="false">
       <div class="metric-grid">
 
         <!-- CPU % -->
@@ -137,8 +137,7 @@
         <!-- CPU Temp (radial gauge) -->
         <div class="metric-tile" id="tile-temp">
           <div class="metric-label">CPU Temp</div>
-          <svg id="gauge-temp" viewBox="0 0 80 45" width="80" height="45"
-               aria-label="CPU temperature gauge"></svg>
+          <div class="metric-bar-wrap"><div class="metric-bar" id="bar-temp"></div></div>
           <div class="metric-value" id="val-temp">—</div>
         </div>
 

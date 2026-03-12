@@ -179,7 +179,7 @@ window.SparkDashboard = (function () {
     const valCpu = $('val-cpu');
     if (valCpu) valCpu.textContent = state.cpu_pct != null ? (state.cpu_pct + '%') : '—';
 
-    SparkCharts.drawGaugeArc($('gauge-temp'), state.cpu_temp_c != null ? state.cpu_temp_c : null);
+    _setBar('bar-temp', state.cpu_temp_c != null ? Math.round(state.cpu_temp_c / 85 * 100) : null, 76, 88);
     const valTemp = $('val-temp');
     if (valTemp) valTemp.textContent = state.cpu_temp_c != null ? (state.cpu_temp_c + '°C') : '—';
 
@@ -260,7 +260,7 @@ window.SparkDashboard = (function () {
       localStorage.setItem(MACHINE_KEY, open ? 'true' : 'false');
     }
 
-    setOpen(localStorage.getItem(MACHINE_KEY) === 'true');
+    setOpen(localStorage.getItem(MACHINE_KEY) !== 'false');
     btn.addEventListener('click', () => setOpen(!band.classList.contains('open')));
   }
 
