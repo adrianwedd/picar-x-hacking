@@ -5,6 +5,24 @@ window.SparkDashboard = (function () {
 
   const $ = id => document.getElementById(id);
 
+  // ── Safe inline markdown ──────────────────────────────────────────────────
+  // Renders *italic* spans via DOM construction — never innerHTML with server data.
+  function _renderInline(el, text) {
+    if (!el) return;
+    while (el.firstChild) el.removeChild(el.firstChild);
+    if (!text) return;
+    const parts = text.split(/\*([^*]+)\*/);
+    parts.forEach((part, i) => {
+      if (i % 2 === 1) {
+        const em = document.createElement('em');
+        em.textContent = part;
+        el.appendChild(em);
+      } else if (part) {
+        el.appendChild(document.createTextNode(part));
+      }
+    });
+  }
+
   // ── Presence band ────────────────────────────────────────────────────────
 
   const PULSE_CLASSES = {
@@ -32,14 +50,9 @@ window.SparkDashboard = (function () {
     const modeLine = $('obi-mode-line');
     if (modeLine) modeLine.textContent = OBI_MODE_TEXT[state.obi_mode] || '';
 
-    const quote = $('dashboard-last-thought');
-    if (quote) quote.textContent = state.last_thought || 'Nothing on my mind just now…';
-
-    // Also update hero section elements
-    const heroThought = $('last-thought');
-    if (heroThought) heroThought.textContent = state.last_thought || 'Waiting for SPARK\'s thoughts…';
-    const moodBubble = $('mood-bubble');
-    if (moodBubble) moodBubble.textContent = state.mood || '…';
+    _renderInline($('dashboard-last-thought'), state.last_thought || 'Nothing on my mind just now…');
+    _renderInline($('last-thought'), state.last_thought || 'Waiting for SPARK\'s thoughts…');
+    _renderInline($('mood-bubble'), state.mood || '…');
 
     const thoughtMood = $('thought-mood-word');
     if (thoughtMood) thoughtMood.textContent = state.mood || '';
