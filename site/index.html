@@ -59,7 +59,7 @@
     <div class="band band-presence" id="band-presence">
 
       <!-- Mood Pulse -->
-      <div class="presence-mood">
+      <div class="presence-mood world-col">
         <div id="mood-pulse" class="pulse-circle pulse-mid" aria-label="SPARK mood">
           <span id="mood-word">…</span>
         </div>
@@ -69,30 +69,27 @@
         </div>
         <p id="obi-mode-line" class="obi-mode-text"></p>
         <p id="last-spoke" class="last-spoke"></p>
-        <div class="wx-metric-row presence-mood-trend">
-          <span class="wx-metric-label">Mood (1h)</span>
-          <canvas class="sparkline-canvas" data-field="mood_val" height="20"
-                  aria-label="mood history"></canvas>
-        </div>
       </div>
 
       <!-- Last Spoken -->
-      <div class="presence-thought">
+      <div class="presence-thought world-col">
         <p class="section-eyebrow">Last spoken</p>
         <blockquote id="last-spoken-text" class="pull-quote">Nothing spoken yet…</blockquote>
-        <div class="thought-meta">
+        <div id="thought-meta-row" class="thought-meta hidden">
           <span id="thought-salience" class="salience-dots" aria-label="thought importance"></span>
           <span id="thought-age" class="thought-age"></span>
         </div>
         <div class="wx-metric-row thought-salience-trend">
-          <span class="wx-metric-label">Salience (1h)</span>
+          <span class="wx-metric-label">Salience &amp; mood (1h)</span>
           <canvas class="sparkline-canvas" data-field="salience" height="20"
                   aria-label="thought salience history"></canvas>
+          <canvas class="sparkline-canvas" data-field="mood_val" height="20"
+                  aria-label="mood history" style="margin-top:0.2rem"></canvas>
         </div>
       </div>
 
       <!-- Proximity -->
-      <div class="presence-proximity">
+      <div class="presence-proximity world-col">
         <p class="section-eyebrow">Proximity</p>
         <div class="proximity-display">
           <div class="proximity-reading">

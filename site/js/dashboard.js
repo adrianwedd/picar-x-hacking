@@ -97,21 +97,24 @@ window.SparkDashboard = (function () {
     // Last spoken text (what SPARK actually said)
     _renderInline($('last-spoken-text'), state.last_spoken || 'Nothing spoken yet…');
 
+    // Salience dots + age: only meaningful when there's actual spoken content
+    const metaRow = $('thought-meta-row');
     const salienceDots = $('thought-salience');
-    if (salienceDots && typeof state.salience === 'number') {
-      const filled = Math.round(state.salience * 5);
-      salienceDots.textContent = '●'.repeat(filled) + '○'.repeat(5 - filled);
-    } else if (salienceDots) {
-      salienceDots.textContent = '';
-    }
-
     const ageEl = $('thought-age');
-    if (ageEl) {
-      const tsStr = state.last_spoken_ts || state.ts;
-      if (tsStr) {
-        const mins = Math.round((Date.now() - new Date(tsStr).getTime()) / 60000);
+    if (state.last_spoken && typeof state.salience === 'number') {
+      if (metaRow) metaRow.classList.remove('hidden');
+      if (salienceDots) {
+        const filled = Math.round(state.salience * 5);
+        salienceDots.textContent = '●'.repeat(filled) + '○'.repeat(5 - filled);
+      }
+      if (ageEl && state.last_spoken_ts) {
+        const mins = Math.round((Date.now() - new Date(state.last_spoken_ts).getTime()) / 60000);
         ageEl.textContent = mins <= 1 ? 'just now' : (mins + ' min ago');
       }
+    } else {
+      if (metaRow) metaRow.classList.add('hidden');
+      if (salienceDots) salienceDots.textContent = '';
+      if (ageEl) ageEl.textContent = '';
     }
 
     // Proximity: number + colour-coded bar (full = close, empty = far; 200 cm = scale max)
