@@ -67,7 +67,6 @@
       <div class="presence-thought">
         <blockquote id="dashboard-last-thought" class="pull-quote">Nothing on my mind just now…</blockquote>
         <div class="thought-meta">
-          <span id="thought-mood-word" class="thought-mood"></span>
           <span id="thought-salience" class="salience-dots" aria-label="thought importance"></span>
           <span id="thought-age" class="thought-age"></span>
         </div>
@@ -81,6 +80,7 @@
         </svg>
         <div id="frigate-indicator" class="frigate-row hidden">
           <span id="frigate-icon" aria-hidden="true">&#x1F464;</span>
+          <span id="frigate-label" class="frigate-label"></span>
           <span id="frigate-confidence" class="frigate-conf"></span>
         </div>
         <canvas class="sparkline-canvas" data-field="sonar_cm" width="120" height="28"
@@ -94,7 +94,10 @@
 
       <!-- Ambient sound -->
       <div class="world-ambient">
-        <span id="ambient-level-label" class="ambient-label">—</span>
+        <div class="world-ambient-head">
+          <span class="section-eyebrow">Sound</span>
+          <span id="ambient-level-label" class="ambient-level">—</span>
+        </div>
         <canvas id="waveform-canvas" width="200" height="32"
                 aria-label="ambient sound level visualisation"></canvas>
         <canvas class="sparkline-canvas" data-field="ambient_rms" width="200" height="28"
@@ -103,11 +106,15 @@
 
       <!-- Weather strip -->
       <div class="world-weather" id="world-weather-strip">
-        <span id="weather-temp"></span>
-        <span id="weather-symbol" aria-hidden="true"></span>
-        <span id="weather-wind"></span>
-        <span id="weather-humidity"></span>
-        <span id="weather-summary" class="weather-summary"></span>
+        <div class="weather-headline">
+          <span id="weather-temp" class="weather-temp-big"></span>
+          <span id="weather-symbol" class="weather-symbol" aria-hidden="true"></span>
+          <span id="weather-summary" class="weather-summary"></span>
+        </div>
+        <div class="weather-details">
+          <span class="weather-lbl">Wind</span><span id="weather-wind"></span>
+          <span class="weather-lbl">Humidity</span><span id="weather-humidity"></span>
+        </div>
         <div class="weather-sparklines">
           <canvas class="sparkline-canvas" data-field="weather_temp_c" width="160" height="28"
                   aria-label="temperature history"></canvas>
@@ -120,8 +127,10 @@
 
       <!-- Time context -->
       <div class="world-time">
-        <span id="local-time" class="local-time"></span>
-        <span id="time-period-badge" class="period-badge"></span>
+        <div class="world-time-row">
+          <span id="local-time" class="local-time"></span>
+          <span id="time-period-badge" class="period-badge"></span>
+        </div>
         <p id="last-spoke" class="last-spoke"></p>
       </div>
 
@@ -129,6 +138,13 @@
 
     <!-- ─── BAND 3: MACHINE ───────────────────────────────────────── -->
     <div class="band band-machine" id="band-machine">
+
+      <!-- Services strip -->
+      <div class="services-strip" id="tile-services">
+        <span class="services-strip-label">Services</span>
+        <div id="services-dots" class="services-strip-dots"></div>
+      </div>
+
       <div class="metric-grid">
 
         <!-- CPU % -->
@@ -169,12 +185,6 @@
           <div class="metric-bar-wrap"><div class="metric-bar" id="bar-battery"></div></div>
           <div class="metric-value" id="val-battery">—</div>
           <canvas class="sparkline-canvas" data-field="battery_pct" height="28"></canvas>
-        </div>
-
-        <!-- Services -->
-        <div class="metric-tile" id="tile-services">
-          <div class="metric-label">Services</div>
-          <div id="services-dots" class="services-dots"></div>
         </div>
 
         <!-- Tokens -->

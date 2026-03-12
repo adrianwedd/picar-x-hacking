@@ -54,9 +54,6 @@ window.SparkDashboard = (function () {
     _renderInline($('last-thought'), state.last_thought || 'Waiting for SPARK\'s thoughts…');
     _renderInline($('mood-bubble'), state.mood || '…');
 
-    const thoughtMood = $('thought-mood-word');
-    if (thoughtMood) thoughtMood.textContent = state.mood || '';
-
     const salienceDots = $('thought-salience');
     if (salienceDots && typeof state.salience === 'number') {
       const filled = Math.round(state.salience * 5);
@@ -80,8 +77,9 @@ window.SparkDashboard = (function () {
       } else {
         frigateRow.classList.remove('hidden');
         const icon = $('frigate-icon');
-        // Use Unicode code points as textContent — safe, not innerHTML
         if (icon) icon.textContent = state.person_present ? '\uD83D\uDC64' : '\uD83D\uDC65';
+        const flabel = $('frigate-label');
+        if (flabel) flabel.textContent = state.person_present ? 'detected' : 'not detected';
         const conf = $('frigate-confidence');
         if (conf) {
           conf.textContent = (state.person_present && state.frigate_score != null)
@@ -128,8 +126,13 @@ window.SparkDashboard = (function () {
         const hum = $('weather-humidity');
         if (hum) hum.textContent = w.humidity_pct != null ? (w.humidity_pct + '%') : '';
         const sumEl = $('weather-summary');
-        // First sentence only — strip at period to keep it short
-        if (sumEl) sumEl.textContent = (w.summary || '').split('.')[0];
+        if (sumEl) {
+          // BOM summaries often start "At Location, it's X°C. Description."
+          // Split on ". " and pick the first sentence that isn't a location+temp sentence.
+          const sentences = (w.summary || '').split(/\.\s+/);
+          const desc = sentences.find(s => !/^At\s/i.test(s.trim())) || sentences[0] || '';
+          sumEl.textContent = desc.trim().replace(/\.$/, '');
+        }
       }
     }
 
