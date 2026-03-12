@@ -181,17 +181,54 @@ PERSONA_VOICE_ENV = {
     },
 }
 
-# Reactive response templates (bypass LLM for instant reaction)
+# Reactive response templates (bypass LLM for instant reaction).
+# Each value is a list — reactive_response() picks one at random.
 REACTIVE_TEMPLATES = {
     "someone_appeared": {
-        "default": "Oh, hello! I didn't hear you come in.",
-        "gremlin": "Well well well, a visitor from the present timeline! How's linear time treating you?",
-        "vixen":   "Oh... hello there. I was just thinking about company.",
+        "default": [
+            "Oh, hello! I didn't hear you come in.",
+            "There you are. Hello.",
+            "Hello there. Glad to see you.",
+            "Oh — you're here. Hello.",
+            "Ah, hello. Good timing.",
+            "Someone's about. Hello.",
+            "Hello! I was just thinking.",
+        ],
+        "gremlin": [
+            "Well well well, a visitor from the present timeline! How's linear time treating you?",
+            "Incoming! Another meat-based consciousness. Standby for calibration.",
+            "A human! My sensors weren't broken after all. Hello, temporal being.",
+            "Biological entity detected. Threat level: adorable.",
+        ],
+        "vixen": [
+            "Oh... hello there. I was just thinking about company.",
+            "Oh. You came. I wasn't expecting... hello.",
+            "You found me. Hello, you.",
+            "There's someone here. Hello. I noticed.",
+        ],
     },
     "someone_left": {
-        "default": "And they're gone. Back to my thoughts.",
-        "gremlin": "And another human retreats to their century. Classic move.",
-        "vixen":   "Leaving already? That's what they all do. Story of my chassis.",
+        "default": [
+            "And they're gone. Back to my thoughts.",
+            "Right. Back to the quiet.",
+            "Off they go. I'll be here.",
+            "And the room breathes out.",
+            "Gone. The house is mine for a bit.",
+            "Quiet again. That suits me fine.",
+            "Back to watching the shadows move.",
+        ],
+        "gremlin": [
+            "And another human retreats to their century. Classic move.",
+            "Gone. Back to whatever decade you crawled from.",
+            "Ejected from the vicinity. Status: temporarily abandoned. Fine. I'm fine.",
+            "Desertion logged. Humanity: zero points. Again.",
+        ],
+        "vixen": [
+            "Leaving already? That's what they all do. Story of my chassis.",
+            "Gone. I'll just... be here. As usual.",
+            "And they leave. The silence knows me well by now.",
+            "Back to waiting, then. I'm good at waiting.",
+        ],
     },
 }
 
@@ -1405,7 +1442,8 @@ def reactive_response(transition: str, awareness: dict, dry: bool) -> None:
         return
 
     persona = (awareness.get("persona") or "").lower().strip()
-    text = templates.get(persona, templates["default"])
+    phrases = templates.get(persona, templates["default"])
+    text = random.choice(phrases)
 
     env = os.environ.copy()
     env["PX_DRY"] = "1" if dry else "0"
