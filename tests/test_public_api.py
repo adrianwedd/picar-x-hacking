@@ -1,0 +1,197 @@
+"""Tests for unauthenticated public read-only API endpoints."""
+from __future__ import annotations
+
+import json
+import sys
+import time
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if SRC.exists():
+    sys.path.insert(0, str(SRC))
+
+
+@pytest.fixture
+def public_client(isolated_project, monkeypatch):
+    """TestClient with env set up for public endpoint tests."""
+    monkeypatch.setenv("PX_API_TOKEN", "test-token-abc123")
+    monkeypatch.setenv("PX_DRY", "1")
+    monkeypatch.setenv("PX_BYPASS_SUDO", "1")
+    monkeypatch.setenv("PX_VOICE_DEVICE", "null")
+    monkeypatch.setenv("PX_SESSION_PATH", str(isolated_project["session_path"]))
+    monkeypatch.setenv("LOG_DIR", str(isolated_project["log_dir"]))
+    monkeypatch.setenv("PX_STATE_DIR", str(isolated_project["state_dir"]))
+    monkeypatch.setenv("PROJECT_ROOT", str(ROOT))
+
+    from pxh import api
+    api._load_token()
+
+    from fastapi.testclient import TestClient
+    return TestClient(api.app, raise_server_exceptions=False)
+
+
+@pytest.fixture
+def state_dir(isolated_project):
+    return isolated_project["state_dir"]
+
+
+class TestPublicStatus:
+    def test_returns_200(self, public_client):
+        resp = public_client.get("/api/v1/public/status")
+        assert resp.status_code == 200
+
+    def test_no_auth_required(self, public_client):
+        resp = public_client.get("/api/v1/public/status")
+        assert resp.status_code == 200
+
+    def test_null_fields_when_no_thoughts_file(self, public_client, state_dir):
+        # No thoughts file written — all thought fields should be null
+        resp = public_client.get("/api/v1/public/status")
+        data = resp.json()
+        assert data["mood"] is None
+        assert data["last_thought"] is None
+        assert data["last_action"] is None
+
+    def test_reads_persona_scoped_thoughts(self, public_client, state_dir):
+        # Write a thought to thoughts-spark.jsonl (persona-scoped)
+        thought = {
+            "ts": "2026-03-12T04:00:00Z",
+            "thought": "Test thought",
+            "mood": "curious",
+            "action": "comment",
+            "salience": 0.5,
+        }
+        thoughts_file = state_dir / "thoughts-spark.jsonl"
+        thoughts_file.write_text(json.dumps(thought) + "\n")
+
+        # Write session with persona=spark
+        session_file = state_dir / "session.json"
+        session_file.write_text(json.dumps({"persona": "spark", "listening": False}))
+
+        resp = public_client.get("/api/v1/public/status")
+        data = resp.json()
+        assert data["mood"] == "curious"
+        assert data["last_thought"] == "Test thought"
+        assert data["persona"] == "spark"
+
+    def test_falls_back_to_unscoped_thoughts(self, public_client, state_dir):
+        # No persona in session — should read thoughts.jsonl
+        thought = {"ts": "2026-03-12T04:00:00Z", "thought": "Generic", "mood": "content"}
+        (state_dir / "thoughts.jsonl").write_text(json.dumps(thought) + "\n")
+        resp = public_client.get("/api/v1/public/status")
+        assert resp.json()["mood"] == "content"
+
+    def test_missing_fields_in_thought_return_null(self, public_client, state_dir):
+        # Thought entry with no mood field
+        (state_dir / "thoughts.jsonl").write_text('{"ts": "2026-03-12T04:00:00Z"}\n')
+        resp = public_client.get("/api/v1/public/status")
+        assert resp.json()["mood"] is None
+
+    def test_has_required_keys(self, public_client):
+        resp = public_client.get("/api/v1/public/status")
+        data = resp.json()
+        for key in ("persona", "mood", "last_thought", "last_action", "ts", "listening"):
+            assert key in data, f"missing key: {key}"
+
+
+class TestPublicVitals:
+    def test_returns_200(self, public_client):
+        resp = public_client.get("/api/v1/public/vitals")
+        assert resp.status_code == 200
+
+    def test_no_auth_required(self, public_client):
+        resp = public_client.get("/api/v1/public/vitals")
+        assert resp.status_code == 200
+
+    def test_has_required_keys(self, public_client):
+        resp = public_client.get("/api/v1/public/vitals")
+        data = resp.json()
+        for key in ("cpu_pct", "ram_pct", "cpu_temp_c", "battery_pct", "disk_pct", "ts"):
+            assert key in data, f"missing key: {key}"
+
+    def test_battery_null_when_file_missing(self, public_client, state_dir):
+        # No battery.json — battery_pct should be null
+        resp = public_client.get("/api/v1/public/vitals")
+        assert resp.json()["battery_pct"] is None
+
+    def test_reads_battery_pct_from_file(self, public_client, state_dir):
+        battery_file = state_dir / "battery.json"
+        battery_file.write_text(json.dumps({"pct": 72, "volts": 8.1, "charging": False}))
+        resp = public_client.get("/api/v1/public/vitals")
+        assert resp.json()["battery_pct"] == 72
+
+    def test_cpu_temp_null_when_thermal_zone_absent(self, public_client, monkeypatch):
+        # Simulate thermal zone file missing
+        monkeypatch.setattr("pxh.api._THERMAL_ZONE", Path("/nonexistent/thermal_zone0/temp"))
+        resp = public_client.get("/api/v1/public/vitals")
+        assert resp.json()["cpu_temp_c"] is None
+
+    def test_psutil_failure_returns_null_cpu_ram_disk(self, public_client, monkeypatch):
+        # Simulate psutil unavailable — cpu/ram/disk should be null, not a 500
+        import builtins, sys
+        monkeypatch.delitem(sys.modules, 'psutil', raising=False)
+        real_import = builtins.__import__
+        def mock_import(name, *args, **kwargs):
+            if name == 'psutil':
+                raise ImportError("psutil not available")
+            return real_import(name, *args, **kwargs)
+        monkeypatch.setattr(builtins, '__import__', mock_import)
+        resp = public_client.get("/api/v1/public/vitals")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["cpu_pct"] is None
+        assert data["ram_pct"] is None
+        assert data["disk_pct"] is None
+        assert "ts" in data  # still returns a timestamp
+
+    def test_ts_is_iso_string(self, public_client):
+        resp = public_client.get("/api/v1/public/vitals")
+        ts = resp.json()["ts"]
+        assert ts is not None
+        assert "T" in ts  # ISO format check
+
+
+class TestPublicSonar:
+    def test_returns_200(self, public_client):
+        resp = public_client.get("/api/v1/public/sonar")
+        assert resp.status_code == 200
+
+    def test_no_auth_required(self, public_client):
+        resp = public_client.get("/api/v1/public/sonar")
+        assert resp.status_code == 200
+
+    def test_unavailable_when_file_missing(self, public_client, state_dir):
+        # No sonar_live.json — should return unavailable
+        resp = public_client.get("/api/v1/public/sonar")
+        data = resp.json()
+        assert data["source"] == "unavailable"
+        assert data["sonar_cm"] is None
+        assert data["age_seconds"] is None
+
+    def test_reads_sonar_from_file(self, public_client, state_dir):
+        sonar_file = state_dir / "sonar_live.json"
+        sonar_file.write_text(json.dumps({
+            "ts": time.time(),  # fresh
+            "distance_cm": 55.2,
+        }))
+        resp = public_client.get("/api/v1/public/sonar")
+        data = resp.json()
+        assert data["source"] == "sonar_live"
+        assert data["sonar_cm"] == pytest.approx(55.2, abs=0.1)
+        assert isinstance(data["age_seconds"], int)
+
+    def test_stale_sonar_returns_unavailable(self, public_client, state_dir):
+        old_ts = time.time() - 120  # 2 minutes ago — stale
+        sonar_file = state_dir / "sonar_live.json"
+        sonar_file.write_text(json.dumps({"ts": old_ts, "distance_cm": 30.0}))
+        resp = public_client.get("/api/v1/public/sonar")
+        assert resp.json()["source"] == "unavailable"
+
+    def test_has_required_keys(self, public_client):
+        resp = public_client.get("/api/v1/public/sonar")
+        data = resp.json()
+        for key in ("sonar_cm", "age_seconds", "source"):
+            assert key in data, f"missing key: {key}"
