@@ -1,0 +1,62 @@
+[data-theme="dark"] {
+  background: var(--dark-bg);
+  color: var(--dark-text);
+}
+
+[data-theme="dark"] h2 {
+  font-family: 'Courier New', monospace;
+  font-size: 1.5rem;
+  color: var(--dark-accent);
+  margin-bottom: 1.5rem;
+  letter-spacing: -0.02em;
+}
+
+[data-theme="dark"] h3 {
+  font-family: 'Courier New', monospace;
+  font-size: 1rem;
+  color: var(--dark-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 2rem 0 0.5rem;
+}
+
+/* Preformatted architecture diagram */
+[data-theme="dark"] pre.arch {
+  background: var(--dark-code-bg);
+  color: var(--dark-accent);
+  padding: 1.5rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  overflow-x: auto;
+  line-height: 1.5;
+  border: 1px solid rgba(74, 222, 128, 0.15);
+}
+
+/* Code blocks (highlight.js) */
+[data-theme="dark"] pre code.hljs {
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+
+/* Tool collapse */
+[data-theme="dark"] details {
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+[data-theme="dark"] details summary {
+  color: var(--dark-accent);
+  font-family: monospace;
+}
+
+/* Roadmap */
+.roadmap-group { margin-bottom: 2.5rem; }
+.roadmap-group h3 { color: var(--dark-accent); margin-bottom: 0.75rem; }
+.roadmap-item {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.35rem 0;
+  font-size: 0.9rem;
+  color: var(--dark-muted);
+}
+.roadmap-item.done { color: var(--dark-text); }
+.roadmap-item .check { font-size: 1rem; flex-shrink: 0; }
