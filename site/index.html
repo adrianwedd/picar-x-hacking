@@ -257,7 +257,7 @@
     <h2>// how_it_works</h2>
 
     <p class="text-muted-dark mb-md">
-      Four concurrent processes share a single <code>session.json</code> whiteboard.
+      Six systemd services share a single <code>session.json</code> whiteboard.
       Each has one job and doesn't need to know how the others work.
     </p>
 
@@ -268,13 +268,12 @@
                     ↓
             ┌───────────────┐
             │     EARS      │  ← always listening (px-wake-listen)
-            │  Whisper STT  │
+            │  Whisper STT  │  ← SenseVoice → faster-whisper → sherpa-onnx
             └───────┬───────┘
                     ↓ transcript
             ┌───────────────┐
-            │  VOICE LOOP   │  ← Claude / Codex / Ollama
-            │  (run-voice-  │
-            │   loop-claude)│
+            │  VOICE LOOP   │  ← Claude CLI (px-spark)
+            │  SPARK persona│
             └───────┬───────┘
                     ↓ {tool, params}
             ┌───────────────┐
@@ -282,19 +281,31 @@
             │  bin/tool-*   │
             └───────────────┘
 
-    Meanwhile, always running in parallel:
+    Always running in parallel:
 
             ┌───────────────────────────────┐
             │   BRAIN (px-mind)             │
             │                               │
             │  Layer 1 ─ Notice  (60s)      │──→ awareness.json
-            │  Layer 2 ─ Think   (5min)     │──→ thoughts-spark.jsonl
-            │  Layer 3 ─ Act                │──→ speak / look / remember
+            │  Layer 2 ─ Think   (5min)     │──→ thoughts.jsonl
+            │  Layer 3 ─ Act     (2min gap) │──→ speak / look / remember
             └───────────────────────────────┘
-                    ↑ reads sonar age
+                    ↑ reads sonar_live.json
             ┌───────────────┐
             │  EYES & NECK  │  ← always moving (px-alive)
-            │  PCA9685 PWM  │
+            │  PCA9685 PWM  │  ← yields on SIGUSR1 for other tools
+            └───────────────┘
+            ┌───────────────┐
+            │  BATTERY      │  ← px-battery-poll (30s)
+            │  MONITOR      │  ← escalating warnings + emergency shutdown
+            └───────────────┘
+            ┌───────────────┐
+            │  CAMERA       │  ← px-frigate-stream (go2rtc RTSP pull)
+            │  go2rtc       │  ← Frigate on pi5-hailo pulls the stream
+            └───────────────┘
+            ┌───────────────┐
+            │  REST API     │  ← px-api-server (port 8420)
+            │  + web UI     │  ← unauthenticated /public/* endpoints
             └───────────────┘
 </pre>
 
@@ -303,19 +314,36 @@
       SPARK's reflection layer degrades gracefully when upstream AI is unavailable:
     </p>
     <pre class="arch">
-  Claude CLI  →  Ollama on M1 (LAN)  →  Ollama on Pi (offline)
-  (internet)      (192.168.1.x)          (deepseek-r1:1.5b)
+  Tier 1: Claude CLI  →  Tier 2: Ollama on M1 (LAN)  →  Tier 3: Ollama on Pi
+          (internet)           (192.168.1.x)                   (offline)
+          SPARK persona        qwen3.5:0.8b                    deepseek-r1:1.5b
     </pre>
 
     <h3>Cognitive Loop Timing</h3>
     <pre class="arch">
-  ┌─────────────────────────────────────────────────────┐
-  │  t=0s    Layer 1 (Awareness) — sonar, sound, time   │
-  │  t=60s   Layer 1 again                              │
-  │  t=300s  Layer 2 (Reflection) — LLM generates thought│
-  │           OR earlier if transition detected          │
-  │  +30s    Layer 3 cooldown before next expression    │
-  └─────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────┐
+  │  every 60s   Layer 1 — sonar, sound, weather, Obi mode  │
+  │  every 5min  Layer 2 — LLM generates thought + mood      │
+  │              OR immediately on detected transition        │
+  │  min 2min    Layer 3 cooldown between spontaneous speech  │
+  │              silent if obi_mode=absent (night/away)       │
+  └──────────────────────────────────────────────────────────┘
+    </pre>
+
+    <h3>Public API — Live Data Endpoints</h3>
+    <p class="text-muted-dark">
+      These endpoints are unauthenticated and power this page's live dashboard.
+      Authenticated endpoints (tool execution, session control) require a Bearer token.
+    </p>
+    <pre class="arch">
+  GET /api/v1/public/status     mood, last_thought, last_spoken, salience
+  GET /api/v1/public/thoughts   recent thoughts, newest-first (limit=N)
+  GET /api/v1/public/awareness  obi_mode, Frigate, ambient, weather, time
+  GET /api/v1/public/vitals     cpu, ram, disk, temp, battery, tokens
+  GET /api/v1/public/sonar      latest sonar distance + age
+  GET /api/v1/public/history    ring buffer — 60 samples × 30s ≈ 30 min
+  GET /api/v1/public/services   systemd unit status for all six services
+  GET /api/v1/health            unauthenticated health check
     </pre>
   </div>
 </section>
@@ -341,7 +369,7 @@
       <h3 class="card-heading">The Brain — Three Layers</h3>
       <p><strong>Layer 1 — Noticing (every 60 seconds):</strong> Collects information without thinking yet. How far is the nearest thing? Is it noisy? What time is it? Is anyone talking?</p>
       <p class="mt-sm"><strong>Layer 2 — Thinking (every 5 minutes):</strong> Talks to an AI that's good at words. Gets back a <em>thought</em>, a <em>mood</em>, and an <em>action</em>.</p>
-      <p class="mt-sm"><strong>Layer 3 — Doing Something:</strong> If the thought says to act, SPARK speaks, looks around, or writes it down to remember later.</p>
+      <p class="mt-sm"><strong>Layer 3 — Doing Something (2-min cooldown):</strong> If the thought says to act, SPARK speaks, looks around, or writes it down. There's a 2-minute gap between spontaneous comments so it never feels like it's constantly talking.</p>
     </div>
 
     <div class="warm-card mb-md">
@@ -349,12 +377,15 @@
       <table class="mood-table">
         <tr class="mood-table-header">
           <th>When SPARK feels…</th>
+          <th>The pulse circle…</th>
           <th>It moves like this…</th>
         </tr>
-        <tr><td>Excited</td><td>Looks around fast, head up</td></tr>
-        <tr><td>Peaceful</td><td>Moves slowly, head droopy</td></tr>
-        <tr><td>Curious</td><td>Normal speed, alert</td></tr>
-        <tr><td>Anxious</td><td>Quick nervous glances</td></tr>
+        <tr><td>Peaceful</td><td>Slow green pulse</td><td>Drifts gently, slow gaze</td></tr>
+        <tr><td>Content</td><td>Slow green pulse</td><td>Stays relaxed, steady</td></tr>
+        <tr><td>Contemplative</td><td>Medium indigo pulse</td><td>Still, looks into the distance</td></tr>
+        <tr><td>Curious</td><td>Medium gold pulse</td><td>Alert, head tilts, looks around</td></tr>
+        <tr><td>Active</td><td>Fast blue pulse</td><td>Busy gaze, regular movement</td></tr>
+        <tr><td>Excited</td><td>Fast coral pulse</td><td>Looks around quickly, head up</td></tr>
       </table>
     </div>
 
@@ -407,7 +438,7 @@
 
     <details>
       <summary>How often does SPARK comment?</summary>
-      <p>SPARK's cognitive loop runs every 60 seconds (awareness) and every 5 minutes (reflection). But there's a 30-second cooldown between spontaneous comments, and SPARK stays quiet when Obi is already talking to it, during quiet mode (meltdowns), or at night when salience is low. In practice: every 5–10 minutes during the day, mostly silent at night.</p>
+      <p>SPARK's cognitive loop runs every 60 seconds (awareness) and every 5 minutes (reflection). There's a 2-minute cooldown between spontaneous comments, and SPARK stays quiet when Obi is already talking to it, during quiet mode (meltdowns), or at night when salience is low. In practice: roughly every 5–10 minutes during the day, mostly silent at night.</p>
     </details>
 
     <details>
@@ -511,7 +542,56 @@ bin/px-diagnostics --no-motion --short</code></pre>
       <pre><code class="language-bash"># REST API + web UI on port 8420
 bin/px-api-server [--dry-run]
 # Auth: Bearer token from .env PX_API_TOKEN
-# Web UI: http://pi:8420</code></pre>
+# Web UI: http://pi:8420
+# Public endpoints: /api/v1/public/* (no auth required)</code></pre>
+    </details>
+
+    <details>
+      <summary>px-wake-listen</summary>
+      <pre><code class="language-bash"># Always-on wake word listener + STT
+bin/px-wake-listen [--convo-turns 5]
+# STT priority: SenseVoice → faster-whisper → sherpa-onnx → Vosk
+# Wake word: "hey robot" (PX_WAKE_WORD env var to change)
+# Multi-turn: listens for follow-up after each response</code></pre>
+    </details>
+
+    <details>
+      <summary>px-battery-poll</summary>
+      <pre><code class="language-bash"># Battery monitoring daemon — polls every 30s
+sudo bin/px-battery-poll
+# Writes: state/battery.json
+# Warns at 30/20/15%, emergency shutdown at 10%</code></pre>
+    </details>
+
+    <details>
+      <summary>px-frigate-stream</summary>
+      <pre><code class="language-bash"># Camera RTSP stream via go2rtc
+bin/px-frigate-stream
+# go2rtc exposes rtsp://pi:8554/picar-x
+# Frigate on pi5-hailo pulls the stream (pull model)
+# Writes PID to logs/px-frigate-stream.pid for camera lock</code></pre>
+    </details>
+
+    <details>
+      <summary>px-wander</summary>
+      <pre><code class="language-bash"># Autonomous wander — sonar-guided navigation
+bin/px-wander [--dry-run]
+# Sweeps 5 sonar angles, picks best direction, comments while navigating</code></pre>
+    </details>
+
+    <details>
+      <summary>tool-weather</summary>
+      <pre><code class="language-bash"># Fetch current weather from BOM (Australian Bureau of Meteorology)
+bin/tool-weather
+# Output: {"status": "ok", "weather": {"temp_c": 14.2, "summary": "...", ...}}</code></pre>
+    </details>
+
+    <details>
+      <summary>tool-look</summary>
+      <pre><code class="language-bash"># Pan/tilt camera toward a target
+PX_LOOK_PAN=30 PX_LOOK_TILT=10 bin/tool-look
+# Output: {"status": "ok", "pan": 30, "tilt": 10}
+# Yields px-alive GPIO via SIGUSR1 before moving</code></pre>
     </details>
   </div>
 </section>
@@ -535,12 +615,21 @@ bin/px-api-server [--dry-run]
       <div class="roadmap-item done"><span class="check">✅</span> SPARK persona + neurodivergent-aware system prompt</div>
       <div class="roadmap-item done"><span class="check">✅</span> REST API + web UI (px-api-server)</div>
       <div class="roadmap-item done"><span class="check">✅</span> Frigate camera stream (go2rtc RTSP pull model)</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Battery monitoring — escalating warnings + emergency shutdown</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Live dashboard with mood, thoughts, sparklines (this page)</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Public API — unauthenticated live data endpoints</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Thoughts carousel — real-time inner monologue on home page</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Semantic mood colour palette — pulse circle + favicon</div>
+      <div class="roadmap-item done"><span class="check">✅</span> obi_mode inference (absent/calm/active/possibly-overloaded)</div>
       <div class="roadmap-item"><span class="check">⬜</span> Gesture-driven stop prototype</div>
       <div class="roadmap-item"><span class="check">⬜</span> Weekly battery/health summary reports</div>
     </div>
 
     <div class="roadmap-group">
       <h3>Growth (1–3 Months)</h3>
+      <div class="roadmap-item done"><span class="check">✅</span> SPARK Phase 2 — transition warnings, routine support</div>
+      <div class="roadmap-item"><span class="check">⬜</span> SPARK Phase 3 — quiet mode, sensory check, dopamine menu</div>
+      <div class="roadmap-item"><span class="check">⬜</span> Calendar integration (Google Workspace / school schedule)</div>
       <div class="roadmap-item"><span class="check">⬜</span> Modular sensor fusion and persistent mapping</div>
       <div class="roadmap-item"><span class="check">⬜</span> Richer voice summaries, mission templates, gesture recognition</div>
       <div class="roadmap-item"><span class="check">⬜</span> Simulation CI sweeps (Gazebo or lightweight custom sim)</div>
