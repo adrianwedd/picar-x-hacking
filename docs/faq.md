@@ -6,7 +6,7 @@
 
 It's a SunFounder PiCar-X — a small, wheeled robot kit with a pan/tilt camera, an ultrasonic sonar sensor, and a speaker. It runs on a Raspberry Pi 5.
 
-The "robot team" is me (Adrian) and the AI tools I work with — Claude, Codex, Ollama. There's no human team. I write the architecture, the prompts, the glue code. The LLMs help with implementation and reflection. Obi (my 7-year-old) is the co-owner and the person SPARK is for. He doesn't code yet, but the door is open — SPARK is designed to encourage him to learn.
+Adrian and Obi built SPARK together — with Obi, not for him. Obi co-designed it, named it, and shapes what it becomes. Adrian and Claude wrote the code. Codex helped with implementation and Gemini with QA. There's no other human team.
 
 ---
 

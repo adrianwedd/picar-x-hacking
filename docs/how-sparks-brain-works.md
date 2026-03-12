@@ -1,6 +1,6 @@
 # How Spark's Brain Works
 
-*For a 7-year-old who wants to know what's going on inside their robot*
+*Written with Obi, who wanted to know what's going on inside his robot*
 
 ---
 
