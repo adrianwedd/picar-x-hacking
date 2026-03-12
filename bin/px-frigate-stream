@@ -62,12 +62,24 @@ def main() -> int:
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--duration", type=float, default=0, help="Stop after N seconds (0 = forever)")
+    parser.add_argument("--host", default="picar.local", help="Hostname for the served RTSP URL")
     parser.add_argument("--dry-run", action="store_true", help="Print config without executing")
 
     args = parser.parse_args()
 
-    serve_url = f"rtsp://picar.local:{args.port}/{args.stream}"
+    serve_url = f"rtsp://{args.host}:{args.port}/{args.stream}"
     config = build_go2rtc_config(args)
+
+    camera_cmd = [
+        "rpicam-vid", "--codec", "h264", "--profile", "baseline", "--inline",
+        "--timeout", "0", "--framerate", str(args.fps),
+        "--width", str(args.width), "--height", str(args.height), "--output", "-",
+    ]
+    ffmpeg_cmd = [
+        "ffmpeg", "-use_wallclock_as_timestamps", "1", "-i", "pipe:0",
+        "-c:v", "copy", "-f", "rtsp", "-rtsp_transport", "tcp", "-muxdelay", "0.1",
+        f"rtsp://127.0.0.1:{args.port}/{args.stream}",
+    ]
 
     if args.dry_run or os.environ.get("PX_DRY", "0") == "1":
         payload = {
@@ -75,6 +87,7 @@ def main() -> int:
             "serve_url": serve_url,
             "go2rtc_bin": str(GO2RTC_BIN),
             "go2rtc_config": config,
+            "commands": {"camera": camera_cmd, "ffmpeg": ffmpeg_cmd},
         }
         log_event("frigate-stream", payload)
         print(json.dumps(payload, indent=2))
@@ -105,12 +118,36 @@ def main() -> int:
         stderr=subprocess.PIPE,
     )
 
+    keepalive_proc = None
+
+    def start_keepalive(port: int, stream: str) -> subprocess.Popen:
+        """Pull the stream into /dev/null to keep go2rtc's exec: source alive.
+
+        go2rtc's exec: source is lazy — it only runs rpicam-vid while at least
+        one consumer is connected. Without a keepalive, every Frigate reconnect
+        causes a ~2s camera reinit gap. The keepalive ensures rpicam-vid stays
+        running continuously; Frigate's reconnects become seamless.
+        """
+        return subprocess.Popen(
+            [
+                "ffmpeg", "-loglevel", "quiet",
+                "-rtsp_transport", "tcp",
+                "-i", f"rtsp://127.0.0.1:{port}/{stream}",
+                "-f", "null", "-",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
     try:
         time.sleep(1.0)  # let go2rtc bind the port
         if go2rtc_proc.poll() is not None:
             err = go2rtc_proc.stderr.read().decode(errors="replace")
             print(f"go2rtc exited early: {err}", file=sys.stderr)
             return 1
+
+        # Kick off the keepalive consumer — this triggers go2rtc to start rpicam-vid
+        keepalive_proc = start_keepalive(args.port, args.stream)
 
         start_ts = time.time()
         payload = {
@@ -130,15 +167,22 @@ def main() -> int:
             if go2rtc_proc.poll() is not None:
                 log_event("frigate-stream", {"status": "go2rtc_exited_unexpectedly"})
                 break
+            # Restart keepalive if it died (e.g. go2rtc hiccup)
+            if keepalive_proc.poll() is not None:
+                keepalive_proc = start_keepalive(args.port, args.stream)
             time.sleep(0.5)
 
     finally:
-        if go2rtc_proc.poll() is None:
-            go2rtc_proc.terminate()
+        for proc in (keepalive_proc, go2rtc_proc):
+            if proc is not None and proc.poll() is None:
+                proc.terminate()
+        for proc in (keepalive_proc, go2rtc_proc):
+            if proc is None:
+                continue
             try:
-                go2rtc_proc.wait(timeout=5)
+                proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                go2rtc_proc.kill()
+                proc.kill()
         try:
             Path(config_path).unlink(missing_ok=True)
         except Exception:
