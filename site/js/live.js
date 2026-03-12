@@ -215,30 +215,41 @@
       const slide = document.createElement('div');
       slide.className = 'carousel-slide' + (i === 0 ? ' active' : '');
 
+      const q = document.createElement('blockquote');
+      q.className = 'carousel-quote';
+      q.textContent = t.thought || '';
+      slide.appendChild(q);
+
+      // Meta row: time · mood badge · salience dots
+      const meta = document.createElement('p');
+      meta.className = 'carousel-meta';
+
+      if (t.ts) {
+        const d = new Date(t.ts);
+        const timeStr = d.toLocaleTimeString('en-AU', {
+          hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Hobart',
+        });
+        meta.appendChild(document.createTextNode(timeStr));
+      }
+
       if (t.mood) {
         const badge = document.createElement('span');
         badge.className = 'carousel-mood-badge';
         badge.textContent = t.mood;
         const col = MOOD_COLOR[t.mood.toLowerCase()];
         if (col) { badge.style.background = col; badge.style.color = '#fff'; }
-        slide.appendChild(badge);
+        meta.appendChild(badge);
       }
 
-      const q = document.createElement('blockquote');
-      q.className = 'carousel-quote';
-      q.textContent = t.thought || '';
-      slide.appendChild(q);
-
-      if (t.ts) {
-        const meta = document.createElement('p');
-        meta.className = 'carousel-meta';
-        const d = new Date(t.ts);
-        meta.textContent = d.toLocaleTimeString('en-AU', {
-          hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Hobart',
-        });
-        slide.appendChild(meta);
+      if (typeof t.salience === 'number') {
+        const dots = document.createElement('span');
+        dots.className = 'carousel-salience';
+        const filled = Math.round(t.salience * 5);
+        dots.textContent = '●'.repeat(filled) + '○'.repeat(5 - filled);
+        meta.appendChild(dots);
       }
 
+      slide.appendChild(meta);
       container.appendChild(slide);
     });
 
