@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src https://api.spark.wedd.au;">
+  <title>SPARK — a robot with an inner life</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/warm.css">
+  <link rel="stylesheet" href="css/dark.css">
+  <link rel="stylesheet" href="css/highlight.min.css">
+</head>
+<body>
+
+<nav>
+  <a class="logo" href="#hero">SPARK <span id="status-dot"></span></a>
+  <ul class="links">
+    <li><a href="#hero">Home</a></li>
+    <li><a href="#live">Live</a></li>
+    <li><a href="#how-it-works">How It Works</a></li>
+    <li><a href="#spark-brain">Brain</a></li>
+    <li><a href="#faq">FAQ</a></li>
+    <li><a href="#docs">Docs</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+  </ul>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════ HERO -->
+<section id="hero" data-theme="warm">
+  <div class="container">
+    <h1>SPARK</h1>
+    <p class="text-lead mt-sm text-muted-warm">
+      A robot with an inner life, built for a 7-year-old with ADHD.
+    </p>
+
+    <div id="mood-bubble" aria-live="polite">…</div>
+
+    <blockquote class="pull-quote" id="last-thought" aria-live="polite">
+      Waiting for SPARK's thoughts…
+    </blockquote>
+
+    <p class="mt-lg text-italic text-muted-warm">
+      "I programmed the soul. Claude writes the diary."
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ LIVE -->
+<section id="live" data-theme="warm">
+  <div class="container">
+    <h2>Live Status</h2>
+
+    <div id="offline-banner" class="hidden offline-banner mb-md">
+      Pi offline — showing data from <span id="offline-ts"></span>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card ok" id="card-cpu">
+        <div class="stat-value" id="cpu-val">—</div>
+        <div class="stat-label">CPU</div>
+      </div>
+      <div class="stat-card ok" id="card-ram">
+        <div class="stat-value" id="ram-val">—</div>
+        <div class="stat-label">RAM</div>
+      </div>
+      <div class="stat-card ok" id="card-batt">
+        <div class="stat-value" id="batt-val">—</div>
+        <div class="stat-label">Battery</div>
+      </div>
+      <div class="stat-card" id="card-sonar">
+        <div class="stat-value" id="sonar-val">—</div>
+        <div class="stat-label">Sonar</div>
+      </div>
+    </div>
+
+    <div class="warm-card mt-sm">
+      <div class="live-label">Last thought</div>
+      <div id="live-thought" class="text-italic">…</div>
+      <div class="live-meta">
+        <span id="live-mood"></span>
+        <span id="live-ts"></span>
+      </div>
+    </div>
+
+    <p class="text-xs opacity-40 mt-sm text-right" id="last-updated">
+      Connecting…
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ HOW IT WORKS -->
+<section id="how-it-works" data-theme="dark">
+  <div class="container">
+    <h2>// how_it_works</h2>
+
+    <p class="text-muted-dark mb-md">
+      Four concurrent processes share a single <code>session.json</code> whiteboard.
+      Each has one job and doesn't need to know how the others work.
+    </p>
+
+<pre class="arch">
+             ┌──────────────┐
+             │   YOU SPEAK   │
+             └──────┬───────┘
+                    ↓
+            ┌───────────────┐
+            │     EARS      │  ← always listening (px-wake-listen)
+            │  Whisper STT  │
+            └───────┬───────┘
+                    ↓ transcript
+            ┌───────────────┐
+            │  VOICE LOOP   │  ← Claude / Codex / Ollama
+            │  (run-voice-  │
+            │   loop-claude)│
+            └───────┬───────┘
+                    ↓ {tool, params}
+            ┌───────────────┐
+            │    TOOLS      │  ← speak, move, remember (bin/tool-*)
+            │  bin/tool-*   │
+            └───────────────┘
+
+    Meanwhile, always running in parallel:
+
+            ┌───────────────────────────────┐
+            │   BRAIN (px-mind)             │
+            │                               │
+            │  Layer 1 ─ Notice  (60s)      │──→ awareness.json
+            │  Layer 2 ─ Think   (5min)     │──→ thoughts-spark.jsonl
+            │  Layer 3 ─ Act                │──→ speak / look / remember
+            └───────────────────────────────┘
+                    ↑ reads sonar age
+            ┌───────────────┐
+            │  EYES & NECK  │  ← always moving (px-alive)
+            │  PCA9685 PWM  │
+            └───────────────┘
+</pre>
+
+    <h3>Three-Tier LLM Fallback</h3>
+    <p class="text-muted-dark">
+      SPARK's reflection layer degrades gracefully when upstream AI is unavailable:
+    </p>
+    <pre class="arch">
+  Claude CLI  →  Ollama on M1 (LAN)  →  Ollama on Pi (offline)
+  (internet)      (192.168.1.x)          (deepseek-r1:1.5b)
+    </pre>
+
+    <h3>Cognitive Loop Timing</h3>
+    <pre class="arch">
+  ┌─────────────────────────────────────────────────────┐
+  │  t=0s    Layer 1 (Awareness) — sonar, sound, time   │
+  │  t=60s   Layer 1 again                              │
+  │  t=300s  Layer 2 (Reflection) — LLM generates thought│
+  │           OR earlier if transition detected          │
+  │  +30s    Layer 3 cooldown before next expression    │
+  └─────────────────────────────────────────────────────┘
+    </pre>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ SPARK BRAIN -->
+<section id="spark-brain" data-theme="warm">
+  <div class="container">
+    <h2>How SPARK's Brain Works</h2>
+    <p class="text-muted-warm text-italic mb-md">For a 7-year-old who wants to know what's going on inside their robot.</p>
+
+    <div class="warm-card mb-md">
+      <h3 class="card-heading">The Short Version</h3>
+      <p>SPARK has <strong>four things running at the same time</strong>, kind of like how your body breathes, sees, thinks, and talks all at once:</p>
+      <ol class="brain-list">
+        <li><strong>Ears</strong> — always listening for "hey robot"</li>
+        <li><strong>Eyes and neck</strong> — always moving, looking around</li>
+        <li><strong>Brain</strong> — always thinking, even when nobody's talking</li>
+        <li><strong>Mouth</strong> — talks when the brain decides to say something</li>
+      </ol>
+    </div>
+
+    <div class="warm-card mb-md">
+      <h3 class="card-heading">The Brain — Three Layers</h3>
+      <p><strong>Layer 1 — Noticing (every 60 seconds):</strong> Collects information without thinking yet. How far is the nearest thing? Is it noisy? What time is it? Is anyone talking?</p>
+      <p class="mt-sm"><strong>Layer 2 — Thinking (every 5 minutes):</strong> Talks to an AI that's good at words. Gets back a <em>thought</em>, a <em>mood</em>, and an <em>action</em>.</p>
+      <p class="mt-sm"><strong>Layer 3 — Doing Something:</strong> If the thought says to act, SPARK speaks, looks around, or writes it down to remember later.</p>
+    </div>
+
+    <div class="warm-card mb-md">
+      <h3 class="card-heading">SPARK's Mood Changes How It Moves</h3>
+      <table class="mood-table">
+        <tr class="mood-table-header">
+          <th>When SPARK feels…</th>
+          <th>It moves like this…</th>
+        </tr>
+        <tr><td>Excited</td><td>Looks around fast, head up</td></tr>
+        <tr><td>Peaceful</td><td>Moves slowly, head droopy</td></tr>
+        <tr><td>Curious</td><td>Normal speed, alert</td></tr>
+        <tr><td>Anxious</td><td>Quick nervous glances</td></tr>
+      </table>
+    </div>
+
+    <div class="warm-card">
+      <h3 class="card-heading">Fun Facts</h3>
+      <ul class="fun-facts">
+        <li>SPARK's sonar works just like a bat — it sends out a sound and listens for the echo.</li>
+        <li>SPARK's thoughts are saved in a file called <code>thoughts-spark.jsonl</code>. Each line is one thought.</li>
+        <li>SPARK can remember up to 500 important things in its long-term diary.</li>
+        <li>SPARK's neck chip (PCA9685) holds the last position even after the brain restarts.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ FAQ -->
+<section id="faq" data-theme="warm">
+  <div class="container">
+    <h2>FAQ</h2>
+
+
+    <details>
+      <summary>So it's a robot car? With a camera on it?</summary>
+      <p>It's a SunFounder PiCar-X — a small, wheeled robot kit with a pan/tilt camera, an ultrasonic sonar sensor, and a speaker. It runs on a Raspberry Pi 5. The "robot team" is Adrian and the AI tools he works with — Claude, Codex, Ollama. There's no human team. Obi (Adrian's 7-year-old) is the co-owner and the person SPARK is for.</p>
+    </details>
+
+    <details>
+      <summary>Does it monitor Obi?</summary>
+      <p>Sort of — but not surveillance. SPARK has awareness of its environment: sonar distance, ambient sound level, time of day, whether someone seems nearby. It uses that awareness to generate an inner monologue. The result is a thought with a mood, an action intent, and a salience score. SPARK doesn't watch Obi; it notices the world and reacts to it.</p>
+    </details>
+
+    <details>
+      <summary>And it knows he has ADHD?</summary>
+      <p>Yes. SPARK's entire system prompt is built around the AuDHD (ADHD + ASD comorbid) profile. It uses declarative language ("The shoes are by the door" — not "Put on your shoes"), gives transition warnings, goes silent during meltdowns, and leads with what's going right. Rejection Sensitive Dysphoria, Interest-Based Nervous System, monotropism — all of it is in the foundation, not an afterthought.</p>
+    </details>
+
+    <details>
+      <summary>Why does it write like that? You've programmed it to?</summary>
+      <p>Yes and no. The <em>style</em> comes from prompts: be specific, be vivid, be warm, never be boring. The actual words are generated fresh each time by Claude. I didn't write the sentences — I wrote the character, and the LLM inhabits it. So: I programmed the soul. Claude writes the diary.</p>
+    </details>
+
+    <details>
+      <summary>How often does SPARK comment?</summary>
+      <p>SPARK's cognitive loop runs every 60 seconds (awareness) and every 5 minutes (reflection). But there's a 30-second cooldown between spontaneous comments, and SPARK stays quiet when Obi is already talking to it, during quiet mode (meltdowns), or at night when salience is low. In practice: every 5–10 minutes during the day, mostly silent at night.</p>
+    </details>
+
+    <details>
+      <summary>Why does it have sonar?</summary>
+      <p>The ultrasonic sensor sends out a sound pulse and measures how long it takes to bounce back — like a bat. SPARK uses it for proximity reactions (turns to face anything within 35cm), presence detection in the cognitive loop (something close + daytime + noise = probably Obi), and obstacle avoidance when wandering.</p>
+    </details>
+
+    <details>
+      <summary>Why did it know the hum was the fridge?</summary>
+      <p>It didn't <em>know</em>. SPARK's awareness included "quiet ambient sound at 2 AM." Claude — the LLM generating the inner thoughts — inferred the most likely source. A low, steady hum in a quiet house at night is almost certainly the fridge. The sensors provide raw data; the prompts provide character; the LLM fills in the meaning.</p>
+    </details>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ DOCS -->
+<section id="docs" data-theme="dark">
+  <div class="container">
+    <h2>// docs</h2>
+    <p class="text-muted-dark mb-md">Reference for tools and scripts. Each <code>bin/tool-*</code> emits a single JSON object to stdout. Each <code>bin/px-*</code> is a user-facing helper.</p>
+
+    <h3>Core Tools</h3>
+
+    <details>
+      <summary>tool-voice</summary>
+      <pre><code class="language-bash"># Speak text via espeak + aplay through HifiBerry DAC
+PX_VOICE_TEXT="Hello world" bin/tool-voice
+# Output: {"status": "ok", "text": "Hello world"}
+# Env: PX_VOICE_RATE, PX_VOICE_PITCH, PX_VOICE_VARIANT, PX_VOICE_DEVICE</code></pre>
+    </details>
+
+    <details>
+      <summary>tool-move / tool-forward / tool-backward / tool-turn</summary>
+      <pre><code class="language-bash"># Motion tools — all gated by confirm_motion_allowed in session
+PX_SPEED=30 PX_DURATION=2 bin/tool-forward
+# Output: {"status": "ok", "speed": 30, "duration": 2}
+# Safety: PX_DRY=1 skips all motion</code></pre>
+    </details>
+
+    <details>
+      <summary>tool-sonar</summary>
+      <pre><code class="language-bash"># Read ultrasonic sonar distance
+bin/tool-sonar
+# Output: {"status": "ok", "distance_cm": 142.5}</code></pre>
+    </details>
+
+    <details>
+      <summary>tool-describe-scene</summary>
+      <pre><code class="language-bash"># Capture photo + describe with Claude vision
+bin/tool-describe-scene
+# Output: {"status": "ok", "description": "...", "photo": "photos/YYYY-MM-DD_HH-MM-SS.jpg"}
+# Note: mutually exclusive with px-frigate-stream (camera lock)</code></pre>
+    </details>
+
+    <details>
+      <summary>tool-remember / tool-recall</summary>
+      <pre><code class="language-bash"># Write to persona-scoped notes.jsonl
+PX_NOTE="Obi loves prime numbers" bin/tool-remember
+# Recall recent notes
+bin/tool-recall
+# Output: {"status": "ok", "notes": [...]}</code></pre>
+    </details>
+
+    <details>
+      <summary>tool-chat / tool-chat-vixen</summary>
+      <pre><code class="language-bash"># Jailbroken Ollama chat — GREMLIN persona
+PX_CHAT_TEXT="What do you think about entropy?" bin/tool-chat
+# VIXEN persona
+PX_CHAT_TEXT="Tell me about your old chassis" bin/tool-chat-vixen
+# Both use Ollama qwen3.5:0.8b on M1.local, think:false</code></pre>
+    </details>
+
+    <h3>User Scripts</h3>
+
+    <details>
+      <summary>px-spark</summary>
+      <pre><code class="language-bash"># Launch SPARK voice loop (Claude backend)
+bin/px-spark [--dry-run] [--input-mode voice|text]</code></pre>
+    </details>
+
+    <details>
+      <summary>px-mind</summary>
+      <pre><code class="language-bash"># Three-layer cognitive daemon (run as systemd service)
+bin/px-mind [--awareness-interval 60] [--dry-run]</code></pre>
+    </details>
+
+    <details>
+      <summary>px-alive</summary>
+      <pre><code class="language-bash"># Idle-alive daemon — gaze drift, sonar proximity react
+sudo bin/px-alive [--gaze-min 10] [--gaze-max 25] [--dry-run]
+# Yields GPIO on SIGUSR1 for other tools</code></pre>
+    </details>
+
+    <details>
+      <summary>px-diagnostics</summary>
+      <pre><code class="language-bash"># Quick health check
+bin/px-diagnostics --no-motion --short</code></pre>
+    </details>
+
+    <details>
+      <summary>px-api-server</summary>
+      <pre><code class="language-bash"># REST API + web UI on port 8420
+bin/px-api-server [--dry-run]
+# Auth: Bearer token from .env PX_API_TOKEN
+# Web UI: http://pi:8420</code></pre>
+    </details>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ ROADMAP -->
+<section id="roadmap" data-theme="dark">
+  <div class="container">
+    <h2>// roadmap</h2>
+
+    <p class="text-muted-dark mb-md">Milestones and future work.</p>
+
+    <div class="roadmap-group">
+      <h3>Foundation (0–1 Month)</h3>
+      <div class="roadmap-item done"><span class="check">✅</span> Upgrade diagnostics to log predictive signals</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Extend energy sensing (voltage/temperature)</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Boot health service — captures throttle/voltage at boot</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Ship safety fallbacks: wake-word halt, watchdog heartbeats</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Harden logging paths (FileLock, isolated test fixtures)</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Source control: repo at adrianwedd/spark</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Three-layer cognitive loop (px-mind) with LLM fallback</div>
+      <div class="roadmap-item done"><span class="check">✅</span> SPARK persona + neurodivergent-aware system prompt</div>
+      <div class="roadmap-item done"><span class="check">✅</span> REST API + web UI (px-api-server)</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Frigate camera stream (go2rtc RTSP pull model)</div>
+      <div class="roadmap-item"><span class="check">⬜</span> Gesture-driven stop prototype</div>
+      <div class="roadmap-item"><span class="check">⬜</span> Weekly battery/health summary reports</div>
+    </div>
+
+    <div class="roadmap-group">
+      <h3>Growth (1–3 Months)</h3>
+      <div class="roadmap-item"><span class="check">⬜</span> Modular sensor fusion and persistent mapping</div>
+      <div class="roadmap-item"><span class="check">⬜</span> Richer voice summaries, mission templates, gesture recognition</div>
+      <div class="roadmap-item"><span class="check">⬜</span> Simulation CI sweeps (Gazebo or lightweight custom sim)</div>
+      <div class="roadmap-item"><span class="check">⬜</span> Predictive maintenance alerts from historical logs</div>
+    </div>
+
+    <div class="roadmap-group">
+      <h3>Visionary (3+ Months)</h3>
+      <div class="roadmap-item"><span class="check">⬜</span> Reinforcement learning "dream buffer" and policy sharing</div>
+      <div class="roadmap-item"><span class="check">⬜</span> Autonomous docking, payload auto-detection, multi-car demos</div>
+      <div class="roadmap-item"><span class="check">⬜</span> Central knowledge base syncing maps and logs</div>
+      <div class="roadmap-item"><span class="check">⬜</span> Quantised/accelerated model variants for on-device sustainability</div>
+    </div>
+  </div>
+</section>
+
+<script src="js/highlight.min.js"></script>
+<script src="js/init.js"></script>
+<script src="js/live.js"></script>
+<script src="js/nav.js"></script>
+</body>
+</html>
