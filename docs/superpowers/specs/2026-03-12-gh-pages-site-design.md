@@ -15,7 +15,7 @@ A public-facing website for the SPARK / PiCar-X project hosted on GitHub Pages a
 
 - Showcase the project to four audiences: makers/developers, potential clients, children (specifically Obi), and non-technical visitors
 - Display SPARK's live mood, last thought, and system vitals in real time
-- Render existing documentation (FAQ, how-brain-works, tools, roadmap) without duplication
+- Render existing documentation (FAQ, how-brain-works, tools, roadmap); docs section content is copied into index.html at commit time (accepted duplication — markdown files remain the edit-source)
 - Degrade gracefully to cached "last known state" when the Pi is offline
 
 ---
@@ -62,7 +62,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://spark.wedd.au"],
     allow_methods=["GET"],
-    allow_headers=[],
+    allow_headers=["*"],  # permissive for future custom headers; origin lock is the security boundary
 )
 ```
 
@@ -116,7 +116,7 @@ Source: `psutil` + `/sys/class/thermal/thermal_zone0/temp` + `state/battery.json
 }
 ```
 
-Source: `state/sonar_live.json`. The file uses key `distance_cm` — the endpoint maps this to `sonar_cm` in the response. `age_seconds` = seconds since `ts` field in the file. `source` = `"sonar_live"` when fresh, `"unavailable"` when file is missing or age > 60s.
+Source: `state/sonar_live.json`. The file uses key `distance_cm` — the endpoint maps this to `sonar_cm` in the response. `age_seconds` = `round(time.time() - data["ts"])` (integer seconds). `source` = `"sonar_live"` when fresh, `"unavailable"` when file is missing or age > 60s.
 
 **sonar_live.json `ts` format:** The `ts` field is a Unix float (from `time.time()`), e.g. `1773297087.25`. Age is computed as `time.time() - data["ts"]`, not via `datetime.fromisoformat()`.
 
@@ -244,6 +244,7 @@ Every 30s:
   Repeat fetch cycle. Update UI or refresh staleness indicator.
 
 Status dot logic:
+  Red    = initial state before first fetch completes
   Green  = last successful fetch < 60s ago   (normal — polls every 30s)
   Amber  = last successful fetch 60s–5min ago (Pi flapping / 2+ missed polls)
   Red    = last successful fetch > 5min ago OR never fetched
@@ -287,10 +288,11 @@ default-src 'self';
 script-src 'self';
 style-src 'self';
 img-src 'self' data:;
+font-src 'self';
 connect-src https://api.spark.wedd.au;
 ```
 
-`img-src 'self' data:` allows same-origin images and data URIs (e.g. inline favicon). No external image sources are permitted.
+`img-src 'self' data:` allows same-origin images and data URIs (e.g. inline favicon). `font-src 'self'` explicitly covers system fonts and any future local `@font-face` declarations; no external font CDN is used. No external sources are permitted for any directive.
 
 highlight.js is committed locally (`site/js/highlight.min.js`) — no CDN `script-src` needed. This prevents a compromised CDN from executing code in the page.
 
@@ -304,9 +306,10 @@ Add tests to `tests/test_api.py` (or equivalent) covering all three public endpo
 - Empty/missing thoughts file: `/public/status` returns `null` fields without error
 - Missing `sonar_live.json`: `/public/sonar` returns `source: "unavailable"`, `sonar_cm: null`
 - Missing `battery.json`: `/public/vitals` returns `battery_pct: null` without error
-- `psutil` import failure: `/public/vitals` returns `null` for cpu/ram/disk fields rather than 500-erroring
+- `psutil` import failure: `/public/vitals` returns `null` for cpu/ram/disk fields (not cpu_temp_c — that reads from `/sys/class/thermal/thermal_zone0/temp`, independent of psutil) rather than 500-erroring
+- Thermal zone absent: `/public/vitals` returns `null` for `cpu_temp_c` without error
 
-Use the `isolated_project` fixture (sets `PX_STATE_DIR` to a temp dir) to control state file presence.
+**Test isolation — `PX_STATE_DIR` must be added to `isolated_project`:** The fixture in `tests/conftest.py` creates a `state_dir` under `tmp_path` but does NOT currently set `PX_STATE_DIR` in the env dict. The new public endpoints read state files via `PX_STATE_DIR`. The implementation step must add `env["PX_STATE_DIR"] = str(state_dir)` to the fixture, otherwise tests will read from the real `state/` directory and isolation will fail.
 
 ---
 
