@@ -277,26 +277,6 @@ details > *:not(summary) { margin-top: 0.75rem; }
 
 /* ── Machine Band Toggle ─────────────────────────────────────── */
 
-.band-machine-toggle { text-align: center; margin: 0.5rem 0; }
-.toggle-btn {
-  background: none;
-  border: 1px solid var(--warm-muted);
-  border-radius: 999px;
-  padding: 0.3rem 1rem;
-  font-size: 0.8rem;
-  cursor: pointer;
-  color: var(--warm-muted);
-  transition: color 0.2s, border-color 0.2s;
-}
-.toggle-btn:hover { color: var(--warm-text); border-color: var(--warm-text); }
-
-.band-machine {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.4s ease;
-}
-.band-machine.open { max-height: 800px; }
-
 /* ── Metric Grid ─────────────────────────────────────────────── */
 
 .metric-grid {

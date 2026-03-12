@@ -243,27 +243,6 @@ window.SparkDashboard = (function () {
     }
   }
 
-  // ── MACHINE toggle ───────────────────────────────────────────────────────
-
-  const MACHINE_KEY = 'spark_machine_open';
-
-  function initToggle() {
-    const btn = $('machine-toggle');
-    const band = $('band-machine');
-    if (!btn || !band) return;
-
-    function setOpen(open) {
-      band.classList.toggle('open', open);
-      band.setAttribute('aria-hidden', String(!open));
-      btn.setAttribute('aria-expanded', String(open));
-      btn.textContent = open ? 'hide internals ↑' : 'show internals ↓';
-      localStorage.setItem(MACHINE_KEY, open ? 'true' : 'false');
-    }
-
-    setOpen(localStorage.getItem(MACHINE_KEY) !== 'false');
-    btn.addEventListener('click', () => setOpen(!band.classList.contains('open')));
-  }
-
   // ── Shared helpers ───────────────────────────────────────────────────────
 
   function setOnline(online, cachedAt) {
@@ -281,5 +260,5 @@ window.SparkDashboard = (function () {
     if (el) el.textContent = text;
   }
 
-  return { renderPresence, renderWorld, renderMachine, initToggle, setOnline, setLastUpdated };
+  return { renderPresence, renderWorld, renderMachine, setOnline, setLastUpdated };
 })();

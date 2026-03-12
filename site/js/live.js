@@ -244,7 +244,6 @@
 
   // ── Init ─────────────────────────────────────────────────────────────────
 
-  SparkDashboard.initToggle();
   initSparklines();
   hydrateFromCache();
   prefetchHistory();
