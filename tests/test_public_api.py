@@ -290,3 +290,113 @@ class TestPublicAwareness:
         data = public_client.get("/api/v1/public/awareness").json()
         assert data["ambient_rms"] == 200
         assert data["ambient_level"] is None
+
+
+class TestPublicHistory:
+    def test_returns_200(self, public_client):
+        resp = public_client.get("/api/v1/public/history")
+        assert resp.status_code == 200
+
+    def test_no_auth_required(self, public_client):
+        resp = public_client.get("/api/v1/public/history")
+        assert resp.status_code == 200
+
+    def test_returns_list(self, public_client):
+        resp = public_client.get("/api/v1/public/history")
+        assert isinstance(resp.json(), list)
+
+    def test_endpoint_reads_from_ring_buffer(self, public_client):
+        from pxh import api as _api
+        # Pre-populate the buffer directly (bypasses background thread)
+        with _api._history_lock:
+            _api._history_buf.clear()
+            _api._history_buf.append({
+                "ts": "2026-03-13T00:00:00Z", "cpu_pct": 25.0, "ram_pct": 40.0,
+                "cpu_temp_c": 52.0, "battery_pct": 80, "sonar_cm": 45.2, "ambient_rms": 340,
+            })
+        resp = public_client.get("/api/v1/public/history")
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["cpu_pct"] == pytest.approx(25.0, abs=0.1)
+        assert data[0]["sonar_cm"] == pytest.approx(45.2, abs=0.1)
+
+    def test_maxlen_60_enforced(self, public_client):
+        from pxh import api as _api
+        with _api._history_lock:
+            _api._history_buf.clear()
+            for i in range(70):
+                _api._history_buf.append({"ts": f"t{i:03}", "cpu_pct": float(i)})
+        resp = public_client.get("/api/v1/public/history")
+        data = resp.json()
+        # deque(maxlen=60) keeps the last 60
+        assert len(data) == 60
+        assert data[0]["ts"] == "t010"   # oldest remaining
+        assert data[-1]["ts"] == "t069"  # newest
+
+    def test_collect_sample_sonar_null_when_stale(self, state_dir, monkeypatch):
+        import time as _time
+        # Write a stale sonar file (> 60s old)
+        old_ts = _time.time() - 120
+        (state_dir / "sonar_live.json").write_text(
+            json.dumps({"ts": old_ts, "distance_cm": 30.0})
+        )
+        monkeypatch.setenv("PX_STATE_DIR", str(state_dir))
+        from pxh import api as _api
+        sample = _api._collect_history_sample(state_dir)
+        assert sample["sonar_cm"] is None
+
+    def test_collect_sample_sonar_present_when_fresh(self, state_dir, monkeypatch):
+        import time as _time
+        fresh_ts = _time.time() - 5
+        (state_dir / "sonar_live.json").write_text(
+            json.dumps({"ts": fresh_ts, "distance_cm": 55.0})
+        )
+        monkeypatch.setenv("PX_STATE_DIR", str(state_dir))
+        from pxh import api as _api
+        sample = _api._collect_history_sample(state_dir)
+        assert sample["sonar_cm"] == pytest.approx(55.0, abs=0.1)
+
+    def test_collect_sample_has_required_fields(self, state_dir, monkeypatch):
+        monkeypatch.setenv("PX_STATE_DIR", str(state_dir))
+        from pxh import api as _api
+        sample = _api._collect_history_sample(state_dir)
+        for field in ("ts", "cpu_pct", "cpu_temp_c", "ram_pct",
+                      "battery_pct", "sonar_cm", "ambient_rms"):
+            assert field in sample, f"missing field: {field}"
+
+
+class TestPublicServices:
+    def test_returns_200_without_auth(self, public_client):
+        resp = public_client.get("/api/v1/public/services")
+        assert resp.status_code == 200
+
+    def test_returns_dict_not_list(self, public_client):
+        data = public_client.get("/api/v1/public/services").json()
+        assert isinstance(data, dict), "should be dict, not list"
+
+    def test_has_all_five_services(self, public_client):
+        data = public_client.get("/api/v1/public/services").json()
+        for svc in ("px-mind", "px-alive", "px-wake-listen",
+                    "px-battery-poll", "px-api-server"):
+            assert svc in data, f"missing service: {svc}"
+
+    def test_values_are_valid_status_strings(self, public_client):
+        valid = {"active", "activating", "failed", "inactive", "unknown"}
+        data = public_client.get("/api/v1/public/services").json()
+        for svc, status in data.items():
+            assert status in valid, f"{svc} has invalid status: {status!r}"
+
+    def test_existing_auth_services_endpoint_requires_auth(self, public_client):
+        # Auth-required endpoint at /api/v1/services must still require auth
+        resp = public_client.get("/api/v1/services")
+        assert resp.status_code == 401
+
+    def test_existing_auth_services_returns_list_shape(self, public_client):
+        resp = public_client.get(
+            "/api/v1/services",
+            headers={"Authorization": "Bearer test-token-abc123"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "services" in data
+        assert isinstance(data["services"], list)

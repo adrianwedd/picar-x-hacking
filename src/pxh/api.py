@@ -119,6 +119,86 @@ def _get_job(job_id: str) -> Optional[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
+# History ring buffer (background thread, 30s interval)
+# ---------------------------------------------------------------------------
+
+import collections as _collections
+
+_history_buf: "_collections.deque[Dict[str, Any]]" = _collections.deque(maxlen=60)
+_history_lock = threading.Lock()
+
+_THERMAL_ZONE = Path("/sys/class/thermal/thermal_zone0/temp")
+
+
+def _collect_history_sample(state_dir: "Path") -> "Dict[str, Any]":
+    """Collect one vitals + sonar + ambient reading. Extracted for testability."""
+    import time as _time
+
+    sample: Dict[str, Any] = {"ts": utc_timestamp()}
+
+    # CPU / RAM
+    try:
+        import psutil as _psutil
+        sample["cpu_pct"] = round(_psutil.cpu_percent(interval=None), 1)
+        sample["ram_pct"] = round(_psutil.virtual_memory().percent, 1)
+    except Exception:
+        sample["cpu_pct"] = None
+        sample["ram_pct"] = None
+
+    # CPU temperature
+    try:
+        raw = _THERMAL_ZONE.read_text().strip()
+        sample["cpu_temp_c"] = round(int(raw) / 1000.0, 1)
+    except Exception:
+        sample["cpu_temp_c"] = None
+
+    # Battery
+    try:
+        bdata = json.loads((state_dir / "battery.json").read_text())
+        sample["battery_pct"] = bdata.get("pct")
+    except Exception:
+        sample["battery_pct"] = None
+
+    # Sonar — age gate: null if > 60s
+    try:
+        sdata = json.loads((state_dir / "sonar_live.json").read_text())
+        age = _time.time() - float(sdata["ts"])
+        sample["sonar_cm"] = sdata["distance_cm"] if age <= 60 else None
+    except Exception:
+        sample["sonar_cm"] = None
+
+    # Ambient RMS from awareness.json
+    try:
+        aw = json.loads((state_dir / "awareness.json").read_text())
+        ambient = aw.get("ambient_sound") or {}
+        sample["ambient_rms"] = ambient.get("rms")
+    except Exception:
+        sample["ambient_rms"] = None
+
+    return sample
+
+
+def _history_worker() -> None:
+    """Background daemon thread: appends a reading every 30s to _history_buf."""
+    import time as _time
+
+    while True:
+        _time.sleep(30)
+        try:
+            sample = _collect_history_sample(_public_state_dir())
+            with _history_lock:
+                _history_buf.append(sample)
+        except Exception:
+            pass
+
+
+_history_thread = threading.Thread(
+    target=_history_worker, daemon=True, name="history-worker"
+)
+_history_thread.start()
+
+
+# ---------------------------------------------------------------------------
 # Request / response models
 # ---------------------------------------------------------------------------
 
@@ -320,6 +400,13 @@ async def public_awareness() -> Dict[str, Any]:
         "time_period": awareness.get("time_period"),
         "ts": awareness.get("ts"),
     }
+
+
+@app.get("/api/v1/public/history")
+async def public_history() -> list:
+    """Ring buffer of up to 60 vitals readings (~30 min history). No auth."""
+    with _history_lock:
+        return list(_history_buf)
 
 
 @app.post("/api/v1/pin/verify")
@@ -550,6 +637,43 @@ async def chat(body: ChatRequest) -> JSONResponse:
 # ---------------------------------------------------------------------------
 # Service management — restart/stop/start allowlisted systemd services
 # ---------------------------------------------------------------------------
+
+# Public services endpoint queries these five explicitly. px-battery-poll is not
+# in _MANAGED_SERVICES (the auth'd endpoint doesn't control it) but the public
+# dashboard needs to show its status.
+_PUBLIC_SERVICES = frozenset({
+    "px-mind", "px-alive", "px-wake-listen", "px-battery-poll", "px-api-server"
+})
+_PUBLIC_SERVICE_STATES = frozenset({"active", "activating", "failed", "inactive", "unknown"})
+
+
+def _get_public_service_status(service: str) -> tuple:
+    """Returns (service_name, normalised_status_string)."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", service],
+            capture_output=True, text=True, timeout=5,
+        )
+        state = result.stdout.strip()
+        if state not in _PUBLIC_SERVICE_STATES:
+            state = "unknown"
+        return (service, state)
+    except Exception:
+        return (service, "unknown")
+
+
+@app.get("/api/v1/public/services")
+async def public_services_status() -> Dict[str, str]:
+    """Public service status dict (no auth). Shape: {name: status_string}.
+    IMPORTANT: does not modify /api/v1/services — different shape, used by web UI.
+    """
+    loop = asyncio.get_running_loop()
+    pairs = await asyncio.gather(*[
+        loop.run_in_executor(None, _get_public_service_status, svc)
+        for svc in sorted(_PUBLIC_SERVICES)
+    ])
+    return dict(pairs)
+
 
 # Only these services can be controlled via the API (prevents privilege abuse)
 _MANAGED_SERVICES = {"px-alive", "px-wake-listen", "px-mind", "px-api-server"}
