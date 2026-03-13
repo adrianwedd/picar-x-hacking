@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .state import load_session, update_session
 from .time import utc_timestamp
@@ -40,6 +40,70 @@ from .voice_loop import (
     run_codex,
     validate_action,
 )
+
+# ---------------------------------------------------------------------------
+# Public chat — rate limiter + request models
+# ---------------------------------------------------------------------------
+
+import re as _re
+import time as _time
+import hashlib as _hashlib
+from collections import defaultdict
+
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+_rate_limit_lock = threading.Lock()
+_RATE_WINDOW_S = 600      # 10-minute sliding window
+_RATE_MAX_MSGS = 10       # messages per window per IP
+
+
+def _check_rate_limit(ip: str) -> bool:
+    """Return True if request is allowed, False if rate-limited."""
+    now = _time.monotonic()
+    with _rate_limit_lock:
+        _rate_limit_store[ip] = [
+            t for t in _rate_limit_store[ip]
+            if now - t < _RATE_WINDOW_S
+        ]
+        if len(_rate_limit_store[ip]) >= _RATE_MAX_MSGS:
+            return False
+        _rate_limit_store[ip].append(now)
+        return True
+
+
+def _strip_control_chars(s: str) -> str:
+    """Strip ASCII control characters (0x00–0x1F except \\t and \\n)."""
+    return _re.sub(r'[\x00-\x08\x0b-\x1f\x7f]', '', s)
+
+
+class ChatHistoryItem(BaseModel):
+    role: str = Field(..., max_length=10)
+    text: str = Field(..., max_length=500)
+
+    @field_validator("role")
+    @classmethod
+    def role_must_be_valid(cls, v: str) -> str:
+        if v not in ("user", "spark"):
+            raise ValueError("role must be 'user' or 'spark'")
+        return v
+
+    @field_validator("text")
+    @classmethod
+    def text_strip_controls(cls, v: str) -> str:
+        return _strip_control_chars(v)
+
+
+class PublicChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=500)
+    history: list[ChatHistoryItem] = Field(default_factory=list, max_length=20)
+
+    @field_validator("message")
+    @classmethod
+    def message_must_not_be_blank(cls, v: str) -> str:
+        v = _strip_control_chars(v)
+        if not v.strip():
+            raise ValueError("message must not be blank")
+        return v.strip()
+
 
 # ---------------------------------------------------------------------------
 # Auth
