@@ -7,7 +7,7 @@
   const API              = 'https://spark-api.wedd.au/api/v1/public';
   const CACHE_KEY        = 'spark_last_known';
   const HISTORY_KEY      = 'spark_history';
-  const HISTORY_MAX      = 120;   // 120 × 30s = 60 min local buffer
+  const HISTORY_MAX      = 2880;  // 2880 × 30s = 24 h local buffer
   const POLL_MS          = 30_000;
   const TIMEOUT_MS       = 5_000;
   const THOUGHTS_POLL_MS = 5 * 60_000;  // refresh carousel every 5 min
@@ -114,6 +114,7 @@
         salience:        state.salience      != null ? state.salience      : null,
         mood_val:        state.mood ? (MOOD_VAL[(state.mood || '').toLowerCase()] || null) : null,
         wifi_dbm:        state.wifi_dbm      != null ? state.wifi_dbm      : null,
+        rain_24h_mm:     state.weather?.rain_24h_mm != null ? state.weather.rain_24h_mm : null,
       });
       try {
         localStorage.setItem(CACHE_KEY, JSON.stringify(
@@ -192,22 +193,15 @@
 
   async function fetchThoughts() {
     try {
-      const thoughts = await fetchWithTimeout(API + '/thoughts?limit=12');
+      const thoughts = await fetchWithTimeout(API + '/thoughts?limit=20');
       if (Array.isArray(thoughts) && thoughts.length) _buildCarousel(thoughts);
     } catch (_) {}
-  }
-
-  function _sortThoughts(thoughts) {
-    if (thoughts.length <= 1) return thoughts;
-    const [latest, ...rest] = thoughts;          // newest is index 0 (API returns newest-first)
-    rest.sort((a, b) => (b.salience || 0) - (a.salience || 0));
-    return [latest, ...rest];
   }
 
   function _buildCarousel(thoughts) {
     const container = document.getElementById('thought-carousel');
     if (!container) return;
-    thoughts = _sortThoughts(thoughts);
+    // API returns newest-first — keep that order
     while (container.firstChild) container.removeChild(container.firstChild);
 
     const MOOD_COLOR = SparkDashboard.MOOD_FAVICON_COLOR || {};
@@ -267,6 +261,7 @@
     }
 
     _carouselIdx = 0;
+    _attachCarouselInteraction(container, thoughts.length);
     _startCarousel(thoughts.length);
   }
 
@@ -280,13 +275,56 @@
       d.classList.toggle('active', i === idx));
   }
 
+  let _swipeStartX = null;
+
+  function _attachCarouselInteraction(container, count) {
+    // Remove previous listeners by replacing the node with a clone
+    const fresh = container.cloneNode(true);
+    container.parentNode.replaceChild(fresh, container);
+
+    // Re-attach dot click listeners on the rebuilt dots (still in DOM)
+    const dots = document.getElementById('carousel-dots');
+    if (dots) {
+      dots.querySelectorAll('.carousel-dot').forEach((d, i) => {
+        d.addEventListener('click', (e) => { e.stopPropagation(); _carouselIdx = i; _showSlide(i); _resetCarousel(count); });
+      });
+    }
+
+    // Click anywhere on carousel to advance
+    fresh.addEventListener('click', () => {
+      _carouselIdx = (_carouselIdx + 1) % count;
+      _showSlide(_carouselIdx);
+      _resetCarousel(count);
+    });
+
+    // Touch swipe: left = next, right = prev
+    fresh.addEventListener('touchstart', (e) => {
+      _swipeStartX = e.changedTouches[0].clientX;
+    }, { passive: true });
+    fresh.addEventListener('touchend', (e) => {
+      if (_swipeStartX == null) return;
+      const dx = e.changedTouches[0].clientX - _swipeStartX;
+      _swipeStartX = null;
+      if (Math.abs(dx) < 30) return; // too small — treat as tap
+      if (dx < 0) { _carouselIdx = (_carouselIdx + 1) % count; }
+      else         { _carouselIdx = (_carouselIdx - 1 + count) % count; }
+      _showSlide(_carouselIdx);
+      _resetCarousel(count);
+    }, { passive: true });
+  }
+
+  function _resetCarousel(count) {
+    if (_carouselTimer) clearInterval(_carouselTimer);
+    _startCarousel(count);
+  }
+
   function _startCarousel(count) {
     if (_carouselTimer) clearInterval(_carouselTimer);
     if (count > 1) {
       _carouselTimer = setInterval(() => {
         _carouselIdx = (_carouselIdx + 1) % count;
         _showSlide(_carouselIdx);
-      }, 7_000);
+      }, 10_000);
     }
   }
 

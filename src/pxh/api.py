@@ -141,7 +141,7 @@ def _read_wifi_dbm() -> Optional[int]:
 
 import collections as _collections
 
-_history_buf: "_collections.deque[Dict[str, Any]]" = _collections.deque(maxlen=60)
+_history_buf: "_collections.deque[Dict[str, Any]]" = _collections.deque(maxlen=2880)
 _history_lock = threading.Lock()
 
 
@@ -206,10 +206,12 @@ def _collect_history_sample(state_dir: "Path", persona: str = "") -> "Dict[str, 
             sample["weather_temp_c"] = tc if tc is not None else weather.get("temp_c")
             sample["wind_kmh"] = weather.get("wind_kmh")
             sample["humidity_pct"] = weather.get("humidity_pct")
+            sample["rain_24h_mm"] = weather.get("rain_24h_mm")
         else:
             sample["weather_temp_c"] = None
             sample["wind_kmh"] = None
             sample["humidity_pct"] = None
+            sample["rain_24h_mm"] = None
     except Exception:
         sample["ambient_rms"] = None
         sample["weather_temp_c"] = None
@@ -234,7 +236,7 @@ def _collect_history_sample(state_dir: "Path", persona: str = "") -> "Dict[str, 
     return sample
 
 
-_FORWARD_FILL_FIELDS = ("weather_temp_c", "wind_kmh", "humidity_pct", "battery_pct", "wifi_dbm")
+_FORWARD_FILL_FIELDS = ("weather_temp_c", "wind_kmh", "humidity_pct", "battery_pct", "wifi_dbm", "rain_24h_mm")
 
 
 def _history_worker() -> None:
@@ -487,7 +489,10 @@ async def public_awareness() -> Dict[str, Any]:
         weather_out: Any = {
             "temp_c": raw_weather.get("temp_c") if raw_weather.get("temp_c") is not None else raw_weather.get("temp_C"),
             "wind_kmh": raw_weather.get("wind_kmh"),
+            "wind_dir": raw_weather.get("wind_dir"),
+            "gust_kmh": raw_weather.get("gust_kmh"),
             "humidity_pct": raw_weather.get("humidity_pct"),
+            "rain_24h_mm": raw_weather.get("rain_24h_mm"),
             "summary": raw_weather.get("summary"),
         }
     else:

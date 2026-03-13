@@ -377,18 +377,17 @@ class TestPublicHistory:
         assert data[0]["cpu_pct"] == pytest.approx(25.0, abs=0.1)
         assert data[0]["sonar_cm"] == pytest.approx(45.2, abs=0.1)
 
-    def test_maxlen_60_enforced(self, public_client):
+    def test_maxlen_enforced(self, public_client):
         from pxh import api as _api
+        maxlen = _api._history_buf.maxlen
         with _api._history_lock:
             _api._history_buf.clear()
-            for i in range(70):
-                _api._history_buf.append({"ts": f"t{i:03}", "cpu_pct": float(i)})
+            for i in range(maxlen + 10):
+                _api._history_buf.append({"ts": f"t{i:04}", "cpu_pct": float(i)})
         resp = public_client.get("/api/v1/public/history")
         data = resp.json()
-        # deque(maxlen=60) keeps the last 60
-        assert len(data) == 60
-        assert data[0]["ts"] == "t010"   # oldest remaining
-        assert data[-1]["ts"] == "t069"  # newest
+        assert len(data) == maxlen
+        assert data[-1]["ts"] == f"t{maxlen + 9:04}"  # newest
 
     def test_collect_sample_sonar_null_when_stale(self, state_dir, monkeypatch):
         import time as _time

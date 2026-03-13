@@ -427,6 +427,12 @@ details > *:not(summary) { margin-top: 0.75rem; }
   font-weight: 600;
   color: var(--warm-text);
 }
+.wx-wind-detail {
+  font-size: 0.75rem;
+  color: var(--warm-muted);
+  margin-top: 0.1rem;
+  font-style: italic;
+}
 
 /* ── World Band: Time ─────────────────────────────────────────── */
 

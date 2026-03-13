@@ -199,21 +199,52 @@ window.SparkDashboard = (function () {
       } else {
         weatherStrip.classList.remove('hidden');
         const w = state.weather;
+
         const temp = $('weather-temp');
-        if (temp) temp.textContent = w.temp_c != null ? (w.temp_c + '°C') : '';
+        if (temp) temp.textContent = w.temp_c != null ? (w.temp_c + '°C') : '—';
         const sym = $('weather-symbol');
         if (sym) sym.textContent = _weatherSymbol(w.summary);
-        const wind = $('weather-wind');
-        if (wind) wind.textContent = w.wind_kmh != null ? (w.wind_kmh + ' km/h') : '';
-        const hum = $('weather-humidity');
-        if (hum) hum.textContent = w.humidity_pct != null ? (w.humidity_pct + '%') : '';
+
+        // Summary: strip BOM location prefix, show condition only
         const sumEl = $('weather-summary');
         if (sumEl) {
-          // BOM summaries often start "At Location, it's X°C. Description."
-          // Split on ". " and pick the first sentence that isn't a location+temp sentence.
           const sentences = (w.summary || '').split(/\.\s+/);
           const desc = sentences.find(s => !/^At\s/i.test(s.trim())) || sentences[0] || '';
           sumEl.textContent = desc.trim().replace(/\.$/, '');
+        }
+
+        // Wind speed + direction label
+        const wind = $('weather-wind');
+        if (wind) wind.textContent = w.wind_kmh != null ? (w.wind_kmh + ' km/h') : '—';
+
+        // Wind detail sentence (direction + speed + optional gust)
+        const windDetail = $('weather-wind-detail');
+        if (windDetail) {
+          if (w.wind_dir || w.wind_kmh != null) {
+            const dir = w.wind_dir || '';
+            const spd = w.wind_kmh != null ? w.wind_kmh + ' km/h' : '';
+            let line = dir && spd ? dir + ' at ' + spd : (dir || spd);
+            if (w.gust_kmh != null) line += ', gusting to ' + w.gust_kmh + ' km/h';
+            windDetail.textContent = line;
+          } else {
+            windDetail.textContent = '';
+          }
+        }
+
+        const hum = $('weather-humidity');
+        if (hum) hum.textContent = w.humidity_pct != null ? (w.humidity_pct + '%') : '—';
+
+        const rain = $('weather-rain');
+        if (rain) {
+          // BOM rain_trace can be a number, "0", "Tce" (trace), or null
+          const r = w.rain_24h_mm;
+          if (r == null) {
+            rain.textContent = '—';
+          } else if (typeof r === 'string' && /tce/i.test(r)) {
+            rain.textContent = 'trace';
+          } else {
+            rain.textContent = (parseFloat(r) || 0) + ' mm';
+          }
         }
       }
     }

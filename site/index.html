@@ -143,9 +143,14 @@
 
       <!-- Weather -->
       <div class="world-weather world-col" id="world-weather-strip">
-        <div class="weather-headline">
-          <span id="weather-temp" class="weather-temp-big"></span>
-          <span id="weather-symbol" class="weather-symbol" aria-hidden="true"></span>
+        <div class="wx-metric-row">
+          <div class="wx-metric-head">
+            <span class="wx-metric-label">Temp</span>
+            <span class="wx-metric-val" id="weather-temp"></span>
+            <span id="weather-symbol" class="weather-symbol" aria-hidden="true"></span>
+          </div>
+          <canvas class="sparkline-canvas" data-field="weather_temp_c" width="160" height="22"
+                  aria-label="temperature history"></canvas>
           <span id="weather-summary" class="weather-summary"></span>
         </div>
         <div class="wx-metric-row">
@@ -155,6 +160,7 @@
           </div>
           <canvas class="sparkline-canvas" data-field="wind_kmh" width="160" height="22"
                   aria-label="wind history"></canvas>
+          <span id="weather-wind-detail" class="wx-wind-detail"></span>
         </div>
         <div class="wx-metric-row">
           <div class="wx-metric-head">
@@ -165,9 +171,12 @@
                   aria-label="humidity history"></canvas>
         </div>
         <div class="wx-metric-row">
-          <span class="wx-metric-label">Temp (1h)</span>
-          <canvas class="sparkline-canvas" data-field="weather_temp_c" width="160" height="22"
-                  aria-label="temperature history"></canvas>
+          <div class="wx-metric-head">
+            <span class="wx-metric-label">Rain (24h)</span>
+            <span class="wx-metric-val" id="weather-rain"></span>
+          </div>
+          <canvas class="sparkline-canvas" data-field="rain_24h_mm" width="160" height="22"
+                  aria-label="rain history"></canvas>
         </div>
       </div>
 
@@ -229,14 +238,6 @@
           <p class="sparkline-ctx-label">1h trend</p>
         </div>
 
-        <!-- Tokens -->
-        <div class="metric-tile" id="tile-tokens">
-          <div class="metric-label">LLM tokens (est.)</div>
-          <div class="metric-value" id="val-tokens">—</div>
-          <canvas class="sparkline-canvas" data-field="tokens_in" height="22"></canvas>
-          <p class="sparkline-ctx-label">in · 1h trend</p>
-        </div>
-
         <!-- WiFi signal -->
         <div class="metric-tile" id="tile-wifi">
           <div class="metric-label">WiFi signal</div>
@@ -244,6 +245,14 @@
           <div class="metric-value" id="val-wifi">—</div>
           <canvas class="sparkline-canvas" data-field="wifi_dbm" height="22"></canvas>
           <p class="sparkline-ctx-label">1h trend</p>
+        </div>
+
+        <!-- Tokens -->
+        <div class="metric-tile" id="tile-tokens">
+          <div class="metric-label">LLM tokens (est.)</div>
+          <div class="metric-value" id="val-tokens">—</div>
+          <canvas class="sparkline-canvas" data-field="tokens_in" height="22"></canvas>
+          <p class="sparkline-ctx-label">in · 1h trend</p>
         </div>
 
       </div><!-- /metric-grid -->

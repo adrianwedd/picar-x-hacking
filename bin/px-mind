@@ -848,7 +848,10 @@ def fetch_weather(dry: bool) -> dict | None:
                         return {
                             "temp_c": data.get("temp_c"),
                             "wind_kmh": data.get("wind_kmh"),
+                            "wind_dir": data.get("wind_dir"),
+                            "gust_kmh": data.get("gust_kmh"),
                             "humidity_pct": data.get("humidity_pct"),
+                            "rain_24h_mm": data.get("rain_24h_mm"),
                             "summary": data.get("summary", ""),
                         }
     except Exception:
