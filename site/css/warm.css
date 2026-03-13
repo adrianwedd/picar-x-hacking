@@ -176,6 +176,12 @@ details > *:not(summary) { margin-top: 0.75rem; }
   text-align: right;
 }
 
+.state-stat-unit {
+  font-size: 0.65rem;
+  color: var(--warm-muted);
+  margin-left: 0.15rem;
+}
+
 .state-section-label {
   font-size: 0.7rem;
   text-transform: uppercase;
@@ -203,11 +209,11 @@ details > *:not(summary) { margin-top: 0.75rem; }
 .obi-badge-active   { background: #2ea8e0; }
 .obi-badge-busy     { background: #dc2626; }
 
-.presence-card-proximity {}
-
-.presence-card-detections {}
-
-.presence-card-home {}
+.proximity-bar-track--inline {
+  width: 100%;
+  margin-top: 0.2rem;
+  margin-bottom: 0.4rem;
+}
 
 /* ── Speech Bubble card ───────────────────────────────────────────── */
 

@@ -91,10 +91,13 @@ window.SparkCharts = (function () {
     const segW = W / n;
     const gap = segW > 4 ? 1 : 0;
 
+    // Forward-fill: carry the last known colour through null/unknown segments
+    let lastColor = null;
     points.forEach((p, i) => {
       const color = _MOOD_COLOR[(p.mood || '').toLowerCase()];
-      if (!color) return;  // null/unknown — leave blank
-      ctx.fillStyle = color;
+      if (color) lastColor = color;
+      if (!lastColor) return;  // no colour seen yet — leave blank
+      ctx.fillStyle = lastColor;
       ctx.fillRect(i * segW + gap, 0, Math.max(1, segW - gap), H);
     });
   }

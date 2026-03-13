@@ -76,10 +76,15 @@
           <span id="mood-word">…</span>
         </div>
         <div class="presence-sparklines">
-          <div class="wx-metric-row wx-metric-row-last">
+          <div class="wx-metric-row">
             <span class="wx-metric-label">Mood (1h)</span>
             <canvas class="sparkline-canvas" data-field="mood_val" height="20"
                     aria-label="mood history"></canvas>
+          </div>
+          <div class="wx-metric-row wx-metric-row-last">
+            <span class="wx-metric-label">Distance (1h)</span>
+            <canvas class="sparkline-canvas" data-field="sonar_cm" height="20"
+                    aria-label="sonar history (1h)"></canvas>
           </div>
         </div>
       </div>
@@ -103,6 +108,14 @@
           <span class="state-label">Ambient</span>
           <span id="state-ambient" class="state-stat-val"></span>
         </div>
+        <div class="state-stat-row">
+          <span class="state-label">Distance</span>
+          <span id="proximity-cm" class="state-stat-val">—</span>
+          <span class="state-stat-unit">cm</span>
+        </div>
+        <div class="proximity-bar-track proximity-bar-track--inline">
+          <div id="proximity-bar" class="proximity-bar-fill"></div>
+        </div>
         <div class="state-section-label">Detected</div>
         <ul id="detections-list" class="detections-list"></ul>
         <p class="detections-empty" id="detections-empty">Nothing detected</p>
@@ -124,22 +137,6 @@
         </div>
       </div>
 
-      <!-- Proximity card -->
-      <div class="presence-card presence-card-proximity">
-        <p class="card-eyebrow">Proximity</p>
-        <div class="proximity-display">
-          <div class="proximity-reading">
-            <span id="proximity-cm" class="proximity-cm">—</span>
-            <span class="proximity-unit">cm</span>
-          </div>
-          <div class="proximity-bar-track">
-            <div id="proximity-bar" class="proximity-bar-fill"></div>
-          </div>
-          <canvas class="sparkline-canvas" data-field="sonar_cm" width="120" height="22"
-                  aria-label="sonar history (1h)"></canvas>
-          <p class="sparkline-ctx-label">1h trend</p>
-        </div>
-      </div>
 
 
     </div><!-- /band-presence -->

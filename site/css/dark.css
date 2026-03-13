@@ -113,4 +113,3 @@
 [data-theme="dark"] .carousel-quote { color: var(--dark-text); }
 [data-theme="dark"] .carousel-meta  { color: var(--dark-muted); }
 [data-theme="dark"] .carousel-dot   { background: rgba(255,255,255,0.2); }
-[data-theme="dark"] .local-time     { color: var(--dark-text); }
