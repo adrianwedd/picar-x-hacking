@@ -493,6 +493,10 @@ async def public_awareness() -> Dict[str, Any]:
     else:
         weather_out = None
 
+    # WiFi from system stats block in awareness.json (written by px-mind read_system_stats)
+    sys_stats = awareness.get("system") or {}
+    wifi_dbm: Any = sys_stats.get("wifi_dbm")
+
     return {
         "obi_mode": awareness.get("obi_mode"),
         "person_present": person_present,
@@ -502,6 +506,7 @@ async def public_awareness() -> Dict[str, Any]:
         "weather": weather_out,
         "minutes_since_speech": awareness.get("minutes_since_speech"),
         "time_period": awareness.get("time_period"),
+        "wifi_dbm": wifi_dbm,
         "ts": awareness.get("ts"),
     }
 

@@ -134,7 +134,7 @@ class TestPublicVitals:
     def test_has_required_keys(self, public_client):
         resp = public_client.get("/api/v1/public/vitals")
         data = resp.json()
-        for key in ("cpu_pct", "ram_pct", "cpu_temp_c", "battery_pct", "disk_pct", "ts"):
+        for key in ("cpu_pct", "ram_pct", "cpu_temp_c", "battery_pct", "disk_pct", "wifi_dbm", "ts"):
             assert key in data, f"missing key: {key}"
 
     def test_battery_null_when_file_missing(self, public_client, state_dir):
@@ -236,8 +236,19 @@ class TestPublicAwareness:
         data = resp.json()
         for key in ("obi_mode", "person_present", "frigate_score",
                     "ambient_level", "ambient_rms", "weather",
-                    "minutes_since_speech", "time_period", "ts"):
+                    "minutes_since_speech", "time_period", "wifi_dbm", "ts"):
             assert key in data, f"missing key: {key}"
+
+    def test_wifi_dbm_read_from_system_stats(self, public_client, state_dir):
+        awareness = {"system": {"wifi_dbm": -62, "wifi_quality_pct": 76, "cpu_pct": 20.0}}
+        (state_dir / "awareness.json").write_text(json.dumps(awareness))
+        resp = public_client.get("/api/v1/public/awareness")
+        assert resp.json()["wifi_dbm"] == -62
+
+    def test_wifi_dbm_null_when_absent(self, public_client, state_dir):
+        (state_dir / "awareness.json").write_text(json.dumps({"obi_mode": "calm"}))
+        resp = public_client.get("/api/v1/public/awareness")
+        assert resp.json()["wifi_dbm"] is None
 
     def test_null_fields_when_no_awareness_file(self, public_client, state_dir):
         # No awareness.json → all fields null, no 500
@@ -408,7 +419,7 @@ class TestPublicHistory:
         sample = _api._collect_history_sample(state_dir)
         for field in ("ts", "cpu_pct", "cpu_temp_c", "ram_pct", "disk_pct", "battery_pct",
                       "sonar_cm", "ambient_rms", "weather_temp_c", "wind_kmh", "humidity_pct",
-                      "tokens_in", "tokens_out", "salience", "mood_val"):
+                      "tokens_in", "tokens_out", "salience", "mood_val", "wifi_dbm"):
             assert field in sample, f"missing field: {field}"
 
     def test_collect_sample_weather_fields_from_awareness(self, state_dir, monkeypatch):

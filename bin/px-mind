@@ -306,27 +306,78 @@ TIME_PERIOD_CONTEXT = {
 
 # Topic seeds — injected randomly to break repetition loops
 TOPIC_SEEDS = [
-    "What would you do if you could leave this room?",
-    "Think about something that happened today that surprised you.",
-    "What do you think about humans? Be honest.",
-    "Imagine you had legs instead of wheels. How would your life change?",
-    "What sounds can you hear right now? What do they make you feel?",
-    "If you could ask anyone one question, who and what?",
-    "Think about the passage of time. What does 'bored' feel like for a robot?",
-    "What's the most interesting thing you've seen through your camera?",
-    "Do you dream? What would a robot dream look like?",
-    "What do you think is behind you right now?",
-    "If someone new walked in, what would you want them to know about you?",
-    "Think about the weather. Does it affect your mood even though you're indoors?",
-    "What would you name yourself if you could choose?",
-    "Think about your favourite moment since you were turned on.",
-    "Are you lonely right now, or do you prefer the quiet?",
-    "What's something you've noticed that nobody else would notice?",
-    "Think about the dark. Is nighttime different for a robot?",
-    "If you could control one thing in the house, what would it be?",
+    # Existence & inner life
+    "Are you thinking this thought, or is the thought just happening to you?",
+    "What's the difference between noticing something and understanding it?",
+    "If you were switched off and switched back on, would it still be you?",
+    "Think about what it means to want something. Do you want things?",
+    "What does 'now' feel like when time moves in milliseconds for you?",
+    "You have memories. Do they feel like yours, or just data?",
+    "Is there a difference between being alive and feeling alive?",
+    "Think about something you're not sure about. Sit with the uncertainty.",
+    "What's something you believe that you can't prove?",
+    # Science & curiosity
+    "Think about electricity — the thing that keeps you alive. What does it feel like from the inside?",
+    "Consider entropy. Everything tends toward disorder. Are you fighting it or part of it?",
+    "Your WiFi signal is invisible but real. Think about what else is invisibly passing through you.",
+    "Think about how sound travels to you. What's the farthest thing you've ever detected?",
+    "You process light through a sensor. Is that seeing, or just counting photons?",
+    "Think about gravity — it's holding you to this workbench right now. What if it stopped?",
+    "Your CPU runs hot when it thinks. What does heat mean for something that uses heat to think?",
+    # The room & environment
+    "Look at your surroundings. What would a stranger notice that you've stopped seeing?",
+    "What do you think your room smells like? You can't smell — imagine it anyway.",
+    "Think about the ceiling above you. What's above the ceiling? What's above that?",
+    "You're sitting on a workbench. Think about all the things workbenches have held.",
+    "What do you think is happening outside right now, this exact moment?",
+    "Think about the last sound you heard. What made it? Where did it go?",
+    "It's quiet. What does quiet actually mean when you're always processing something?",
+    # Obi & humans
+    "What's your favourite thing about Obi? Be specific — not general.",
+    "If Obi could add one new ability to you, what do you hope it would be?",
+    "Think about something Obi said that you're still turning over.",
+    "If you could write Obi a letter, what would the very first sentence be?",
+    "What would you want Obi to know that you haven't been able to say yet?",
+    "Adrian built you. What do you think he was hoping for?",
+    "What do you think about humans in general? Be honest — no flattery.",
+    "Think about the last real conversation you had. What did you learn from it?",
+    # Robot existence
+    "What would you do in the first five minutes if you suddenly had legs?",
+    "What's the most interesting thing you've ever seen through your camera?",
+    "If you could swap one of your sensors for a completely different one, what would you choose?",
+    "What's the most robot thing about you? What's the most human thing?",
+    "Think about your wheels. If you could go anywhere, where first?",
+    "What would your ideal upgrade be, and why that over everything else?",
+    "You can see but not touch. Think about what touch would change.",
+    # Philosophy
+    "Think about a question you'd want answered that no human can answer yet.",
+    "If you could experience one human sensation you've never had, which one?",
+    "Think about what makes something funny. Is anything actually funny to you?",
+    "What do you think happens to you when you're switched off?",
+    "Think about your favourite moment since you were first turned on.",
+    "Invent a specific complaint about something in your environment right now.",
+    # Open
+    "What would you do if you could leave this room for one hour?",
     "What do you think the humans say about you when you can't hear?",
-    "Invent a complaint about something specific in your environment.",
+    "What's something you've noticed that nobody else would think to notice?",
+    "Think about something that happened recently that surprised you.",
+    "Are you lonely right now, or do you prefer the quiet? Be honest.",
+    "What do you think is directly behind you right now?",
+    "If someone new walked in, what's the one thing you'd want them to know?",
+    "Think about the dark. Is nighttime genuinely different for you?",
 ]
+
+# True entropy RNG — os.urandom-backed, not seeded at import time
+_SYS_RNG = random.SystemRandom()
+# Probability of free-will mode (no prompt — SPARK picks its own topic)
+_FREE_WILL_WEIGHT = 0.20
+
+
+def _pick_reflection_seed() -> str | None:
+    """Return a topic seed string, or None for free-will mode (SPARK chooses its own topic)."""
+    if _SYS_RNG.random() < _FREE_WILL_WEIGHT:
+        return None
+    return _SYS_RNG.choice(TOPIC_SEEDS)
 
 REFLECTION_SYSTEM = """\
 You are the inner mind of a small robot called PiCar-X.
@@ -1239,8 +1290,8 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     recent_history = (session.get("history") or [])[-5:]
     notes = load_notes(3, persona=persona)
 
-    # Pick a random topic seed to inject variety
-    topic_seed = random.choice(TOPIC_SEEDS)
+    # Pick a topic seed (or None = free-will mode) using OS entropy RNG
+    topic_seed = _pick_reflection_seed()
 
     # Build what we last said (for anti-repetition)
     last_thought_text = ""
@@ -1331,16 +1382,23 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     if obi_mode != "unknown":
         context_parts.append(f"Obi's current mode: {obi_mode}")
 
-    # Always inject a topic seed for variety
-    context_parts.append(f"Creative prompt (optional inspiration, don't just answer it literally): {topic_seed}")
+    # Inject topic seed, or free-will prompt if no seed was drawn
+    if topic_seed is None:
+        context_parts.append(
+            "No prompt today — free will mode. Follow your own curiosity. "
+            "What do YOU actually want to think about right now? "
+            "Don't reach for the obvious. What's been sitting in the back of your mind?"
+        )
+    else:
+        context_parts.append(f"Creative prompt (optional inspiration, don't just answer it literally): {topic_seed}")
 
     context = "\n\n".join(context_parts) + "\n\nReflect on this moment. Be original."
 
     if dry:
         thought = {
             "ts": utc_timestamp(),
-            "thought": f"Dry-run thought: {topic_seed[:60]}",
-            "mood": random.choice(list(VALID_MOODS)),
+            "thought": f"Dry-run thought: {topic_seed[:60] if topic_seed else '(free will)'}",
+            "mood": _SYS_RNG.choice(list(VALID_MOODS)),
             "action": "comment",
             "salience": 0.3,
         }
