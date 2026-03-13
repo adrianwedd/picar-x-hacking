@@ -178,8 +178,61 @@ details > *:not(summary) { margin-top: 0.75rem; }
 }
 
 .presence-card-state {
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
 }
+
+/* State card rows */
+.state-obi-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.2rem 0 0.3rem;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+  margin-bottom: 0.1rem;
+}
+
+.state-stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.state-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--warm-muted);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.state-stat-val {
+  font-weight: 500;
+  color: var(--warm-text);
+  text-align: right;
+}
+
+/* Obi mode badge */
+.obi-mode-badge {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #fff;
+}
+
+.obi-badge-unknown  { background: #9ca3af; }
+.obi-badge-absent   { background: #6b7280; }
+.obi-badge-calm     { background: #16a34a; }
+.obi-badge-active   { background: #2ea8e0; }
+.obi-badge-busy     { background: #dc2626; }
 
 .presence-card-proximity {}
 
@@ -221,10 +274,11 @@ details > *:not(summary) { margin-top: 0.75rem; }
 }
 
 .speech-bubble-text {
+  font-family: 'Courier Prime', 'Courier New', monospace;
   font-style: italic;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   color: var(--warm-text);
-  line-height: 1.55;
+  line-height: 1.6;
   margin: 0;
 }
 
@@ -548,6 +602,27 @@ details > *:not(summary) { margin-top: 0.75rem; }
   gap: 0.5rem;
 }
 
+/* ── Sound level val + waveform inline ──────────────────────────── */
+
+.sound-val-wave-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.1rem;
+}
+
+.sound-val-wave-row .wx-card-val {
+  flex-shrink: 0;
+  font-size: 1rem;
+  white-space: nowrap;
+  margin-bottom: 0;
+}
+
+.sound-val-wave-row canvas {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ── World Band: Sound + noise cards (side by side) ──────────────── */
 
 .wx-card-sound,
@@ -603,28 +678,36 @@ details > *:not(summary) { margin-top: 0.75rem; }
   flex-direction: column;
 }
 
+.wx-card-header-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+}
+
 .wx-card-label {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--warm-muted);
-  margin-bottom: 0.35rem;
+  flex-shrink: 0;
 }
 
 .weather-symbol { font-size: 0.9rem; }
 
 .wx-card-val {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   font-weight: 600;
   text-align: right;
   color: var(--warm-text);
-  margin-bottom: 0.4rem;
+  white-space: nowrap;
 }
 
-.weather-summary {
-  color: var(--warm-muted);
-  font-size: 0.75rem;
-  margin: 0.3rem 0 0;
+/* Smaller val for longer strings like wind direction */
+.wx-card-val-sm {
+  font-size: 0.82rem;
+  font-weight: 500;
 }
 
 /* ── Labeled sparkline rows (ambient noise strip) ──────────────── */
@@ -784,9 +867,9 @@ details > *:not(summary) { margin-top: 0.75rem; }
 .thought-carousel {
   position: relative;
   margin-top: 2.5rem;
-  /* Extra bottom space for the bubble tail circles + nav dots */
-  padding-bottom: 3.5rem;
-  min-height: 18rem;
+  /* bottom space = bubble tail circles (~50px) + nav dots area */
+  padding-bottom: 4.5rem;
+  min-height: 22rem;
 }
 
 /* Thought bubble container */
@@ -855,10 +938,10 @@ details > *:not(summary) { margin-top: 0.75rem; }
 .carousel-mood-badge[data-mood="excited"]       { background: #e05c3a; }
 
 .carousel-quote {
-  font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
-  font-size: clamp(1.5rem, 3.5vw, 2.4rem);
+  font-family: 'Courier Prime', 'Courier New', monospace;
+  font-size: clamp(1.15rem, 2.8vw, 1.9rem);
   font-style: italic;
-  line-height: 1.4;
+  line-height: 1.55;
   color: var(--warm-text);
   margin: 0;
   padding: 0;

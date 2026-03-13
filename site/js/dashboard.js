@@ -37,6 +37,14 @@ window.SparkDashboard = (function () {
     'possibly-overloaded': 'Things seem busy',
   };
 
+  const OBI_MODE_BADGE = {
+    unknown:              { label: 'unknown',     cls: 'obi-badge-unknown' },
+    absent:               { label: 'away',        cls: 'obi-badge-absent' },
+    calm:                 { label: 'nearby',      cls: 'obi-badge-calm' },
+    active:               { label: 'active',      cls: 'obi-badge-active' },
+    'possibly-overloaded':{ label: 'busy',        cls: 'obi-badge-busy' },
+  };
+
   function renderPresence(state) {
     const mood = (state.mood || '').toLowerCase();
     const moodColor = MOOD_FAVICON_COLOR[mood] || '#e8875a';
@@ -74,32 +82,39 @@ window.SparkDashboard = (function () {
       }
     }
 
-    const modeLine = $('obi-mode-line');
-    if (modeLine) modeLine.textContent = OBI_MODE_TEXT[state.obi_mode] || '';
+    // State card — obi-mode badge
+    const obiBadge = $('obi-mode-badge');
+    if (obiBadge) {
+      const b = OBI_MODE_BADGE[state.obi_mode] || OBI_MODE_BADGE.unknown;
+      obiBadge.textContent = b.label;
+      obiBadge.className = 'obi-mode-badge ' + b.cls;
+    }
 
-    // "hasn't spoken since [time]" using last_spoken_ts
+    // State card — person present
+    const personEl = $('state-person-present');
+    if (personEl) {
+      if (state.person_present === true)       personEl.textContent = 'yes';
+      else if (state.person_present === false) personEl.textContent = 'no';
+      else                                     personEl.textContent = '—';
+    }
+
+    // State card — silent-for (minutes since speech)
     const lastSpoke = $('last-spoke');
     if (lastSpoke) {
       if (state.last_spoken_ts) {
-        const spokenAt = new Date(state.last_spoken_ts);
-        const spokenTime = spokenAt.toLocaleTimeString('en-AU', {
-          hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Hobart',
-        });
-        const minsAgo = Math.round((Date.now() - spokenAt.getTime()) / 60000);
-        if (minsAgo < 2) {
-          lastSpoke.textContent = 'just spoke';
-        } else if (minsAgo < 60) {
-          lastSpoke.textContent = 'last spoken ' + minsAgo + ' min ago';
-        } else {
-          lastSpoke.textContent = 'last spoken at ' + spokenTime;
-        }
+        const minsAgo = Math.round((Date.now() - new Date(state.last_spoken_ts).getTime()) / 60000);
+        lastSpoke.textContent = minsAgo < 2 ? 'just now' : (minsAgo + ' min');
       } else if (typeof state.minutes_since_speech === 'number') {
         const m = Math.round(state.minutes_since_speech);
-        lastSpoke.textContent = m > 120 ? 'hasn\'t spoken in a while' : ('last spoken ' + m + ' min ago');
+        lastSpoke.textContent = m > 120 ? 'a while' : (m + ' min');
       } else {
-        lastSpoke.textContent = '';
+        lastSpoke.textContent = '—';
       }
     }
+
+    // State card — ambient level
+    const stateAmbient = $('state-ambient');
+    if (stateAmbient) stateAmbient.textContent = state.ambient_level || '—';
 
     // Speech bubble card — last spoken
     const spokenEl    = $('last-spoken-text');
@@ -168,33 +183,29 @@ window.SparkDashboard = (function () {
       }
     }
 
-    // Who's home card (always visible)
+    // Who's home card — only show people who are actually home
     const haList = $('ha-presence-list');
     if (haList) {
       const ha = state.ha_presence;
       while (haList.firstChild) haList.removeChild(haList.firstChild);
-      const people = (ha && Array.isArray(ha.people)) ? ha.people : [];
-      if (people.length === 0) {
+      const home = (ha && Array.isArray(ha.people)) ? ha.people.filter(p => p.home) : [];
+      if (home.length === 0) {
         const li = document.createElement('li');
         li.className = 'ha-person-item ha-person-unknown';
-        li.textContent = 'No data';
+        li.textContent = 'No one home';
         haList.appendChild(li);
       } else {
-        people.forEach(p => {
+        home.forEach(p => {
           const li = document.createElement('li');
           li.className = 'ha-person-item';
           const dot = document.createElement('span');
-          dot.className = 'ha-dot ' + (p.home ? 'ha-dot-home' : (p.state === 'unknown' ? 'ha-dot-unknown' : 'ha-dot-away'));
+          dot.className = 'ha-dot ha-dot-home';
           dot.textContent = '●';
           const name = document.createElement('span');
           name.className = 'ha-person-name';
           name.textContent = p.name;
-          const st = document.createElement('span');
-          st.className = 'ha-person-state';
-          st.textContent = p.state;
           li.appendChild(dot);
           li.appendChild(name);
-          li.appendChild(st);
           haList.appendChild(li);
         });
       }
@@ -235,14 +246,6 @@ window.SparkDashboard = (function () {
         if (temp) temp.textContent = w.temp_c != null ? (w.temp_c + '°C') : '—';
         const sym = $('weather-symbol');
         if (sym) sym.textContent = _weatherSymbol(w.summary);
-
-        // Summary: strip BOM location prefix, show condition only
-        const sumEl = $('weather-summary');
-        if (sumEl) {
-          const sentences = (w.summary || '').split(/\.\s+/);
-          const desc = sentences.find(s => !/^At\s/i.test(s.trim())) || sentences[0] || '';
-          sumEl.textContent = desc.trim().replace(/\.$/, '');
-        }
 
         // Wind card: show full description "SW at 17 km/h, gusting to 26 km/h"
         const wind = $('weather-wind');

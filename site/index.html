@@ -16,7 +16,7 @@
   <title>SPARK — a robot with an inner life</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital@0;1&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital@0;1&family=Courier+Prime:ital@0;1&display=swap" rel="stylesheet">
   <link rel="icon" id="dynamic-favicon" type="image/png" sizes="32x32">
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/warm.css">
@@ -80,24 +80,33 @@
           <span id="time-period-badge" class="period-badge"></span>
         </div>
         <div class="presence-sparklines">
-          <div class="wx-metric-row">
+          <div class="wx-metric-row wx-metric-row-last">
             <span class="wx-metric-label">Mood (1h)</span>
             <canvas class="sparkline-canvas" data-field="mood_val" height="20"
                     aria-label="mood history"></canvas>
           </div>
-          <div class="wx-metric-row wx-metric-row-last">
-            <span class="wx-metric-label">Salience (1h)</span>
-            <canvas class="sparkline-canvas" data-field="salience" height="20"
-                    aria-label="thought salience history"></canvas>
-          </div>
         </div>
       </div>
 
-      <!-- State card (obi-mode + last-spoke) -->
+      <!-- State card -->
       <div class="presence-card presence-card-state">
         <p class="card-eyebrow">State</p>
-        <p id="obi-mode-line" class="obi-mode-text"></p>
-        <p id="last-spoke" class="last-spoke"></p>
+        <div class="state-obi-row">
+          <span class="state-label">Obi</span>
+          <span id="obi-mode-badge" class="obi-mode-badge"></span>
+        </div>
+        <div class="state-stat-row">
+          <span class="state-label">Present</span>
+          <span id="state-person-present" class="state-stat-val">—</span>
+        </div>
+        <div class="state-stat-row">
+          <span class="state-label">Silent for</span>
+          <span id="last-spoke" class="state-stat-val"></span>
+        </div>
+        <div class="state-stat-row">
+          <span class="state-label">Ambient</span>
+          <span id="state-ambient" class="state-stat-val"></span>
+        </div>
       </div>
 
       <!-- Last spoken — speech bubble card -->
@@ -107,6 +116,11 @@
           <p id="last-spoken-text" class="speech-bubble-text">—</p>
         </div>
         <p id="last-spoken-age" class="last-spoken-age"></p>
+        <div class="wx-metric-row wx-metric-row-last" style="margin-top:0.6rem">
+          <span class="wx-metric-label">Salience (1h)</span>
+          <canvas class="sparkline-canvas" data-field="salience" height="20"
+                  aria-label="thought salience history"></canvas>
+        </div>
       </div>
 
       <!-- Proximity card -->
@@ -148,12 +162,16 @@
       <div class="sound-noise-row">
         <div class="wx-card wx-card-sound">
           <div class="wx-card-label">Sound level</div>
-          <div class="wx-card-val" id="ambient-level-label">—</div>
-          <canvas id="waveform-canvas" width="200" height="32"
-                  aria-label="ambient sound level visualisation"></canvas>
+          <div class="sound-val-wave-row">
+            <div class="wx-card-val" id="ambient-level-label">—</div>
+            <canvas id="waveform-canvas" height="28"
+                    aria-label="ambient sound level visualisation"></canvas>
+          </div>
         </div>
         <div class="wx-card wx-card-noise">
-          <div class="wx-card-label">Noise level (1h)</div>
+          <div class="wx-card-header-row">
+            <div class="wx-card-label">Noise level (1h)</div>
+          </div>
           <canvas class="sparkline-canvas" data-field="ambient_rms" width="200" height="40"
                   aria-label="noise level history"></canvas>
         </div>
@@ -163,30 +181,37 @@
       <div class="wx-card-grid" id="world-weather-strip">
 
         <div class="wx-card">
-          <div class="wx-card-label">Temp <span id="weather-symbol" aria-hidden="true"></span></div>
-          <div class="wx-card-val" id="weather-temp">—</div>
+          <div class="wx-card-header-row">
+            <div class="wx-card-label">Temp <span id="weather-symbol" aria-hidden="true"></span></div>
+            <div class="wx-card-val" id="weather-temp">—</div>
+          </div>
           <canvas class="sparkline-canvas" data-field="weather_temp_c" height="22"
                   aria-label="temperature history"></canvas>
-          <p class="weather-summary" id="weather-summary"></p>
         </div>
 
         <div class="wx-card">
-          <div class="wx-card-label">Wind</div>
-          <div class="wx-card-val" id="weather-wind">—</div>
+          <div class="wx-card-header-row">
+            <div class="wx-card-label">Wind</div>
+            <div class="wx-card-val wx-card-val-sm" id="weather-wind">—</div>
+          </div>
           <canvas class="sparkline-canvas" data-field="wind_kmh" height="22"
                   aria-label="wind history"></canvas>
         </div>
 
         <div class="wx-card">
-          <div class="wx-card-label">Humidity</div>
-          <div class="wx-card-val" id="weather-humidity">—</div>
+          <div class="wx-card-header-row">
+            <div class="wx-card-label">Humidity</div>
+            <div class="wx-card-val" id="weather-humidity">—</div>
+          </div>
           <canvas class="sparkline-canvas" data-field="humidity_pct" height="22"
                   aria-label="humidity history"></canvas>
         </div>
 
         <div class="wx-card">
-          <div class="wx-card-label">Rain (24h)</div>
-          <div class="wx-card-val" id="weather-rain">—</div>
+          <div class="wx-card-header-row">
+            <div class="wx-card-label">Rain (24h)</div>
+            <div class="wx-card-val" id="weather-rain">—</div>
+          </div>
           <canvas class="sparkline-canvas" data-field="rain_24h_mm" height="22"
                   aria-label="rain history"></canvas>
         </div>
