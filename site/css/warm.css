@@ -331,6 +331,68 @@ details > *:not(summary) { margin-top: 0.75rem; }
 .frigate-label { font-size: 0.78rem; }
 .frigate-conf  { font-size: 0.78rem; opacity: 0.7; }
 
+/* ── Detections list (Frigate all-objects) ───────────────────── */
+.detections-panel,
+.ha-presence-panel { margin-top: 0.5rem; }
+
+.detections-list,
+.ha-presence-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.25rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.detection-item {
+  display: grid;
+  grid-template-columns: 6rem 1fr 2.5rem;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+}
+.detection-label {
+  color: var(--warm-text);
+  font-weight: 500;
+  text-transform: capitalize;
+}
+.detection-bar-wrap {
+  height: 4px;
+  background: rgba(0,0,0,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.detection-bar-fill {
+  height: 100%;
+  background: var(--warm-accent);
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+.detection-conf {
+  color: var(--warm-muted);
+  text-align: right;
+  font-size: 0.72rem;
+}
+
+/* ── Who's home (HA presence) ────────────────────────────────── */
+.ha-person-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+.ha-dot         { font-size: 0.6rem; }
+.ha-dot-home    { color: #16a34a; }
+.ha-dot-away    { color: #d97706; }
+.ha-dot-unknown { color: #9ca3af; }
+.ha-person-name { font-weight: 500; color: var(--warm-text); flex: 1; }
+.ha-person-state {
+  font-size: 0.7rem;
+  color: var(--warm-muted);
+  text-transform: lowercase;
+}
+
 /* ── World Band: Cards ─────────────────────────────────────────── */
 
 .world-col {

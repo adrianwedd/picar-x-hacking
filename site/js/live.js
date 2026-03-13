@@ -83,6 +83,8 @@
       state.obi_mode             = a.obi_mode;
       state.person_present       = a.person_present;
       state.frigate_score        = a.frigate_score;
+      state.detections           = a.detections;
+      state.ha_presence          = a.ha_presence;
       state.ambient_level        = a.ambient_level;
       state.ambient_rms          = a.ambient_rms;
       state.weather              = a.weather;

@@ -478,9 +478,11 @@ async def public_awareness() -> Dict[str, Any]:
     if isinstance(raw_frigate, dict):
         person_present: Any = raw_frigate.get("person_present", False)
         frigate_score: Any = raw_frigate.get("score")
+        detections: Any = raw_frigate.get("detections", [])
     else:
         person_present = None
         frigate_score = None
+        detections = None
 
     ambient = awareness.get("ambient_sound") or {}
 
@@ -502,10 +504,16 @@ async def public_awareness() -> Dict[str, Any]:
     sys_stats = awareness.get("system") or {}
     wifi_dbm: Any = sys_stats.get("wifi_dbm")
 
+    # HA presence — people list + home coords
+    raw_ha = awareness.get("ha_presence")
+    ha_presence: Any = raw_ha if isinstance(raw_ha, dict) else None
+
     return {
         "obi_mode": awareness.get("obi_mode"),
         "person_present": person_present,
         "frigate_score": frigate_score,
+        "detections": detections,
+        "ha_presence": ha_presence,
         "ambient_level": ambient.get("level"),
         "ambient_rms": ambient.get("rms"),
         "weather": weather_out,

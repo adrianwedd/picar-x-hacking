@@ -5,6 +5,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/px-env"
 
+# Load .env secrets (PX_HA_TOKEN etc.) if present
+ENV_FILE="$(cd "$SCRIPT_DIR/.." && pwd)/.env"
+if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+fi
+
 # Uses venv python — needs requests/urllib + pxh, does NOT need picarx GPIO.
 # GPIO-dependent actions (sonar, look, perform) are delegated to bin/tool-* subprocesses.
 exec python - "$@" <<'PY'
@@ -102,6 +111,13 @@ FRIGATE_WINDOW_S       = 90    # look for events in the last 90 seconds
 FRIGATE_MIN_SCORE      = 0.60  # ignore detections below this confidence
 FRIGATE_TIMEOUT_S      = 2     # short timeout — must not stall the awareness loop
 FRIGATE_FILE           = STATE_DIR / "frigate_presence.json"
+
+HA_HOST                = os.environ.get("PX_HA_HOST", "http://homeassistant.local:8123")
+HA_TOKEN               = os.environ.get("PX_HA_TOKEN", "")
+HA_TIMEOUT_S           = 3
+HA_INTERVAL_S          = 300   # refresh HA presence every 5 min
+# Person entities to track (unknown = no device; state values: home/away/unknown/<zone>)
+HA_PEOPLE              = ["person.adrian", "person.obi", "person.maya", "person.laura"]
 AEDT = dt.timezone(dt.timedelta(hours=11))  # Hobart, Tasmania (UTC+11)
 OBI_DAY_START  = 7   # 7am AEDT — Obi's waking hours begin
 OBI_DAY_END    = 20  # 8pm AEDT — Obi's waking hours end
@@ -574,7 +590,14 @@ def read_sonar(dry: bool) -> float:
 
 
 def _fetch_frigate_presence(dry: bool = False) -> dict | None:
-    """Query Frigate for recent person detections. Returns presence dict or None on any error.
+    """Query Frigate for all recent object detections across all COCO labels.
+
+    Returns a dict with:
+      - person_present: bool (backward compat)
+      - event_count:    int  (person events, backward compat)
+      - score:          float|None (best person score, backward compat)
+      - detections:     [{label, score, count}, ...] sorted by score desc
+      - x_center/speed/velocity_angle: person-specific (backward compat)
 
     None means Frigate is unreachable — caller falls back to sonar/ambient heuristics.
     dry=True returns None immediately without any network call.
@@ -582,10 +605,11 @@ def _fetch_frigate_presence(dry: bool = False) -> dict | None:
     if dry:
         return None
     since = time.time() - FRIGATE_WINDOW_S
+    # Fetch all labels (no label= filter)
     url = (
         f"{FRIGATE_HOST}/api/events"
-        f"?label=person&camera={FRIGATE_CAMERA}"
-        f"&limit=20&after={since:.3f}"
+        f"?camera={FRIGATE_CAMERA}"
+        f"&limit=100&after={since:.3f}"
     )
     try:
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
@@ -600,34 +624,90 @@ def _fetch_frigate_presence(dry: bool = False) -> dict | None:
                e.get("data", {}).get("top_score", 0)) >= FRIGATE_MIN_SCORE
     ]
 
-    if not qualifying:
-        return {
-            "person_present": False,
-            "event_count": 0,
-            "score": None,
-            "x_center": None,
-            "speed": None,
-            "velocity_angle": None,
-            "ts": utc_timestamp(),
-        }
+    # Group by label: best score + count
+    by_label: dict = {}
+    for e in qualifying:
+        label = e.get("label", "unknown")
+        score = round(max(e.get("data", {}).get("score", 0),
+                          e.get("data", {}).get("top_score", 0)), 3)
+        if label not in by_label:
+            by_label[label] = {"score": score, "count": 0}
+        else:
+            by_label[label]["score"] = max(by_label[label]["score"], score)
+        by_label[label]["count"] += 1
 
-    # end_time is None for in-progress events — treat as 0 so max() doesn't TypeError
-    best = max(qualifying, key=lambda e: e.get("end_time") or 0)
-    box = best["data"].get("box") or []
-    # box format confirmed as [x, y, width, height] (normalized 0-1) per user docs.
-    # x_center = x + width/2. If Frigate ever switches to [xmin,ymin,xmax,ymax],
-    # use (box[0]+box[2])/2 instead — verify against path_data[0][0][0].
-    x_center = round(box[0] + box[2] / 2, 3) if len(box) == 4 else None
+    detections = sorted(
+        [{"label": k, "score": v["score"], "count": v["count"]} for k, v in by_label.items()],
+        key=lambda d: d["score"],
+        reverse=True,
+    )
+
+    person_events = [e for e in qualifying if e.get("label") == "person"]
+    person_present = len(person_events) > 0
+
+    # Person-specific fields (backward compat)
+    x_center = speed = velocity_angle = None
+    best_person_score = None
+    if person_events:
+        best_p = max(person_events, key=lambda e: e.get("end_time") or 0)
+        box = best_p["data"].get("box") or []
+        x_center = round(box[0] + box[2] / 2, 3) if len(box) == 4 else None
+        speed = best_p["data"].get("average_estimated_speed")
+        velocity_angle = best_p["data"].get("velocity_angle")
+        best_person_score = round(max(best_p["data"].get("score", 0),
+                                      best_p["data"].get("top_score", 0)), 3)
 
     return {
-        "person_present": True,
-        "event_count": len(qualifying),
-        "score": round(max(best["data"].get("score", 0), best["data"].get("top_score", 0)), 3),
+        "person_present": person_present,
+        "event_count": len(person_events),
+        "score": best_person_score,
+        "detections": detections,
         "x_center": x_center,
-        "speed": best["data"].get("average_estimated_speed"),
-        "velocity_angle": best["data"].get("velocity_angle"),
+        "speed": speed,
+        "velocity_angle": velocity_angle,
         "ts": utc_timestamp(),
     }
+
+
+def _fetch_ha_presence(dry: bool = False) -> dict | None:
+    """Query Home Assistant for person presence and home location.
+
+    Returns {people: [{name, state, home}], home_lat, home_lon} or None on error.
+    None means HA unreachable or token not configured.
+    """
+    if dry or not HA_TOKEN:
+        return None
+    headers = {"Authorization": f"Bearer {HA_TOKEN}", "Accept": "application/json"}
+
+    def _get(path: str):
+        req = urllib.request.Request(f"{HA_HOST}{path}", headers=headers)
+        with urllib.request.urlopen(req, timeout=HA_TIMEOUT_S) as r:
+            return json.loads(r.read())
+
+    result: dict = {"people": [], "home_lat": None, "home_lon": None}
+
+    try:
+        zone = _get("/api/states/zone.home")
+        result["home_lat"] = zone["attributes"].get("latitude")
+        result["home_lon"] = zone["attributes"].get("longitude")
+    except Exception:
+        pass
+
+    for entity_id in HA_PEOPLE:
+        try:
+            s = _get(f"/api/states/{entity_id}")
+            name = s["attributes"].get("friendly_name") or entity_id.split(".")[-1].title()
+            state = s["state"]  # "home" / "away" / "unknown" / zone name
+            result["people"].append({
+                "name": name,
+                "entity_id": entity_id,
+                "state": state,
+                "home": state == "home",
+            })
+        except Exception:
+            pass
+
+    return result if (result["people"] or result["home_lat"] is not None) else None
 
 
 def read_battery() -> dict | None:
@@ -920,6 +1000,8 @@ def minutes_since_event(history: list, event_types: set) -> float:
 # ── Awareness state that persists across ticks ──────────────────────
 _cached_weather: dict | None = None
 _last_weather_fetch: float = 0.0
+_cached_ha: dict | None = None
+_last_ha_fetch: float = 0.0
 _last_spoken_text: str = ""
 _mood_history: list[str] = []
 _last_reactive_phrases: dict = {}  # key="transition:persona", value=recent phrase list (max 3)
@@ -933,6 +1015,7 @@ _time_period_start_mono: float = 0.0  # when current time period began
 def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
     """Layer 1: gather perception, detect transitions, enrich context."""
     global _cached_weather, _last_weather_fetch, _time_period_start_mono
+    global _cached_ha, _last_ha_fetch
 
     sonar_cm = read_sonar(dry)
     frigate = _fetch_frigate_presence(dry)
@@ -947,6 +1030,13 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
 
     mins_interaction = minutes_since_event(history, interaction_events)
     mins_speech = minutes_since_event(history, speech_events)
+
+    # Refresh HA presence periodically
+    if (now_mono - _last_ha_fetch) > HA_INTERVAL_S:
+        ha = _fetch_ha_presence(dry)
+        if ha is not None:
+            _cached_ha = ha
+        _last_ha_fetch = now_mono
 
     # Refresh weather periodically
     if (now_mono - _last_weather_fetch) > WEATHER_INTERVAL_S:
@@ -1019,6 +1109,10 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
     # Enrich with weather
     if _cached_weather:
         awareness["weather"] = _cached_weather
+
+    # Enrich with HA presence (who's home)
+    if _cached_ha:
+        awareness["ha_presence"] = _cached_ha
 
     # Enrich with ambient sound level (written by px-wake-listen)
     try:
@@ -1384,6 +1478,19 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     obi_mode = awareness.get("obi_mode", "unknown")
     if obi_mode != "unknown":
         context_parts.append(f"Obi's current mode: {obi_mode}")
+
+    # Who's home (from Home Assistant)
+    ha = awareness.get("ha_presence")
+    if ha and ha.get("people"):
+        home_names  = [p["name"] for p in ha["people"] if p.get("home")]
+        away_names  = [p["name"] for p in ha["people"] if not p.get("home") and p["state"] not in ("unknown", "unavailable")]
+        unknown_names = [p["name"] for p in ha["people"] if p["state"] in ("unknown", "unavailable")]
+        parts = []
+        if home_names:  parts.append(f"{', '.join(home_names)} home")
+        if away_names:  parts.append(f"{', '.join(away_names)} away")
+        if unknown_names: parts.append(f"{', '.join(unknown_names)} unknown")
+        if parts:
+            context_parts.append(f"Who's home (from Home Assistant): {'; '.join(parts)}")
 
     # Inject topic seed, or free-will prompt if no seed was drawn
     if topic_seed is None:

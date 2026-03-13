@@ -152,21 +152,67 @@ window.SparkDashboard = (function () {
       }
     }
 
-    const frigateRow = $('frigate-indicator');
-    if (frigateRow) {
-      if (state.person_present === null || state.person_present === undefined) {
-        frigateRow.classList.add('hidden');
+    // Frigate detections list (all labels)
+    const detectionsPanel = $('detections-panel');
+    const detectionsList  = $('detections-list');
+    if (detectionsPanel && detectionsList) {
+      const dets = Array.isArray(state.detections) ? state.detections : [];
+      if (dets.length === 0) {
+        detectionsPanel.classList.add('hidden');
       } else {
-        frigateRow.classList.remove('hidden');
-        const icon = $('frigate-icon');
-        if (icon) icon.textContent = state.person_present ? '\uD83D\uDC64' : '\uD83D\uDC65';
-        const flabel = $('frigate-label');
-        if (flabel) flabel.textContent = state.person_present ? 'detected' : 'not detected';
-        const conf = $('frigate-confidence');
-        if (conf) {
-          conf.textContent = (state.person_present && state.frigate_score != null)
-            ? Math.round(state.frigate_score * 100) + '%' : '';
-        }
+        detectionsPanel.classList.remove('hidden');
+        while (detectionsList.firstChild) detectionsList.removeChild(detectionsList.firstChild);
+        dets.forEach(d => {
+          const li = document.createElement('li');
+          li.className = 'detection-item';
+          const pct = Math.round(d.score * 100);
+          const bar = document.createElement('div');
+          bar.className = 'detection-bar-wrap';
+          const fill = document.createElement('div');
+          fill.className = 'detection-bar-fill';
+          fill.style.width = pct + '%';
+          bar.appendChild(fill);
+          const label = document.createElement('span');
+          label.className = 'detection-label';
+          label.textContent = d.label;
+          const conf = document.createElement('span');
+          conf.className = 'detection-conf';
+          conf.textContent = pct + '%' + (d.count > 1 ? ' ×' + d.count : '');
+          li.appendChild(label);
+          li.appendChild(bar);
+          li.appendChild(conf);
+          detectionsList.appendChild(li);
+        });
+      }
+    }
+
+    // Who's home (Home Assistant)
+    const haPanel = $('ha-presence-panel');
+    const haList  = $('ha-presence-list');
+    if (haPanel && haList) {
+      const ha = state.ha_presence;
+      if (!ha || !Array.isArray(ha.people) || ha.people.length === 0) {
+        haPanel.classList.add('hidden');
+      } else {
+        haPanel.classList.remove('hidden');
+        while (haList.firstChild) haList.removeChild(haList.firstChild);
+        ha.people.forEach(p => {
+          const li = document.createElement('li');
+          li.className = 'ha-person-item';
+          const dot = document.createElement('span');
+          dot.className = 'ha-dot ' + (p.home ? 'ha-dot-home' : (p.state === 'unknown' ? 'ha-dot-unknown' : 'ha-dot-away'));
+          dot.textContent = '●';
+          const name = document.createElement('span');
+          name.className = 'ha-person-name';
+          name.textContent = p.name;
+          const st = document.createElement('span');
+          st.className = 'ha-person-state';
+          st.textContent = p.state;
+          li.appendChild(dot);
+          li.appendChild(name);
+          li.appendChild(st);
+          haList.appendChild(li);
+        });
       }
     }
   }

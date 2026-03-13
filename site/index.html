@@ -114,10 +114,16 @@
                   aria-label="sonar history (1h)"></canvas>
           <p class="sparkline-ctx-label">1h trend</p>
         </div>
-        <div id="frigate-indicator" class="frigate-row hidden">
-          <span id="frigate-icon" aria-hidden="true">&#x1F464;</span>
-          <span id="frigate-label" class="frigate-label"></span>
-          <span id="frigate-confidence" class="frigate-conf"></span>
+        <!-- Frigate detections list -->
+        <div id="detections-panel" class="detections-panel hidden">
+          <p class="section-eyebrow section-eyebrow-spaced">Detected</p>
+          <ul id="detections-list" class="detections-list"></ul>
+        </div>
+
+        <!-- Who's home (Home Assistant) -->
+        <div id="ha-presence-panel" class="ha-presence-panel hidden">
+          <p class="section-eyebrow section-eyebrow-spaced">Who's home</p>
+          <ul id="ha-presence-list" class="ha-presence-list"></ul>
         </div>
       </div>
 
