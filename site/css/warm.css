@@ -176,6 +176,15 @@ details > *:not(summary) { margin-top: 0.75rem; }
   text-align: right;
 }
 
+.state-section-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--warm-muted);
+  font-weight: 600;
+  margin-top: 0.6rem;
+}
+
 /* Obi mode badge */
 .obi-mode-badge {
   display: inline-block;
