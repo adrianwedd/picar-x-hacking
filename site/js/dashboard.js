@@ -168,6 +168,10 @@ window.SparkDashboard = (function () {
         });
       }
     }
+
+    // Expose for chat.js bubble colour sync
+    SparkDashboard.currentMoodWord = mood;
+    document.dispatchEvent(new CustomEvent('spark-state-updated'));
   }
 
   // ── World band ───────────────────────────────────────────────────────────
