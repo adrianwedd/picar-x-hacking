@@ -5,36 +5,12 @@ window.SparkDashboard = (function () {
 
   const $ = id => document.getElementById(id);
 
-  // ── Safe inline markdown ──────────────────────────────────────────────────
-  // Renders *italic* spans via DOM construction — never innerHTML with server data.
-  function _renderInline(el, text) {
-    if (!el) return;
-    while (el.firstChild) el.removeChild(el.firstChild);
-    if (!text) return;
-    const parts = text.split(/\*([^*]+)\*/);
-    parts.forEach((part, i) => {
-      if (i % 2 === 1) {
-        const em = document.createElement('em');
-        em.textContent = part;
-        el.appendChild(em);
-      } else if (part) {
-        el.appendChild(document.createTextNode(part));
-      }
-    });
-  }
-
   // ── Presence band ────────────────────────────────────────────────────────
 
   const PULSE_CLASSES = {
     peaceful: 'pulse-slow', content: 'pulse-slow',
     curious: 'pulse-mid', contemplative: 'pulse-mid',
     excited: 'pulse-fast', active: 'pulse-fast',
-  };
-  const OBI_MODE_TEXT = {
-    absent: "Obi's probably asleep",
-    calm: 'Obi seems nearby',
-    active: 'Obi is around',
-    'possibly-overloaded': 'Things seem busy',
   };
 
   const OBI_MODE_BADGE = {

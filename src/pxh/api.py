@@ -504,9 +504,17 @@ async def public_awareness() -> Dict[str, Any]:
     sys_stats = awareness.get("system") or {}
     wifi_dbm: Any = sys_stats.get("wifi_dbm")
 
-    # HA presence — people list + home coords
+    # HA presence — project to safe fields only (strip GPS coords + entity_id)
     raw_ha = awareness.get("ha_presence")
-    ha_presence: Any = raw_ha if isinstance(raw_ha, dict) else None
+    if isinstance(raw_ha, dict):
+        safe_people = [
+            {"name": p.get("name"), "state": p.get("state"), "home": p.get("home")}
+            for p in raw_ha.get("people", [])
+            if isinstance(p, dict)
+        ]
+        ha_presence: Any = {"people": safe_people}
+    else:
+        ha_presence = None
 
     return {
         "obi_mode": awareness.get("obi_mode"),

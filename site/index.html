@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self' https://www.googletagmanager.com 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com; img-src 'self' data: https://www.googletagmanager.com; font-src 'self' https://fonts.gstatic.com; connect-src https://spark-api.wedd.au https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com;">
+    content="default-src 'self'; script-src 'self' https://www.googletagmanager.com 'unsafe-inline'; style-src 'self' https://fonts.googleapis.com; img-src 'self' data: https://www.googletagmanager.com https://www.google-analytics.com; font-src 'self' https://fonts.gstatic.com; connect-src https://spark-api.wedd.au https://www.google-analytics.com https://analytics.google.com https://www.googletagmanager.com https://region1.google-analytics.com;">
   <!-- Google Analytics -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-BJD5ZFHRLV"></script>
   <script>
@@ -116,7 +116,7 @@
           <p id="last-spoken-text" class="speech-bubble-text">—</p>
         </div>
         <p id="last-spoken-age" class="last-spoken-age"></p>
-        <div class="wx-metric-row wx-metric-row-last" style="margin-top:0.6rem">
+        <div class="wx-metric-row wx-metric-row-last salience-sparkline-row">
           <span class="wx-metric-label">Salience (1h)</span>
           <canvas class="sparkline-canvas" data-field="salience" height="20"
                   aria-label="thought salience history"></canvas>

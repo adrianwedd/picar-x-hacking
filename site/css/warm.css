@@ -20,20 +20,6 @@
   box-shadow: 0 2px 12px rgba(0,0,0,0.06);
 }
 
-/* Mood bubble */
-#mood-bubble {
-  display: inline-block;
-  background: var(--warm-accent);
-  color: #fff;
-  font-size: 1.1rem;
-  font-weight: 600;
-  padding: 0.4rem 1.2rem;
-  border-radius: 999px;
-  margin-top: 1rem;
-  transition: opacity var(--transition);
-  min-width: 6rem;
-  text-align: center;
-}
 
 /* Pull quote */
 .pull-quote {
@@ -84,32 +70,6 @@ details > *:not(summary) { margin-top: 0.75rem; }
 .mood-table-header th { text-align: left; padding: 0.5rem; color: var(--warm-muted); border-bottom: 1px solid rgba(0,0,0,0.08); }
 .mood-table td { padding: 0.5rem; }
 
-/* Stat cards */
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1rem;
-  margin: 1.5rem 0;
-}
-
-.stat-card {
-  border-radius: var(--radius);
-  padding: 1.25rem 1.5rem;
-  background: #fff;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-  transition: background var(--transition);
-}
-.stat-card .stat-value {
-  font-size: 2rem;
-  font-weight: 700;
-  font-family: monospace;
-}
-.stat-card .stat-label { font-size: 0.8rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.05em; }
-
-/* Threshold colours via class toggle (no inline styles) */
-.stat-card.ok .stat-value   { color: #16a34a; }
-.stat-card.warn .stat-value { color: #d97706; }
-.stat-card.crit .stat-value { color: #dc2626; }
 
 /* ── Live Dashboard — Bands ───────────────────────────────────── */
 
@@ -363,36 +323,6 @@ details > *:not(summary) { margin-top: 0.75rem; }
   opacity: 0.7;
 }
 
-/* ── Last Thought (dashboard — overrides hero pull-quote style) ── */
-
-.presence-thought .pull-quote {
-  font-size: 1.15rem;
-  font-style: italic;
-  line-height: 1.6;
-  margin: 0 0 0.75rem;
-  padding: 0;
-  border: none;
-  background: none;
-}
-
-.thought-meta {
-  font-size: 0.8rem;
-  color: var(--warm-muted);
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-
-.salience-dots { letter-spacing: 0.1em; color: var(--warm-accent); }
-
-.last-spoken-quote {
-  font-size: 0.88rem;
-  font-style: italic;
-  color: var(--warm-muted);
-  line-height: 1.5;
-  margin: 0.2rem 0 0;
-}
 
 .last-spoken-age {
   font-size: 0.7rem;
@@ -401,25 +331,13 @@ details > *:not(summary) { margin-top: 0.75rem; }
   margin-top: 0.2rem;
 }
 
-.section-eyebrow-spaced { margin-top: 0.9rem; }
-.wx-metric-row-spaced   { margin-top: 0.75rem; }
-.wx-metric-row-last     { border-bottom: none; padding-bottom: 0; }
-
-.thought-salience-trend {
-  margin-top: 0.4rem;
-  border-top: 1px solid rgba(0,0,0,0.05);
-  padding-top: 0.35rem;
-  border-bottom: none !important;
-  padding-bottom: 0 !important;
+.salience-sparkline-row {
+  margin-top: 0.6rem;
 }
+
+.wx-metric-row-last { border-bottom: none; padding-bottom: 0; }
 
 /* ── Proximity Display ────────────────────────────────────────── */
-
-.presence-proximity {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
 
 .proximity-display {
   display: flex;
@@ -470,15 +388,6 @@ details > *:not(summary) { margin-top: 0.75rem; }
 .proximity-bar-fill.prox-mid   { background: #d97706; }
 .proximity-bar-fill.prox-far   { background: #16a34a; }
 
-.frigate-row {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.82rem;
-  color: var(--warm-muted);
-}
-.frigate-label { font-size: 0.78rem; }
-.frigate-conf  { font-size: 0.78rem; opacity: 0.7; }
 
 /* ── Detections list (Frigate all-objects) ───────────────────── */
 .detections-empty {
@@ -552,29 +461,6 @@ details > *:not(summary) { margin-top: 0.75rem; }
   text-transform: lowercase;
 }
 
-/* ── World Band: Cards ─────────────────────────────────────────── */
-
-.world-col {
-  background: rgba(255,255,255,0.7);
-  border: 1px solid rgba(0,0,0,0.06);
-  border-radius: calc(var(--radius) * 0.75);
-  padding: 0.85rem 0.9rem;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-  align-self: stretch;
-}
-
-/* ── World Band: Ambient ───────────────────────────────────────── */
-
-.world-ambient {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-.world-ambient-head {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-}
 .section-eyebrow {
   font-size: 0.68rem;
   text-transform: uppercase;
@@ -589,18 +475,6 @@ details > *:not(summary) { margin-top: 0.75rem; }
   color: var(--warm-text);
 }
 
-/* ── World Band: Sound strip ──────────────────────────────────── */
-
-.world-ambient-strip {
-  background: rgba(255,255,255,0.7);
-  border: 1px solid rgba(0,0,0,0.06);
-  border-radius: calc(var(--radius) * 0.75);
-  padding: 0.85rem 0.9rem;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
 
 /* ── Sound level val + waveform inline ──────────────────────────── */
 
@@ -727,32 +601,13 @@ details > *:not(summary) { margin-top: 0.75rem; }
   font-weight: 600;
 }
 
-/* ── World Band: Time ─────────────────────────────────────────── */
-
-.world-time {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.3rem;
-  font-size: 0.85rem;
-  text-align: right;
-}
-.world-time-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
 .local-time { font-size: 0.9rem; font-weight: 600; }
-.last-spoke { color: var(--warm-muted); margin: 0; font-size: 0.78rem; }
 
 .period-badge {
   display: inline-block;
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
   font-size: 0.72rem;
-}
-@media (max-width: 640px) {
-  .world-time { align-items: flex-start; text-align: left; }
 }
 .period-morning   { background: #fef3c7; color: #92400e; }
 .period-afternoon { background: #dbeafe; color: #1e40af; }

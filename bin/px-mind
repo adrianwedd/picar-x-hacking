@@ -141,7 +141,7 @@ def _daytime_action_hint(hour_override: int | None = None) -> str:
 
 
 def compute_obi_mode(awareness: dict, hour_override: int | None = None) -> str:
-    """Infer Obi's state from Frigate detections + ambient sound + sonar + time."""
+    """Infer Obi's state from HA presence + Frigate detections + ambient sound + sonar + time."""
     hour = hour_override if hour_override is not None else dt.datetime.now(AEDT).hour
     ambient_level = (awareness.get("ambient_sound") or {}).get("level", "unknown")
     sonar_cm = awareness.get("sonar_cm")
@@ -154,6 +154,15 @@ def compute_obi_mode(awareness: dict, hour_override: int | None = None) -> str:
     close      = sonar_cm is not None and sonar_cm < 35
     very_close = sonar_cm is not None and sonar_cm < 20
 
+    # HA presence: if HA confirms no one home → absent regardless of time
+    ha_someone_home = False
+    ha = awareness.get("ha_presence")
+    if isinstance(ha, dict) and isinstance(ha.get("people"), list):
+        if any(p.get("home") for p in ha["people"]):
+            ha_someone_home = True   # HA confirms someone home — skip absent returns
+        else:
+            return "absent"
+
     # Fast sonar signal: physically very close + loud
     if very_close and ambient_level == "loud":
         return "possibly-overloaded"
@@ -165,7 +174,8 @@ def compute_obi_mode(awareness: dict, hour_override: int | None = None) -> str:
         return "calm"
 
     # Night + quiet + Frigate online but no detection → absent
-    if not is_day and ambient_level in ("silent", "quiet"):
+    # (only when HA hasn't confirmed someone is home)
+    if not ha_someone_home and not is_day and ambient_level in ("silent", "quiet"):
         if awareness.get("frigate") is not None:   # Frigate replied: no one there
             return "absent"
         if not close:                # Frigate offline, trust sonar
@@ -618,8 +628,13 @@ def _fetch_frigate_presence(dry: bool = False) -> dict | None:
     except Exception:
         return None  # network down, mDNS timeout, JSON parse error, etc.
 
+    # Guard against unexpected payload shapes (e.g. Frigate error dict)
+    if not isinstance(events, list):
+        return None
+
     qualifying = [
         e for e in events
+        if isinstance(e, dict)
         if max(e.get("data", {}).get("score", 0),
                e.get("data", {}).get("top_score", 0)) >= FRIGATE_MIN_SCORE
     ]
@@ -670,10 +685,11 @@ def _fetch_frigate_presence(dry: bool = False) -> dict | None:
 
 
 def _fetch_ha_presence(dry: bool = False) -> dict | None:
-    """Query Home Assistant for person presence and home location.
+    """Query Home Assistant for person presence.
 
-    Returns {people: [{name, state, home}], home_lat, home_lon} or None on error.
+    Returns {people: [{name, state, home}]} or None on error.
     None means HA unreachable or token not configured.
+    Raises urllib.error.HTTPError with code 401/403 on auth failure — caller clears cache.
     """
     if dry or not HA_TOKEN:
         return None
@@ -684,14 +700,7 @@ def _fetch_ha_presence(dry: bool = False) -> dict | None:
         with urllib.request.urlopen(req, timeout=HA_TIMEOUT_S) as r:
             return json.loads(r.read())
 
-    result: dict = {"people": [], "home_lat": None, "home_lon": None}
-
-    try:
-        zone = _get("/api/states/zone.home")
-        result["home_lat"] = zone["attributes"].get("latitude")
-        result["home_lon"] = zone["attributes"].get("longitude")
-    except Exception:
-        pass
+    result: dict = {"people": []}
 
     for entity_id in HA_PEOPLE:
         try:
@@ -700,14 +709,17 @@ def _fetch_ha_presence(dry: bool = False) -> dict | None:
             state = s["state"]  # "home" / "away" / "unknown" / zone name
             result["people"].append({
                 "name": name,
-                "entity_id": entity_id,
                 "state": state,
                 "home": state == "home",
             })
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                raise   # re-raise so caller can clear the stale cache
+            # Per-entity failure (404 / other) — skip this person, continue
         except Exception:
             pass
 
-    return result if (result["people"] or result["home_lat"] is not None) else None
+    return result if result["people"] else None
 
 
 def read_battery() -> dict | None:
@@ -1033,9 +1045,16 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
 
     # Refresh HA presence periodically
     if (now_mono - _last_ha_fetch) > HA_INTERVAL_S:
-        ha = _fetch_ha_presence(dry)
-        if ha is not None:
-            _cached_ha = ha
+        try:
+            ha = _fetch_ha_presence(dry)
+            if ha is not None:
+                _cached_ha = ha
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                _cached_ha = None   # auth failure — don't serve stale data
+                log(f"ha_presence: auth failure ({exc.code}), cache cleared")
+        except Exception:
+            pass  # network error — keep existing cache
         _last_ha_fetch = now_mono
 
     # Refresh weather periodically

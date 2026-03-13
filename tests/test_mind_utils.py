@@ -107,6 +107,7 @@ _MIND = _load_mind_helpers()
 _daytime_action_hint = _MIND["_daytime_action_hint"]
 compute_obi_mode = _MIND["compute_obi_mode"]
 _fetch_frigate_presence = _MIND["_fetch_frigate_presence"]
+_fetch_ha_presence = _MIND["_fetch_ha_presence"]
 filter_battery = _MIND["filter_battery"]
 _battery_history = _MIND["_battery_history"]
 _BATTERY_MAX_DROP = _MIND["BATTERY_MAX_DROP_PER_TICK"]
@@ -380,3 +381,209 @@ def test_battery_filter_accepts_gradual_decline():
         r = filter_battery({"pct": pct, "volts": 7.0}, prev_pct=prev)
         assert r["pct"] == pct
         prev = pct
+
+
+# ---------------------------------------------------------------------------
+# _fetch_ha_presence
+# ---------------------------------------------------------------------------
+
+def _mock_ha_urlopen(responses: dict):
+    """Return a urlopen mock that dispatches based on the requested URL path."""
+    def _side_effect(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        for key, body in responses.items():
+            if key in url:
+                cm = MagicMock()
+                cm.__enter__ = MagicMock(
+                    return_value=MagicMock(read=MagicMock(return_value=_json.dumps(body).encode()))
+                )
+                cm.__exit__ = MagicMock(return_value=False)
+                return cm
+        raise OSError(f"No mock for {url}")
+    return _side_effect
+
+
+_PERSON_ADRIAN = {
+    "entity_id": "person.adrian",
+    "state": "home",
+    "attributes": {"friendly_name": "Adrian"},
+}
+_PERSON_OBI = {
+    "entity_id": "person.obi",
+    "state": "unknown",
+    "attributes": {"friendly_name": "Obi"},
+}
+
+
+def _ha_ctx(token="test-token", host="http://ha.test:8123"):
+    """Context manager that temporarily injects HA_TOKEN/HA_HOST into _MIND globals."""
+    import contextlib
+
+    @contextlib.contextmanager
+    def _cm():
+        old_token = _MIND.get("HA_TOKEN", "")
+        old_host  = _MIND.get("HA_HOST", "")
+        _MIND["HA_TOKEN"] = token
+        _MIND["HA_HOST"]  = host
+        try:
+            yield
+        finally:
+            _MIND["HA_TOKEN"] = old_token
+            _MIND["HA_HOST"]  = old_host
+
+    return _cm()
+
+
+def test_ha_presence_dry_returns_none():
+    with _ha_ctx():
+        result = _fetch_ha_presence(dry=True)
+    assert result is None
+
+
+def test_ha_presence_no_token_returns_none():
+    with _ha_ctx(token=""):
+        result = _fetch_ha_presence(dry=False)
+    assert result is None
+
+
+def test_ha_presence_parses_home_person():
+    responses = {
+        "person.adrian": _PERSON_ADRIAN,
+        "person.obi": _PERSON_OBI,
+    }
+    with _ha_ctx():
+        with patch("urllib.request.urlopen", side_effect=_mock_ha_urlopen(responses)):
+            result = _fetch_ha_presence(dry=False)
+    assert result is not None
+    people = {p["name"]: p for p in result["people"]}
+    assert people["Adrian"]["home"] is True
+    assert people["Obi"]["home"] is False
+
+
+def test_ha_presence_unreachable_returns_none():
+    with _ha_ctx():
+        with patch("urllib.request.urlopen", side_effect=OSError("refused")):
+            result = _fetch_ha_presence(dry=False)
+    assert result is None
+
+
+def test_ha_presence_per_entity_failure_continues():
+    """404 on some entities does not abort — returns only successfully-fetched people."""
+    import urllib.error as _urlerr
+
+    def _side_effect(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if "person.adrian" in url:
+            cm = MagicMock()
+            cm.__enter__ = MagicMock(
+                return_value=MagicMock(read=MagicMock(return_value=_json.dumps(_PERSON_ADRIAN).encode()))
+            )
+            cm.__exit__ = MagicMock(return_value=False)
+            return cm
+        # All other entities → 404
+        raise _urlerr.HTTPError(url, 404, "Not Found", {}, None)
+
+    with _ha_ctx():
+        with patch("urllib.request.urlopen", side_effect=_side_effect):
+            result = _fetch_ha_presence(dry=False)
+    assert result is not None
+    assert len(result["people"]) == 1
+    assert result["people"][0]["name"] == "Adrian"
+
+
+def test_ha_presence_auth_failure_raises():
+    """401 auth failure must propagate so the caller can clear the cache."""
+    import urllib.error as _urlerr
+
+    def _side_effect(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        raise _urlerr.HTTPError(url, 401, "Unauthorized", {}, None)
+
+    with _ha_ctx():
+        with pytest.raises(_urlerr.HTTPError) as exc_info:
+            with patch("urllib.request.urlopen", side_effect=_side_effect):
+                _fetch_ha_presence(dry=False)
+    assert exc_info.value.code == 401
+
+
+# ---------------------------------------------------------------------------
+# Multi-label Frigate grouping
+# ---------------------------------------------------------------------------
+
+
+def test_frigate_groups_multiple_labels():
+    """Events with different labels are grouped correctly."""
+    events = [
+        _make_frigate_event(score=0.85, label="person"),
+        _make_frigate_event(score=0.80, label="person"),
+        _make_frigate_event(score=0.72, label="dog"),
+        _make_frigate_event(score=0.65, label="car"),
+    ]
+    with patch("urllib.request.urlopen", return_value=_mock_urlopen(events)):
+        result = _fetch_frigate_presence(dry=False)
+    assert result is not None
+    by_label = {d["label"]: d for d in result["detections"]}
+    assert "person" in by_label
+    assert by_label["person"]["count"] == 2
+    assert "dog" in by_label
+    assert by_label["dog"]["count"] == 1
+    assert "car" in by_label
+
+
+def test_frigate_detections_sorted_by_score_desc():
+    """detections list must be sorted highest-score first."""
+    events = [
+        _make_frigate_event(score=0.60, label="car"),
+        _make_frigate_event(score=0.90, label="person"),
+        _make_frigate_event(score=0.75, label="dog"),
+    ]
+    with patch("urllib.request.urlopen", return_value=_mock_urlopen(events)):
+        result = _fetch_frigate_presence(dry=False)
+    scores = [d["score"] for d in result["detections"]]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_frigate_non_list_response_returns_none():
+    """A non-list Frigate API response (e.g. error dict) must return None."""
+    error_body = _json.dumps({"error": "camera offline"}).encode()
+    cm = MagicMock()
+    cm.__enter__ = MagicMock(return_value=MagicMock(read=MagicMock(return_value=error_body)))
+    cm.__exit__ = MagicMock(return_value=False)
+    with patch("urllib.request.urlopen", return_value=cm):
+        result = _fetch_frigate_presence(dry=False)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# compute_obi_mode — HA presence integration
+# ---------------------------------------------------------------------------
+
+
+def test_obi_mode_absent_when_ha_says_no_one_home():
+    """HA reporting no one home → absent, regardless of sonar/time."""
+    awareness = {
+        "ambient_sound": {"level": "moderate"},
+        "sonar_cm": 30,   # close, daytime
+        "ha_presence": {"people": [{"name": "Adrian", "state": "away", "home": False}]},
+    }
+    assert compute_obi_mode(awareness, hour_override=14) == "absent"
+
+
+def test_obi_mode_not_absent_when_ha_says_someone_home():
+    """HA reporting someone home prevents absent, even at night."""
+    awareness = {
+        "ambient_sound": {"level": "silent"},
+        "sonar_cm": 120,
+        "ha_presence": {"people": [{"name": "Adrian", "state": "home", "home": True}]},
+    }
+    assert compute_obi_mode(awareness, hour_override=2) != "absent"
+
+
+def test_obi_mode_falls_through_to_sensors_when_ha_someone_home():
+    """When HA says someone's home, sensor logic still determines calm/active/etc."""
+    awareness = {
+        "ambient_sound": {"level": "loud"},
+        "sonar_cm": 25,
+        "ha_presence": {"people": [{"name": "Obi", "state": "home", "home": True}]},
+    }
+    assert compute_obi_mode(awareness, hour_override=10) == "active"
