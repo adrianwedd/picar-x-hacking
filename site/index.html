@@ -359,7 +359,7 @@
     <pre class="arch">
   Tier 1: Claude CLI  →  Tier 2: Ollama on M1 (LAN)  →  Tier 3: Ollama on Pi
           (internet)           (192.168.1.x)                   (offline)
-          SPARK persona        qwen3.5:0.8b                    deepseek-r1:1.5b
+          SPARK persona        deepseek-r1:1.5b                (disabled — Pi 4 OOM)
     </pre>
 
     <h3>Cognitive Loop Timing</h3>
@@ -550,7 +550,7 @@ bin/tool-recall
 PX_CHAT_TEXT="What do you think about entropy?" bin/tool-chat
 # VIXEN persona
 PX_CHAT_TEXT="Tell me about your old chassis" bin/tool-chat-vixen
-# Both use Ollama qwen3.5:0.8b on M1.local, think:false</code></pre>
+# Both use Ollama on M1.local, think:false</code></pre>
     </details>
 
     <h3>User Scripts</h3>

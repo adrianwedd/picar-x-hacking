@@ -218,6 +218,9 @@ Every tool must: emit a single JSON object to stdout, support `PX_DRY=1`, handle
 | `PX_CHAT_TEMPERATURE` | GREMLIN sampling temperature (default: `0.9`) |
 | `PX_VIXEN_TEMPERATURE` | VIXEN sampling temperature (default: `0.9`) |
 | `PX_OLLAMA_HOST` | Ollama server (default: `http://M1.local:11434`) |
+| `PX_MIND_BACKEND` | Reflection backend: `auto` (SPARK→Claude, others→Ollama), `claude`, or `ollama` (default: `auto`) |
+| `PX_MIND_MODEL` | Ollama model for non-SPARK reflection (default: `deepseek-r1:1.5b`) |
+| `PX_MIND_LOCAL_OLLAMA` | `1` = enable local Pi Ollama fallback (disabled by default — Pi 4 OOM) |
 | `PX_MIND_LOCAL_OLLAMA_HOST` | Tier-3 fallback Ollama host on Pi (default: `http://localhost:11434`) |
 | `PX_MIND_LOCAL_MODEL` | Tier-3 fallback model (default: `deepseek-r1:1.5b`) |
 | `PX_STATE_DIR` | Override state directory (used by tests) |
