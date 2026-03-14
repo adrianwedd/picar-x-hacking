@@ -90,6 +90,15 @@ def main() -> int:
                        "dry": dry_mode, "rc": rc},
     )
 
+    # Parse px-wander's JSON output to forward explore-mode fields
+    inner = {}
+    try:
+        last_line = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+        if last_line:
+            inner = json.loads(last_line)
+    except Exception:
+        pass
+
     payload = {
         "status": "ok" if rc == 0 else "error",
         "steps": steps,
@@ -99,6 +108,12 @@ def main() -> int:
         "stdout": result.stdout[-1024:],
         "stderr": result.stderr[-512:],
     }
+    # Forward explore-mode fields from px-wander output
+    for key in ("abort_reason", "explore_id", "steps_completed", "steps_driven",
+                "obstacles_avoided", "observations", "interesting", "frigate_available"):
+        if key in inner:
+            payload[key] = inner[key]
+
     log_event("wander", payload)
     print(json.dumps(payload))
     return 0 if rc == 0 else rc

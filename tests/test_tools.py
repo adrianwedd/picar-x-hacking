@@ -741,6 +741,170 @@ def test_session_history_clear(isolated_project, monkeypatch):
     assert load_session().get("history", []) == []
 
 
+# ── Explore mode / abort scenario tests ──────────────────────────────────────
+
+def test_wander_explore_mode_dry(isolated_project):
+    """Explore mode accepts --mode explore, runs time-boxed, emits correct JSON."""
+    from pxh.state import default_state
+    state = default_state()
+    state["confirm_motion_allowed"] = True
+    state["roaming_allowed"] = True
+    isolated_project["session_path"].write_text(json.dumps(state))
+
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_WANDER_MODE"] = "explore"
+    env["PX_WANDER_DURATION_S"] = "3"
+    env["PX_WANDER_STEPS"] = "3"
+
+    import datetime as dt2
+    battery = {"ts": dt2.datetime.now(dt2.timezone.utc).isoformat(),
+               "pct": 80, "volts": 8.0, "charging": False}
+    (Path(isolated_project["state_dir"]) / "battery.json").write_text(json.dumps(battery))
+
+    stdout = run_tool(["bin/tool-wander"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload["mode"] == "explore"
+    assert payload["dry"] is True
+
+
+def test_wander_avoid_mode_unchanged(isolated_project):
+    """Existing avoid behaviour preserved with --mode avoid."""
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_WANDER_STEPS"] = "2"
+    env["PX_WANDER_MODE"] = "avoid"
+    stdout = run_tool(["bin/tool-wander"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload["dry"] is True
+
+
+def test_wander_explore_roaming_gate_in_tool(isolated_project):
+    """tool-wander rejects explore mode when roaming_allowed is false."""
+    from pxh.state import default_state
+    state = default_state()
+    state["confirm_motion_allowed"] = True
+    state["roaming_allowed"] = False
+    isolated_project["session_path"].write_text(json.dumps(state))
+
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_WANDER_MODE"] = "explore"
+    env["PX_WANDER_STEPS"] = "2"
+    result = subprocess.run(
+        ["bin/tool-wander"], cwd=PROJECT_ROOT,
+        text=True, capture_output=True, check=False, env=env,
+    )
+    payload = parse_json(result.stdout.strip())
+    assert payload["status"] == "blocked"
+    assert "roaming" in payload["reason"]
+
+
+def test_wander_explore_abort_on_listening(isolated_project):
+    """Session listening=true causes immediate abort."""
+    from pxh.state import default_state
+    state = default_state()
+    state["confirm_motion_allowed"] = True
+    state["roaming_allowed"] = True
+    state["listening"] = True
+    isolated_project["session_path"].write_text(json.dumps(state))
+
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_WANDER_MODE"] = "explore"
+    env["PX_WANDER_DURATION_S"] = "10"
+
+    import datetime as dt2
+    battery = {"ts": dt2.datetime.now(dt2.timezone.utc).isoformat(),
+               "pct": 80, "volts": 8.0, "charging": False}
+    (Path(isolated_project["state_dir"]) / "battery.json").write_text(json.dumps(battery))
+
+    stdout = run_tool(["bin/tool-wander"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload.get("abort_reason") == "someone is talking"
+
+
+def test_wander_explore_abort_on_charging(isolated_project):
+    """Battery charging triggers abort."""
+    from pxh.state import default_state
+    state = default_state()
+    state["confirm_motion_allowed"] = True
+    state["roaming_allowed"] = True
+    isolated_project["session_path"].write_text(json.dumps(state))
+
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_WANDER_MODE"] = "explore"
+    env["PX_WANDER_DURATION_S"] = "10"
+
+    import datetime as dt2
+    battery = {"ts": dt2.datetime.now(dt2.timezone.utc).isoformat(),
+               "pct": 80, "volts": 8.0, "charging": True}
+    (Path(isolated_project["state_dir"]) / "battery.json").write_text(json.dumps(battery))
+
+    stdout = run_tool(["bin/tool-wander"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload.get("abort_reason") == "battery charging"
+
+
+def test_wander_explore_abort_on_roaming_disabled(isolated_project):
+    """roaming_allowed=false triggers abort in explore loop."""
+    from pxh.state import default_state
+    state = default_state()
+    state["confirm_motion_allowed"] = True
+    state["roaming_allowed"] = False
+    isolated_project["session_path"].write_text(json.dumps(state))
+
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_WANDER_MODE"] = "explore"
+    env["PX_WANDER_DURATION_S"] = "10"
+
+    import datetime as dt2
+    battery = {"ts": dt2.datetime.now(dt2.timezone.utc).isoformat(),
+               "pct": 80, "volts": 8.0, "charging": False}
+    (Path(isolated_project["state_dir"]) / "battery.json").write_text(json.dumps(battery))
+
+    # Note: tool-wander blocks this at the gate level (status=blocked),
+    # because roaming gate is checked unconditionally even in dry mode.
+    # So we expect "blocked" not "ok" with abort_reason.
+    result = subprocess.run(
+        ["bin/tool-wander"], cwd=PROJECT_ROOT,
+        text=True, capture_output=True, check=False, env=env,
+    )
+    payload = parse_json(result.stdout.strip())
+    assert payload["status"] == "blocked"
+    assert "roaming" in payload["reason"]
+
+
+def test_wander_explore_abort_on_stale_battery(isolated_project):
+    """battery.json older than 60s triggers abort."""
+    from pxh.state import default_state
+    state = default_state()
+    state["confirm_motion_allowed"] = True
+    state["roaming_allowed"] = True
+    isolated_project["session_path"].write_text(json.dumps(state))
+
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_WANDER_MODE"] = "explore"
+    env["PX_WANDER_DURATION_S"] = "10"
+
+    import datetime as dt2
+    old_ts = (dt2.datetime.now(dt2.timezone.utc) - dt2.timedelta(seconds=120)).isoformat()
+    battery = {"ts": old_ts, "pct": 80, "volts": 8.0, "charging": False}
+    (Path(isolated_project["state_dir"]) / "battery.json").write_text(json.dumps(battery))
+
+    stdout = run_tool(["bin/tool-wander"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload.get("abort_reason") == "battery data stale or missing"
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="/proc/{pid} only exists on Linux")
 def test_tool_photograph_camera_busy(isolated_project):
     """tool-photograph should fail gracefully when frigate stream PID file is present."""
