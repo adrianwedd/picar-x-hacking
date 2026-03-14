@@ -85,7 +85,7 @@ bin/px-spark [--dry-run] [--input-mode voice|text]
 **Cognitive Loop (`px-mind`)** — The subconscious. Runs continuously in the background:
 - **Layer 1 — Awareness** (every 60s, no LLM): sonar + session state + time of day. Detects transitions.
 - **Layer 2 — Reflection** (on transition or every 5min idle): Claude Haiku via persistent tmux session (SPARK persona) or Ollama deepseek-r1:1.5b on M1.local (others). Generates a thought with mood, suggested action, and salience score.
-- **Layer 3 — Expression** (30s cooldown): dispatches to tools — speak, look around, remember something important. Photo capture (`tool-describe-scene`) is on-request only, not autonomous.
+- **Layer 3 — Expression** (2 min cooldown): dispatches to tools — speak, look around, remember something important. Photo capture (`tool-describe-scene`) is on-request only, not autonomous.
 
 **Idle-Alive (`px-alive`)** — The autonomic nervous system. Keeps the robot looking alive when nothing else is happening: random gaze drifts every 10–25s, pan sweeps every 3–8min, proximity reaction at <35cm. Holds a persistent Picarx handle; yields GPIO via SIGUSR1 when tools need the servos.
 
@@ -290,7 +290,7 @@ px-mind (every cycle, ~60s)
  │    ├── append to state/thoughts-spark.jsonl
  │    └── if salience > 0.7 → auto_remember() → state/notes-spark.jsonl
  │
- └── Layer 3 — Expression (30s cooldown, pauses when session.listening=true or spark_quiet_mode=true)
+ └── Layer 3 — Expression (2 min cooldown, pauses when session.listening=true or spark_quiet_mode=true)
       valid actions: wait, greet, comment, remember, look_at, weather_comment, scan
       dispatch based on reflection.action:
       ├── comment/greet     → tool-voice (via tool-voice-persona for rephrasing)

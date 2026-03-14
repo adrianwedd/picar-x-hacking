@@ -20,9 +20,9 @@ exec python - "$@" <<'PY'
 """Cognitive loop daemon: gives the robot an inner life.
 
 Three layers:
-  Layer 1 — Awareness (every ~30s): read sensors + state, detect transitions.
-  Layer 2 — Reflection (on transition or every ~2 min): LLM produces a thought.
-  Layer 3 — Expression (when reflection decides to act): speak, look.
+  Layer 1 — Awareness (every ~60s): read sensors + state, detect transitions.
+  Layer 2 — Reflection (on transition or every ~5 min): LLM produces a thought.
+  Layer 3 — Expression (2 min cooldown): speak, look, remember.
 
 Awareness is enriched with weather (every 10 min), long-term memory,
 topic seeding for variety, and repetition detection to stay dynamic.
@@ -1499,8 +1499,9 @@ def _tmux_run(args: list, **kwargs) -> subprocess.CompletedProcess:
         return subprocess.run(args, capture_output=True, **kwargs)
     except FileNotFoundError:
         empty = "" if kwargs.get("text") else b""
+        err = "tmux not found" if kwargs.get("text") else b"tmux not found"
         return subprocess.CompletedProcess(args, returncode=127,
-                                           stdout=empty, stderr=empty)
+                                           stdout=empty, stderr=err)
 
 
 def _tmux_ensure_session() -> bool:
@@ -1558,6 +1559,7 @@ def _extract_json_from_pane(text: str) -> str | None:
     """Extract the LAST JSON object with a 'thought' key from pane text."""
     decoder = json.JSONDecoder()
     last_match = None
+    _logged_non_thought = False
     idx = text.find("{")
     while idx != -1 and idx < len(text):
         try:
@@ -1565,11 +1567,13 @@ def _extract_json_from_pane(text: str) -> str | None:
             if isinstance(obj, dict):
                 if "thought" in obj:
                     last_match = json.dumps(obj)
-                else:
+                elif not _logged_non_thought:
                     log(f"tmux: found JSON without 'thought' key: {list(obj.keys())}")
+                    _logged_non_thought = True
+            idx = end  # skip past parsed object (avoids nested-JSON dupes)
         except (json.JSONDecodeError, ValueError):
-            pass
-        idx = text.find("{", idx + 1)
+            idx += 1
+        idx = text.find("{", idx)
     return last_match
 
 
@@ -1587,13 +1591,20 @@ def call_claude_haiku(prompt: str, system: str) -> dict:
                                      suffix=".tmp")
     prompt_file = Path(tmp_path)
     try:
-        with os.fdopen(fd, "w") as f:
-            f.write(full_prompt)
+        f = os.fdopen(fd, "w")
+    except Exception as exc:
+        os.close(fd)
+        prompt_file.unlink(missing_ok=True)
+        return {"error": f"prompt fdopen failed: {exc}"}
+    try:
+        f.write(full_prompt)
+        f.close()
     except Exception as exc:
         try:
-            prompt_file.unlink(missing_ok=True)
+            f.close()
         except Exception:
             pass
+        prompt_file.unlink(missing_ok=True)
         return {"error": f"prompt write failed: {exc}"}
 
     marker = f"PXM-{int(time.time())}-{os.getpid()}"
