@@ -43,16 +43,39 @@ def main() -> int:
         print(json.dumps(payload))
         return 1
 
+    mode = os.environ.get("PX_WANDER_MODE", "avoid")
+    if mode not in ("avoid", "explore"):
+        mode = "avoid"
+    duration = 180  # default; overridden below for explore mode
+
+    # Explore mode requires roaming_allowed (checked even in dry mode — safety gates are unconditional)
+    if mode == "explore" and not session.get("roaming_allowed", False):
+        payload = {"status": "blocked", "reason": "roaming not allowed"}
+        log_event("wander", payload)
+        print(json.dumps(payload))
+        return 2
+
     command = []
     if os.environ.get("PX_BYPASS_SUDO", "0") != "1":
         python_path = os.environ.get("PYTHONPATH", "")
         command.extend(["sudo", "-n", "env", f"PYTHONPATH={python_path}"])
     command.extend([str(PX_WANDER), "--steps", str(steps)])
+    if mode == "explore":
+        duration = int(clamp(float(os.environ.get("PX_WANDER_DURATION_S", "180")), 30, 300))
+        command.extend(["--mode", "explore", "--duration", str(duration)])
     if dry_mode:
         command.append("--dry-run")
 
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        # Explore mode gets longer timeout (duration + 60s buffer)
+        timeout = (duration + 60) if mode == "explore" else 120
+        result = subprocess.run(command, capture_output=True, text=True,
+                                check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        payload = {"status": "error", "error": "px-wander timed out"}
+        log_event("wander", payload)
+        print(json.dumps(payload))
+        return 1
     except Exception as exc:
         payload = {"status": "error", "error": f"px-wander failed: {exc}"}
         log_event("wander", payload)
@@ -63,12 +86,14 @@ def main() -> int:
     update_session(
         fields={"last_action": "tool_wander",
                 **({"last_motion": "px-wander"} if not dry_mode and rc == 0 else {})},
-        history_entry={"event": "wander", "steps": steps, "dry": dry_mode, "rc": rc},
+        history_entry={"event": "wander", "steps": steps, "mode": mode,
+                       "dry": dry_mode, "rc": rc},
     )
 
     payload = {
         "status": "ok" if rc == 0 else "error",
         "steps": steps,
+        "mode": mode,
         "dry": dry_mode,
         "returncode": rc,
         "stdout": result.stdout[-1024:],
