@@ -7,6 +7,7 @@
   "battery_ok": null,
   "wheels_on_blocks": false,
   "confirm_motion_allowed": false,
+  "roaming_allowed": false,
   "watchdog_heartbeat_ts": null,
   "last_weather": null,
   "last_prompt_excerpt": null,

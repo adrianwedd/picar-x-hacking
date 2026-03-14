@@ -473,6 +473,19 @@ def main(argv) -> int:
         return 0
     PID_FILE.write_text(str(os.getpid()))
 
+    # Check if exploration is active — exit cleanly to avoid GPIO contention
+    exploring_file = STATE_DIR / "exploring.json"
+    try:
+        if exploring_file.exists():
+            exploring = json.loads(exploring_file.read_text(encoding="utf-8"))
+            if exploring.get("active"):
+                exp_pid = exploring.get("pid")
+                if exp_pid and Path(f"/proc/{exp_pid}").is_dir():
+                    log("exploration active (PID %d) — exiting cleanly" % exp_pid)
+                    sys.exit(0)
+    except Exception:
+        pass
+
     def _safe_unlink_pid() -> None:
         """Only delete the PID file if it still contains our own PID."""
         try:
