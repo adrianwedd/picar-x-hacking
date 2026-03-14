@@ -1554,14 +1554,20 @@ def call_llm(prompt: str, system: str, persona: str = "") -> dict:
             pass
         return result
 
-    # Tier 3: local Pi Ollama
-    log(f"M1 ollama failed ({result['error']}), falling back to local ollama")
-    result = call_ollama(prompt, system, host=LOCAL_OLLAMA_HOST, model=LOCAL_MODEL)
-    if "error" not in result:
-        try:
-            _log_token_usage(prompt + system, result.get("response", ""))
-        except Exception:
-            pass
+    # Tier 3: local Pi Ollama — disabled by default (Pi 4 RAM too small;
+    # loading a model alongside px-wake-listen/SenseVoice fills swap and OOMs).
+    # Enable with PX_MIND_LOCAL_OLLAMA=1 if running on a beefier Pi.
+    if os.environ.get("PX_MIND_LOCAL_OLLAMA") == "1":
+        log(f"M1 ollama failed ({result['error']}), falling back to local ollama")
+        result = call_ollama(prompt, system, host=LOCAL_OLLAMA_HOST, model=LOCAL_MODEL)
+        if "error" not in result:
+            try:
+                _log_token_usage(prompt + system, result.get("response", ""))
+            except Exception:
+                pass
+            return result
+
+    log(f"M1 ollama failed ({result['error']}), no local fallback — skipping reflection")
     return result
 
 
