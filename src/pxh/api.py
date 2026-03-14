@@ -653,16 +653,23 @@ _PUBLIC_CHAT_SYSTEM_PROMPT = (
 _PUBLIC_CHAT_TIMEOUT_S = 15.0
 
 
+_CLAUDE_BIN = "/home/pi/.local/bin/claude"
+
+
 async def _call_claude_public(prompt: str) -> str:
     """Run Claude CLI in a thread pool and return the reply text."""
     import asyncio as _asyncio
     import subprocess as _sp
-    loop = _asyncio.get_event_loop()
+    loop = _asyncio.get_running_loop()
 
     def _run() -> str:
+        env = os.environ.copy()
+        # Unset Claude Code session vars so nested invocation is permitted
+        env.pop("CLAUDECODE", None)
+        env.pop("CLAUDE_CODE_ENTRYPOINT", None)
         result = _sp.run(
             [
-                "claude", "-p",
+                _CLAUDE_BIN, "-p",
                 "--allowedTools", "",
                 "--no-session-persistence",
                 "--output-format", "text",
@@ -671,6 +678,7 @@ async def _call_claude_public(prompt: str) -> str:
             input=prompt.encode(),
             capture_output=True,
             timeout=int(_PUBLIC_CHAT_TIMEOUT_S) + 2,
+            env=env,
         )
         if result.returncode != 0:
             raise RuntimeError(
