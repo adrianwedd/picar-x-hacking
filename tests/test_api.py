@@ -523,10 +523,13 @@ class TestPublicChat:
     def test_message_too_long_rejected(self, api_client):
         # Derive limit from model so the test catches boundary changes automatically
         from pxh.api import PublicChatRequest
-        max_len = next(
-            m.max_length for m in PublicChatRequest.model_fields["message"].metadata
-            if hasattr(m, "max_length")
+        max_len_obj = next(
+            (m for m in PublicChatRequest.model_fields["message"].metadata
+             if hasattr(m, "max_length")),
+            None,
         )
+        assert max_len_obj is not None, "PublicChatRequest.message has no max_length constraint"
+        max_len = max_len_obj.max_length
         resp = api_client.post(
             "/api/v1/public/chat",
             json={"message": "x" * (max_len + 1), "history": []},

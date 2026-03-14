@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -654,8 +655,6 @@ _PUBLIC_CHAT_SYSTEM_PROMPT = (
 )
 _PUBLIC_CHAT_TIMEOUT_S = 15.0
 
-
-from concurrent.futures import ThreadPoolExecutor
 
 _PUBLIC_CHAT_EXECUTOR = ThreadPoolExecutor(max_workers=2)
 _public_chat_log = logging.getLogger("pxh.api.public_chat")
