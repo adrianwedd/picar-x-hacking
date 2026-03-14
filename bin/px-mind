@@ -1498,8 +1498,9 @@ def _tmux_run(args: list, **kwargs) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(args, capture_output=True, **kwargs)
     except FileNotFoundError:
+        empty = "" if kwargs.get("text") else b""
         return subprocess.CompletedProcess(args, returncode=127,
-                                           stdout=b"", stderr=b"tmux not found")
+                                           stdout=empty, stderr=empty)
 
 
 def _tmux_ensure_session() -> bool:
@@ -1519,6 +1520,7 @@ def _tmux_ensure_session() -> bool:
         candidates = glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/claude"))
         claude_bin = candidates[0] if candidates else None
     if not claude_bin:
+        log("tmux: claude binary not found in PATH or ~/.nvm")
         return False
 
     _tmux_run(["tmux", "kill-session", "-t", TMUX_SESSION])
@@ -1526,7 +1528,10 @@ def _tmux_ensure_session() -> bool:
     env_str = " ".join(f"unset {k};" for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"))
     cmd = f"{env_str} {claude_bin} --model {CLAUDE_MODEL}"
 
-    _tmux_run(["tmux", "new-session", "-d", "-s", TMUX_SESSION, "-x", "200", "-y", "50"])
+    r = _tmux_run(["tmux", "new-session", "-d", "-s", TMUX_SESSION, "-x", "200", "-y", "50"])
+    if r.returncode != 0:
+        log(f"tmux: new-session failed (rc={r.returncode})")
+        return False
     _tmux_run(["tmux", "send-keys", "-t", TMUX_SESSION, cmd, "Enter"])
 
     for _ in range(30):
@@ -1550,18 +1555,22 @@ def _tmux_capture() -> str:
 
 
 def _extract_json_from_pane(text: str) -> str | None:
-    """Try to extract a JSON object from raw pane text using JSONDecoder."""
+    """Extract the LAST JSON object with a 'thought' key from pane text."""
     decoder = json.JSONDecoder()
+    last_match = None
     idx = text.find("{")
     while idx != -1 and idx < len(text):
         try:
             obj, end = decoder.raw_decode(text, idx)
-            if isinstance(obj, dict) and "thought" in obj:
-                return json.dumps(obj)
+            if isinstance(obj, dict):
+                if "thought" in obj:
+                    last_match = json.dumps(obj)
+                else:
+                    log(f"tmux: found JSON without 'thought' key: {list(obj.keys())}")
         except (json.JSONDecodeError, ValueError):
             pass
         idx = text.find("{", idx + 1)
-    return None
+    return last_match
 
 
 def call_claude_haiku(prompt: str, system: str) -> dict:
@@ -1581,6 +1590,10 @@ def call_claude_haiku(prompt: str, system: str) -> dict:
         with os.fdopen(fd, "w") as f:
             f.write(full_prompt)
     except Exception as exc:
+        try:
+            prompt_file.unlink(missing_ok=True)
+        except Exception:
+            pass
         return {"error": f"prompt write failed: {exc}"}
 
     marker = f"PXM-{int(time.time())}-{os.getpid()}"
@@ -1644,8 +1657,8 @@ def call_claude_haiku(prompt: str, system: str) -> dict:
     finally:
         try:
             prompt_file.unlink(missing_ok=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            log(f"tmux: prompt file cleanup failed: {exc}")
 
     # Timeout — reset session after 2 consecutive timeouts
     _tmux_timeout_count += 1

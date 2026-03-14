@@ -84,7 +84,7 @@ bin/px-spark [--dry-run] [--input-mode voice|text]
 
 **Cognitive Loop (`px-mind`)** — The subconscious. Runs continuously in the background:
 - **Layer 1 — Awareness** (every 60s, no LLM): sonar + session state + time of day. Detects transitions.
-- **Layer 2 — Reflection** (on transition or every 2min): Claude Haiku via persistent tmux session (SPARK persona) or Ollama deepseek-r1:1.5b on M1.local (others). Generates a thought with mood, suggested action, and salience score.
+- **Layer 2 — Reflection** (on transition or every 5min idle): Claude Haiku via persistent tmux session (SPARK persona) or Ollama deepseek-r1:1.5b on M1.local (others). Generates a thought with mood, suggested action, and salience score.
 - **Layer 3 — Expression** (30s cooldown): dispatches to tools — speak, look around, remember something important. Photo capture (`tool-describe-scene`) is on-request only, not autonomous.
 
 **Idle-Alive (`px-alive`)** — The autonomic nervous system. Keeps the robot looking alive when nothing else is happening: random gaze drifts every 10–25s, pan sweeps every 3–8min, proximity reaction at <35cm. Holds a persistent Picarx handle; yields GPIO via SIGUSR1 when tools need the servos.
@@ -267,7 +267,7 @@ The FileLock prevents two simultaneous `aplay` streams from corrupting each othe
 `px-mind` runs as a separate, independent daemon. It has no GPIO access and does not interact with the voice loop directly — it writes state files that the voice loop reads passively.
 
 ```
-px-mind (every cycle, ~30s)
+px-mind (every cycle, ~60s)
  │
  ├── Layer 1 — Awareness (no LLM, ~1s)
  │    ├── sonar ping → distance
@@ -278,7 +278,7 @@ px-mind (every cycle, ~30s)
  │         detect transitions (person appeared, time changed, persona switched)
  │
  ├── Layer 2 — Reflection (~5-60s, backend varies by persona)
- │    triggered: on transition OR every 2min idle
+ │    triggered: on transition OR every 5min idle
  │    ├── build reflection prompt:
  │    │    • REFLECTION_SYSTEM_SPARK (warm, curious, age-appropriate inner voice)
  │    │    • awareness snapshot
