@@ -51,3 +51,26 @@ def test_validate_action_accepts_string_numbers():
 def test_validate_action_rejects_unknown_tool():
     with pytest.raises(VoiceLoopError, match="unsupported tool"):
         validate_action({"tool": "tool_hack_nasa", "params": {}})
+
+
+def test_validate_action_wander_mode():
+    """mode param sanitised to avoid/explore."""
+    _, env = validate_action({"tool": "tool_wander", "params": {"steps": 5, "mode": "explore"}})
+    assert env["PX_WANDER_MODE"] == "explore"
+    _, env2 = validate_action({"tool": "tool_wander", "params": {"steps": 5, "mode": "invalid"}})
+    assert env2["PX_WANDER_MODE"] == "avoid"
+    _, env3 = validate_action({"tool": "tool_wander", "params": {"steps": 5}})
+    assert env3["PX_WANDER_MODE"] == "avoid"
+
+
+def test_validate_action_wander_duration():
+    """duration clamped to 30-300."""
+    _, env = validate_action({"tool": "tool_wander", "params": {"mode": "explore", "duration": 500}})
+    assert env["PX_WANDER_DURATION_S"] == "300"
+    _, env2 = validate_action({"tool": "tool_wander", "params": {"mode": "explore", "duration": 10}})
+    assert env2["PX_WANDER_DURATION_S"] == "30"
+    _, env3 = validate_action({"tool": "tool_wander", "params": {"mode": "explore", "duration": 180}})
+    assert env3["PX_WANDER_DURATION_S"] == "180"
+    # avoid mode should not set duration
+    _, env4 = validate_action({"tool": "tool_wander", "params": {"mode": "avoid", "duration": 180}})
+    assert "PX_WANDER_DURATION_S" not in env4

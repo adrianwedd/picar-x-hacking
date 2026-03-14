@@ -271,6 +271,7 @@ def build_model_prompt(system_prompt: str, state: Dict[str, Any], user_text: str
         "mode",
         "confirm_motion_allowed",
         "wheels_on_blocks",
+        "roaming_allowed",
         "battery_pct",
         "battery_ok",
         "last_motion",
@@ -322,6 +323,28 @@ def build_model_prompt(system_prompt: str, state: Dict[str, Any], user_text: str
                     context_sections.append(f"Current mood: {last_mood}")
         except Exception:
             print("[voice-loop] failed to read thoughts for prompt context", file=sys.stderr)
+
+    # Inject recent exploration observations
+    state_dir = Path(os.environ.get("PX_STATE_DIR", str(PROJECT_ROOT / "state")))
+    exploration_file = state_dir / "exploration.jsonl"
+    if exploration_file.exists():
+        try:
+            lines = exploration_file.read_text(encoding="utf-8").strip().splitlines()
+            recent_obs = []
+            for line in lines[-10:]:
+                try:
+                    entry = json.loads(line)
+                    if entry.get("type") == "observation" and entry.get("landmark"):
+                        recent_obs.append(
+                            f"[{entry.get('heading_estimate', '?')}] {entry['landmark']}"
+                        )
+                except json.JSONDecodeError:
+                    continue
+            if recent_obs:
+                context_sections.append("Recent exploration landmarks:")
+                context_sections.append(", ".join(recent_obs[-5:]))
+        except Exception:
+            pass
 
     context_block = "\n".join(context_sections)
 
@@ -501,6 +524,13 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
     elif tool == "tool_wander":
         steps = int(clamp(_num(params.get("steps", 5), "steps"), 1, 20))
         sanitized["PX_WANDER_STEPS"] = str(steps)
+        mode = str(params.get("mode", "avoid"))
+        if mode not in ("avoid", "explore"):
+            mode = "avoid"
+        sanitized["PX_WANDER_MODE"] = mode
+        if mode == "explore":
+            duration = int(clamp(_num(params.get("duration", 180), "duration"), 30, 300))
+            sanitized["PX_WANDER_DURATION_S"] = str(duration)
     elif tool == "tool_timer":
         seconds = int(clamp(_num(params.get("seconds", 60), "seconds"), 5, 3600))
         label   = str(params.get("label", ""))[:100]
