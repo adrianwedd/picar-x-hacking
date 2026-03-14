@@ -306,7 +306,7 @@ CLAUDE_MODEL = os.environ.get("PX_MIND_CLAUDE_MODEL", "claude-haiku-4-5-20251001
 VALID_MOODS   = {"curious", "content", "alert", "playful", "contemplative", "bored",
                  "mischievous", "lonely", "excited", "grumpy", "peaceful", "anxious"}
 VALID_ACTIONS = {"wait", "greet", "comment", "remember", "look_at",
-                 "weather_comment", "scan"}
+                 "weather_comment", "scan", "explore"}
 
 # ── Mood momentum: valence (-1..1) × arousal (-1..1) ───────────────
 MOOD_COORDS: dict[str, tuple[float, float]] = {
@@ -839,6 +839,43 @@ def read_battery() -> dict | None:
         return None
 
 
+def _can_explore(session: dict, awareness: dict) -> bool:
+    """Check all preconditions for autonomous exploration."""
+    if not session.get("roaming_allowed", False):
+        return False
+    if not session.get("confirm_motion_allowed", False):
+        return False
+    if session.get("wheels_on_blocks", False):
+        return False
+    if session.get("listening", False):
+        return False
+    battery = awareness.get("battery") or {}
+    if not isinstance(battery, dict):
+        battery = {}
+    if not battery:
+        battery = {
+            "pct": awareness.get("battery_pct"),
+            "charging": awareness.get("battery_charging", False),
+        }
+    if battery.get("charging", False):
+        return False
+    if battery.get("pct") is None:
+        return False
+    if battery["pct"] <= 20:
+        return False
+    meta_path = STATE_DIR / "exploration_meta.json"
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        last = dt.datetime.fromisoformat(meta["last_explore_ts"])
+        if (dt.datetime.now(dt.timezone.utc) - last).total_seconds() < 1200:
+            return False
+    except FileNotFoundError:
+        pass  # no meta file = first exploration, no cooldown
+    except (KeyError, ValueError, json.JSONDecodeError):
+        return False  # corrupt meta = cooldown active (fail-safe)
+    return True
+
+
 # Battery glitch detection: tracks recent readings to reject sensor errors.
 # A real battery cannot drop from 70% to 0% in one tick — that's an ADC glitch.
 _battery_history: list[int] = []        # last N pct readings (newest last)
@@ -1289,6 +1326,28 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
     if recent_convos:
         awareness["recent_conversations"] = list(reversed(recent_convos))
 
+    # Recent exploration observations
+    try:
+        exp_file = STATE_DIR / "exploration.jsonl"
+        if exp_file.exists():
+            exp_lines = exp_file.read_text(encoding="utf-8").strip().splitlines()
+            recent_obs = []
+            for line in exp_lines[-5:]:
+                try:
+                    entry = json.loads(line)
+                    if entry.get("type") == "observation" and not entry.get("vision_failed"):
+                        recent_obs.append({
+                            "landmark": entry.get("landmark", ""),
+                            "heading": entry.get("heading_estimate", ""),
+                            "interesting": entry.get("interesting", False),
+                        })
+                except json.JSONDecodeError:
+                    continue
+            if recent_obs:
+                awareness["recent_exploration"] = recent_obs
+    except Exception:
+        pass
+
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     atomic_write(AWARENESS_FILE, json.dumps(awareness, indent=2))
     if frigate is not None:
@@ -1653,6 +1712,45 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
                          + _SPARK_REFLECTION_SUFFIX + _daytime_action_hint())
     else:
         system_prompt = PERSONA_REFLECTION_SYSTEMS.get(persona, REFLECTION_SYSTEM)
+
+    # Conditionally inject 'explore' action into the system prompt
+    session = load_session()
+    try:
+        aw_data = json.loads(AWARENESS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        aw_data = {}
+
+    explore_available = _can_explore(session, aw_data)
+    if explore_available:
+        system_prompt = system_prompt.replace(
+            'weather_comment, scan"',
+            'weather_comment, scan, explore"'
+        )
+
+    # Exploration hints for context
+    explore_hints = []
+    if explore_available:
+        obi_mode = aw_data.get("obi_mode", "unknown")
+        if obi_mode in ("active", "calm"):
+            explore_hints.append("Obi might be nearby — you could go find him.")
+        mins_idle = aw_data.get("minutes_since_interaction", 0)
+        if mins_idle > 30:
+            explore_hints.append("You haven't moved in a while.")
+        try:
+            exp_file = STATE_DIR / "exploration.jsonl"
+            if exp_file.exists():
+                exp_lines = exp_file.read_text(encoding="utf-8").strip().splitlines()
+                for line in reversed(exp_lines[-10:]):
+                    entry = json.loads(line)
+                    if entry.get("type") == "observation" and entry.get("interesting"):
+                        lm = entry.get("landmark", "something")
+                        explore_hints.append(f"Last time you explored you found {lm}.")
+                        break
+        except Exception:
+            pass
+    if explore_hints:
+        context = context + "\n\nExploration hints: " + " ".join(explore_hints)
+
     result = call_llm(context, system_prompt, persona=persona)
     elapsed = time.monotonic() - t0
 
@@ -1826,6 +1924,115 @@ def expression(thought: dict, dry: bool) -> None:
                     capture_output=True, text=True, check=False, env=env, timeout=45,
                 )
                 _last_spoken_text = text[:200]
+
+        elif action == "explore":
+            log("expression: initiating exploration")
+            session = load_session()
+            awareness_data = {}
+            try:
+                awareness_data = json.loads(AWARENESS_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+            if not _can_explore(session, awareness_data):
+                log("expression: explore gates failed on re-check")
+                return
+
+            # yield_alive
+            try:
+                subprocess.run(
+                    ["bash", "-c", f"source {BIN_DIR / 'px-env'} && yield_alive"],
+                    capture_output=True, text=True, check=False, timeout=15,
+                )
+            except Exception as exc:
+                log(f"expression: yield_alive failed: {exc}")
+
+            # Wait for px-alive to exit
+            alive_pid_file = Path(os.environ.get("LOG_DIR",
+                                  str(PROJECT_ROOT / "logs"))) / "px-alive.pid"
+            waited = 0.0
+            while waited < 5:
+                if not alive_pid_file.exists():
+                    break
+                try:
+                    pid = int(alive_pid_file.read_text().strip())
+                    if not Path(f"/proc/{pid}").is_dir():
+                        break
+                except Exception:
+                    break
+                time.sleep(0.5)
+                waited += 0.5
+            if waited >= 5:
+                log("expression: px-alive still running after 5s — aborting exploration")
+                return
+
+            # Update exploration_meta (establishes cooldown)
+            meta_path = STATE_DIR / "exploration_meta.json"
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except Exception:
+                meta = {}
+            meta["last_explore_ts"] = dt.datetime.now(dt.timezone.utc).isoformat()
+            try:
+                atomic_write(meta_path, json.dumps(meta, indent=2))
+            except Exception:
+                pass
+
+            # Run tool-wander in explore mode
+            explore_env = env.copy()
+            explore_env["PX_WANDER_MODE"] = "explore"
+            explore_env["PX_WANDER_DURATION_S"] = "180"
+            explore_env["PX_WANDER_STEPS"] = "20"
+            explore_result = {}
+            try:
+                result = subprocess.run(
+                    [str(BIN_DIR / "tool-wander")],
+                    capture_output=True, text=True, check=False,
+                    env=explore_env, timeout=240,
+                )
+                try:
+                    explore_result = json.loads(result.stdout.strip().splitlines()[-1])
+                    obs = explore_result.get("observations", 0)
+                    log(f"expression: exploration complete — {obs} observations")
+                except (json.JSONDecodeError, IndexError):
+                    log(f"expression: exploration finished (rc={result.returncode})")
+            except subprocess.TimeoutExpired:
+                log("expression: exploration timed out")
+            except Exception as exc:
+                log(f"expression: exploration error: {exc}")
+
+            # Post-exploration thought
+            try:
+                obs = explore_result.get("observations", 0)
+                post_thought = {
+                    "ts": utc_timestamp(),
+                    "thought": f"I just finished exploring and found {obs} things worth noting." if obs > 0
+                               else "I went exploring but didn't find anything remarkable this time.",
+                    "mood": "curious",
+                    "action": "wait",
+                    "salience": 0.5,
+                }
+                append_thought(post_thought, persona=persona)
+            except Exception:
+                pass
+
+            # Verify px-alive is running
+            time.sleep(2)
+            try:
+                result = subprocess.run(
+                    ["systemctl", "is-active", "px-alive"],
+                    capture_output=True, text=True, check=False, timeout=5,
+                )
+                if result.stdout.strip() != "active":
+                    log("expression: px-alive not running — restarting")
+                    subprocess.run(
+                        ["sudo", "-n", "systemctl", "start", "px-alive"],
+                        capture_output=True, check=False, timeout=10,
+                    )
+            except Exception:
+                pass
+
+        else:
+            log(f"expression: unhandled action: {action}")
 
     except subprocess.TimeoutExpired:
         log(f"expression timed out: {action}")
