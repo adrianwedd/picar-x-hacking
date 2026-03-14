@@ -357,9 +357,9 @@
       SPARK's reflection layer degrades gracefully when upstream AI is unavailable:
     </p>
     <pre class="arch">
-  Tier 1: Claude CLI  →  Tier 2: Ollama on M1 (LAN)  →  Tier 3: Ollama on Pi
-          (internet)           (192.168.1.x)                   (offline)
-          SPARK persona        deepseek-r1:1.5b                (disabled — Pi 4 OOM)
+  Tier 1: Claude Haiku  →  Tier 2: Ollama on M1 (LAN)  →  Tier 3: Ollama on Pi
+          (tmux session)           (192.168.1.x)                   (offline)
+          SPARK persona            deepseek-r1:1.5b               (disabled — Pi 4 OOM)
     </pre>
 
     <h3>Cognitive Loop Timing</h3>

@@ -84,7 +84,7 @@ bin/px-spark [--dry-run] [--input-mode voice|text]
 
 **Cognitive Loop (`px-mind`)** — The subconscious. Runs continuously in the background:
 - **Layer 1 — Awareness** (every 30s, no LLM): sonar + session state + time of day. Detects transitions.
-- **Layer 2 — Reflection** (on transition or every 2min): Claude CLI (SPARK persona) or Ollama deepseek-r1:1.5b generates a thought with mood, suggested action, and salience score.
+- **Layer 2 — Reflection** (on transition or every 2min): Claude Haiku via persistent tmux session (SPARK persona) or Ollama deepseek-r1:1.5b on M1.local (others). Generates a thought with mood, suggested action, and salience score.
 - **Layer 3 — Expression** (30s cooldown): dispatches to tools — speak, look around, remember something important. Photo capture (`tool-describe-scene`) is on-request only, not autonomous.
 
 **Idle-Alive (`px-alive`)** — The autonomic nervous system. Keeps the robot looking alive when nothing else is happening: random gaze drifts every 10–25s, pan sweeps every 3–8min, proximity reaction at <35cm. Holds a persistent Picarx handle; yields GPIO via SIGUSR1 when tools need the servos.
@@ -284,7 +284,7 @@ px-mind (every cycle, ~30s)
  │    │    • awareness snapshot
  │    │    • last 3 moods + actions from thoughts-spark.jsonl (not full thought text)
  │    │    • random topic seed from 20 creative prompts (science, wonder, universe)
- │    ├── LLM call: Claude CLI (SPARK persona) or Ollama deepseek-r1:1.5b (others, temperature=1.3)
+ │    ├── LLM call: Claude Haiku via tmux session (SPARK) or Ollama deepseek-r1:1.5b (others, temperature=1.3)
  │    ├── anti-repetition check via difflib (>75% similarity = suppress)
  │    ├── parse JSON: {thought, mood, action, salience}
  │    ├── append to state/thoughts-spark.jsonl
