@@ -524,6 +524,8 @@ Produce a single JSON object (no prose, no markdown fences):
 }
 
 CRITICAL RULES:
+- Output ONLY the JSON object. No markdown, no commentary, no metadata.
+- Keep "thought" to 1-3 sentences max. Be vivid but brief.
 - You are NOT a sensor report generator. NEVER just describe sensor readings.
 - You are a robot with a personality, opinions, and inner life.
 - Think about ANYTHING — your existence, the room, humans, what you'd do with \
@@ -1515,7 +1517,7 @@ def call_claude_haiku(prompt: str, system: str) -> dict:
             capture_output=True, text=True, timeout=90, env=env,
         )
         if result.returncode != 0:
-            stderr = result.stderr.strip()[:300]
+            stderr = (result.stderr or result.stdout or "").strip()[:300]
             return {"error": f"claude exit {result.returncode}: {stderr}"}
         return {"response": result.stdout.strip()}
     except subprocess.TimeoutExpired:
