@@ -343,8 +343,8 @@ def build_model_prompt(system_prompt: str, state: Dict[str, Any], user_text: str
             if recent_obs:
                 context_sections.append("Recent exploration landmarks:")
                 context_sections.append(", ".join(recent_obs[-5:]))
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[voice-loop] failed to read exploration.jsonl: {exc}", file=sys.stderr)
 
     context_block = "\n".join(context_sections)
 

@@ -112,6 +112,7 @@ filter_battery = _MIND["filter_battery"]
 _battery_history = _MIND["_battery_history"]
 _BATTERY_MAX_DROP = _MIND["BATTERY_MAX_DROP_PER_TICK"]
 _BATTERY_GLITCH_CONFIRMS = _MIND["BATTERY_GLITCH_CONFIRMS"]
+_can_explore = _MIND["_can_explore"]
 
 
 # ---------------------------------------------------------------------------
@@ -613,3 +614,93 @@ def test_read_battery_includes_charging(tmp_path):
     finally:
         if old_file is not None:
             _MIND["BATTERY_FILE"] = old_file
+
+
+# ---------------------------------------------------------------------------
+# _can_explore — safety gate tests
+# ---------------------------------------------------------------------------
+
+import datetime as _dt
+
+
+def _base_session(**overrides):
+    s = {
+        "roaming_allowed": True,
+        "confirm_motion_allowed": True,
+        "wheels_on_blocks": False,
+        "listening": False,
+    }
+    s.update(overrides)
+    return s
+
+
+def _base_awareness(**overrides):
+    a = {
+        "battery": {"pct": 80, "charging": False},
+    }
+    a.update(overrides)
+    return a
+
+
+@pytest.fixture
+def explore_state(tmp_path):
+    """Temporarily redirect STATE_DIR so _can_explore reads meta from tmp_path."""
+    old = _MIND.get("STATE_DIR")
+    _MIND["STATE_DIR"] = tmp_path
+    yield tmp_path
+    if old is not None:
+        _MIND["STATE_DIR"] = old
+
+
+def test_can_explore_all_gates_pass(explore_state):
+    assert _can_explore(_base_session(), _base_awareness()) is True
+
+
+def test_can_explore_blocked_roaming_disabled(explore_state):
+    assert _can_explore(_base_session(roaming_allowed=False), _base_awareness()) is False
+
+
+def test_can_explore_blocked_motion_not_allowed(explore_state):
+    assert _can_explore(_base_session(confirm_motion_allowed=False), _base_awareness()) is False
+
+
+def test_can_explore_blocked_wheels_on_blocks(explore_state):
+    assert _can_explore(_base_session(wheels_on_blocks=True), _base_awareness()) is False
+
+
+def test_can_explore_blocked_listening(explore_state):
+    assert _can_explore(_base_session(listening=True), _base_awareness()) is False
+
+
+def test_can_explore_blocked_charging(explore_state):
+    assert _can_explore(_base_session(), _base_awareness(battery={"pct": 80, "charging": True})) is False
+
+
+def test_can_explore_blocked_battery_none(explore_state):
+    """No battery data at all → blocked (fail-safe)."""
+    assert _can_explore(_base_session(), _base_awareness(battery={})) is False
+
+
+def test_can_explore_blocked_battery_low(explore_state):
+    assert _can_explore(_base_session(), _base_awareness(battery={"pct": 15, "charging": False})) is False
+
+
+def test_can_explore_blocked_cooldown(explore_state):
+    """Recent exploration within 1200s cooldown → blocked."""
+    meta = {"last_explore_ts": _dt.datetime.now(_dt.timezone.utc).isoformat()}
+    (explore_state / "exploration_meta.json").write_text(_json.dumps(meta))
+    assert _can_explore(_base_session(), _base_awareness()) is False
+
+
+def test_can_explore_passes_after_cooldown(explore_state):
+    """Exploration older than 1200s → allowed."""
+    old_ts = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(seconds=1500)).isoformat()
+    meta = {"last_explore_ts": old_ts}
+    (explore_state / "exploration_meta.json").write_text(_json.dumps(meta))
+    assert _can_explore(_base_session(), _base_awareness()) is True
+
+
+def test_can_explore_corrupt_meta_fails_safe(explore_state):
+    """Corrupt meta file → blocked (fail-safe)."""
+    (explore_state / "exploration_meta.json").write_text("not json")
+    assert _can_explore(_base_session(), _base_awareness()) is False

@@ -412,6 +412,8 @@ def idle_loop(args) -> None:
                              list(range(PAN_RANGE[1], PAN_RANGE[0] - 1, -15))
                     p = get_px()
                     for a in angles:
+                        if _yield_requested:
+                            break
                         ease(p, cur_pan, cur_tilt, a, cur_tilt, 0.6)
                         cur_pan = a
                         time.sleep(0.2)

@@ -831,7 +831,7 @@ def read_battery() -> dict | None:
         data = json.loads(BATTERY_FILE.read_text())
         ts = dt.datetime.fromisoformat(data["ts"].replace("Z", "+00:00"))
         age_s = (dt.datetime.now(dt.timezone.utc) - ts).total_seconds()
-        if age_s > 180:
+        if age_s > 90:  # 3 missed polls (30s each) = stale
             return None
         return {"pct": int(data["pct"]), "volts": float(data["volts"]),
                 "charging": bool(data.get("charging", False))}
@@ -2002,19 +2002,34 @@ def expression(thought: dict, dry: bool) -> None:
             explore_env["PX_WANDER_STEPS"] = "20"
             explore_result = {}
             try:
-                result = subprocess.run(
+                # Use Popen + SIGTERM instead of subprocess.run(timeout=) which
+                # sends SIGKILL (uncatchable) — px-wander's finally block needs
+                # SIGTERM to execute motor cleanup.
+                proc = subprocess.Popen(
                     [str(BIN_DIR / "tool-wander")],
-                    capture_output=True, text=True, check=False,
-                    env=explore_env, timeout=240,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, env=explore_env,
                 )
                 try:
-                    explore_result = json.loads(result.stdout.strip().splitlines()[-1])
-                    obs = explore_result.get("observations", 0)
-                    log(f"expression: exploration complete — {obs} observations")
-                except (json.JSONDecodeError, IndexError):
-                    log(f"expression: exploration finished (rc={result.returncode})")
-            except subprocess.TimeoutExpired:
-                log("expression: exploration timed out")
+                    stdout, stderr = proc.communicate(timeout=240)
+                except subprocess.TimeoutExpired:
+                    log("expression: exploration timeout — sending SIGTERM")
+                    proc.terminate()
+                    try:
+                        stdout, stderr = proc.communicate(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        log("expression: SIGTERM ignored — sending SIGKILL")
+                        proc.kill()
+                        stdout, stderr = proc.communicate()
+                    log("expression: exploration timed out")
+                    stdout = None
+                if stdout:
+                    try:
+                        explore_result = json.loads(stdout.strip().splitlines()[-1])
+                        obs = explore_result.get("observations", 0)
+                        log(f"expression: exploration complete — {obs} observations")
+                    except (json.JSONDecodeError, IndexError):
+                        log(f"expression: exploration finished (rc={proc.returncode})")
             except Exception as exc:
                 log(f"expression: exploration error: {exc}")
 
@@ -2030,8 +2045,8 @@ def expression(thought: dict, dry: bool) -> None:
                     "salience": 0.5,
                 }
                 append_thought(post_thought, persona=persona)
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"expression: post-exploration thought failed: {exc}")
 
             # Verify px-alive is running
             time.sleep(2)
@@ -2046,8 +2061,8 @@ def expression(thought: dict, dry: bool) -> None:
                         ["sudo", "-n", "systemctl", "start", "px-alive"],
                         capture_output=True, check=False, timeout=10,
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"expression: px-alive restart check failed: {exc}")
 
         else:
             log(f"expression: unhandled action: {action}")

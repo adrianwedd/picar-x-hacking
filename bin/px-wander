@@ -74,30 +74,34 @@ def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 
-def read_dist(px) -> float:
-    """Read sonar distance using the existing Picarx handle. Returns cm or 999."""
+def read_dist(px) -> float | None:
+    """Read sonar distance using the existing Picarx handle. Returns cm or None on failure."""
     try:
         d = px.get_distance()
-        return float(d) if d and d > 0 else 999.0
+        return float(d) if d and d > 0 else None
     except Exception:
-        return 999.0
+        return None
 
 
-def sweep_distances(px) -> dict[int, float]:
-    """Sweep camera pan across SWEEP_ANGLES, read sonar at each. Returns {angle: cm}."""
+def sweep_distances(px) -> dict[int, float | None]:
+    """Sweep camera pan across SWEEP_ANGLES, read sonar at each. Returns {angle: cm|None}."""
     readings = {}
     for angle in SWEEP_ANGLES:
         px.set_cam_pan_angle(angle)
         time.sleep(0.15)  # settle
         readings[angle] = read_dist(px)
-        log(f"  sweep angle={angle:+d}\u00b0 dist={readings[angle]:.0f}cm")
+        dist_str = f"{readings[angle]:.0f}" if readings[angle] is not None else "None"
+        log(f"  sweep angle={angle:+d}\u00b0 dist={dist_str}cm")
     px.set_cam_pan_angle(0)  # return to center
     return readings
 
 
-def best_direction(readings: dict[int, float]) -> tuple[int, float]:
-    """Return (best_angle, best_dist) — angle of maximum clearance."""
-    return max(readings.items(), key=lambda kv: kv[1])
+def best_direction(readings: dict[int, float | None]) -> tuple[int, float]:
+    """Return (best_angle, best_dist) — angle of maximum clearance. Ignores None readings."""
+    valid = {k: v for k, v in readings.items() if v is not None}
+    if not valid:
+        return (0, 0.0)  # no valid readings — report blocked
+    return max(valid.items(), key=lambda kv: kv[1])
 
 
 def speak(text: str) -> None:
@@ -221,12 +225,14 @@ def _query_frigate() -> list[dict] | None:
                 detections.append({"label": label, "score": round(float(score), 2)})
                 seen.add(label)
         return detections
-    except Exception:
+    except Exception as exc:
+        log(f"frigate query failed: {exc}")
         return None
 
 
 def _write_exploring_state(active: bool, pid: int | None = None,
-                            started: str | None = None) -> None:
+                            started: str | None = None) -> bool:
+    """Write exploring.json. Returns True on success, False on failure."""
     data = {"active": active}
     if pid is not None:
         data["pid"] = pid
@@ -234,16 +240,21 @@ def _write_exploring_state(active: bool, pid: int | None = None,
         data["started"] = started
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     path = STATE_DIR / "exploring.json"
+    tmp = None
     try:
         fd, tmp = tempfile.mkstemp(dir=str(STATE_DIR), suffix=".tmp")
         with os.fdopen(fd, "w") as f:
             json.dump(data, f)
         os.replace(tmp, str(path))
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except Exception:
-            pass
+        return True
+    except Exception as exc:
+        log(f"exploring.json write failed: {exc}")
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+        return False
 
 
 def _load_exploration_meta() -> dict:
@@ -254,19 +265,25 @@ def _load_exploration_meta() -> dict:
         return {}
 
 
-def _save_exploration_meta(meta: dict) -> None:
+def _save_exploration_meta(meta: dict) -> bool:
+    """Write exploration_meta.json. Returns True on success, False on failure."""
     path = STATE_DIR / "exploration_meta.json"
     STATE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = None
     try:
         fd, tmp = tempfile.mkstemp(dir=str(STATE_DIR), suffix=".tmp")
         with os.fdopen(fd, "w") as f:
             json.dump(meta, f, indent=2)
         os.replace(tmp, str(path))
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except Exception:
-            pass
+        return True
+    except Exception as exc:
+        log(f"exploration_meta.json write failed: {exc}")
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+        return False
 
 
 def _heading_label(accumulator: float) -> str:
@@ -296,11 +313,15 @@ def _extract_landmark(description: str) -> str:
 def _flush_nav_entries(entries: list[dict], explore_id: str) -> None:
     if not entries:
         return
-    from filelock import FileLock
     path = STATE_DIR / "exploration.jsonl"
-    lock = FileLock(str(path) + ".lock", timeout=5)
     try:
-        with lock:
+        from filelock import FileLock
+        lock = FileLock(str(path) + ".lock", timeout=5)
+    except ImportError:
+        lock = None
+    try:
+        _cm = lock if lock else __import__("contextlib").nullcontext()
+        with _cm:
             existing = []
             if path.exists():
                 existing = [ln for ln in path.read_text(encoding="utf-8").strip().splitlines() if ln.strip()]
@@ -322,11 +343,15 @@ def _flush_nav_entries(entries: list[dict], explore_id: str) -> None:
 
 
 def _write_observation(entry: dict) -> None:
-    from filelock import FileLock
     path = STATE_DIR / "exploration.jsonl"
-    lock = FileLock(str(path) + ".lock", timeout=5)
     try:
-        with lock:
+        from filelock import FileLock
+        lock = FileLock(str(path) + ".lock", timeout=5)
+    except ImportError:
+        lock = None
+    try:
+        _cm = lock if lock else __import__("contextlib").nullcontext()
+        with _cm:
             STATE_DIR.mkdir(parents=True, exist_ok=True)
             with path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
@@ -352,11 +377,15 @@ def _call_describe_scene(dry: bool) -> dict:
 
 
 def _auto_remember(text: str) -> None:
-    from filelock import FileLock
     notes_path = STATE_DIR / "notes.jsonl"
-    lock = FileLock(str(notes_path) + ".lock", timeout=5)
     try:
-        with lock:
+        from filelock import FileLock
+        lock = FileLock(str(notes_path) + ".lock", timeout=5)
+    except ImportError:
+        lock = None
+    try:
+        _cm = lock if lock else __import__("contextlib").nullcontext()
+        with _cm:
             notes_path.parent.mkdir(parents=True, exist_ok=True)
             entry = {
                 "ts": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -430,8 +459,12 @@ def main(argv: list[str]) -> int:
 
                 # Sweep to find best direction
                 readings = sweep_distances(px)
+                # Sensor failure: treat as obstacle (stop, don't drive blind)
+                if all(v is None for v in readings.values()):
+                    log("sonar sensor failure — stopping")
+                    break
                 best_angle, best_dist = best_direction(readings)
-                forward_dist = readings.get(0, 999.0)
+                forward_dist = readings.get(0) or 0.0  # None → 0 → treat as obstacle
 
                 log(f"best_angle={best_angle:+d}\u00b0 best_dist={best_dist:.0f}cm forward={forward_dist:.0f}cm")
 
@@ -492,8 +525,11 @@ def main(argv: list[str]) -> int:
             signal.signal(signal.SIGTERM, _handle_sigterm)
             explore_id = f"e-{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}"
             start_time = time.time()
-            _write_exploring_state(True, pid=os.getpid(),
-                                    started=dt.datetime.now(dt.timezone.utc).isoformat())
+            if not _write_exploring_state(True, pid=os.getpid(),
+                                          started=dt.datetime.now(dt.timezone.utc).isoformat()):
+                log("explore abort: cannot write exploring.json — px-alive coordination broken")
+                print(json.dumps({"status": "error", "error": "exploring.json write failed"}))
+                return 1
 
             meta = _load_exploration_meta()
             meta["last_explore_ts"] = dt.datetime.now(dt.timezone.utc).isoformat()
@@ -608,9 +644,15 @@ def main(argv: list[str]) -> int:
                             px.stop()
                         steps_driven += 1
 
-                    # Frigate query
+                    # Frigate query (retry every FLUSH_INTERVAL steps after failure)
                     frigate_labels = []
-                    if frigate_available:
+                    if not frigate_available and steps_completed % FLUSH_INTERVAL == 0:
+                        detections = _query_frigate()
+                        if detections is not None:
+                            log("explore: Frigate back online")
+                            frigate_available = True
+                            frigate_labels = [d["label"] for d in detections]
+                    elif frigate_available:
                         detections = _query_frigate()
                         if detections is None:
                             if not frigate_warned:
@@ -783,15 +825,15 @@ def main(argv: list[str]) -> int:
                 px.set_cam_pan_angle(0)
                 px.set_cam_tilt_angle(0)
                 px.close()
-            except Exception:
-                log("motor cleanup failed — attempting I2C fallback")
+            except Exception as exc:
+                log(f"motor cleanup failed ({exc}) — attempting I2C fallback")
                 try:
                     import smbus2
                     bus = smbus2.SMBus(1)
                     bus.write_byte_data(0x40, 0xFD, 0x10)  # ALL_LED_OFF
                     bus.close()
-                except Exception:
-                    log("I2C fallback also failed")
+                except Exception as exc2:
+                    log(f"I2C fallback also failed: {exc2}")
 
 
 if __name__ == "__main__":

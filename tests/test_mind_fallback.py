@@ -104,13 +104,39 @@ def test_falls_back_to_local_ollama_when_m1_fails():
             raise urllib.error.URLError("M1 unreachable")
         return _fake_ollama_cm("running on fumes")  # return full CM, not unwrapped
 
-    with patch("subprocess.run", return_value=_fake_claude(1, stderr="offline")), \
-         patch("urllib.request.urlopen", side_effect=urlopen_side):
-        result = call_llm("prompt", "system", persona="spark")
+    # Local fallback is opt-in via PX_MIND_LOCAL_OLLAMA=1
+    old_val = os.environ.get("PX_MIND_LOCAL_OLLAMA")
+    os.environ["PX_MIND_LOCAL_OLLAMA"] = "1"
+    try:
+        with patch("subprocess.run", return_value=_fake_claude(1, stderr="offline")), \
+             patch("urllib.request.urlopen", side_effect=urlopen_side):
+            result = call_llm("prompt", "system", persona="spark")
 
-    assert call_count[0] == 2, f"expected 2 urlopen calls, got {call_count[0]}"
-    assert "error" not in result
-    assert "fumes" in result["response"]
+        assert call_count[0] == 2, f"expected 2 urlopen calls, got {call_count[0]}"
+        assert "error" not in result
+        assert "fumes" in result["response"]
+    finally:
+        if old_val is None:
+            os.environ.pop("PX_MIND_LOCAL_OLLAMA", None)
+        else:
+            os.environ["PX_MIND_LOCAL_OLLAMA"] = old_val
+
+
+def test_skips_local_ollama_when_not_opted_in():
+    """Without PX_MIND_LOCAL_OLLAMA=1, M1 failure → error (no local fallback)."""
+    import urllib.error
+    call_llm = _MIND["call_llm"]
+
+    old_val = os.environ.pop("PX_MIND_LOCAL_OLLAMA", None)
+    try:
+        with patch("subprocess.run", return_value=_fake_claude(1, stderr="offline")), \
+             patch("urllib.request.urlopen",
+                   side_effect=urllib.error.URLError("M1 unreachable")):
+            result = call_llm("prompt", "system", persona="spark")
+        assert "error" in result
+    finally:
+        if old_val is not None:
+            os.environ["PX_MIND_LOCAL_OLLAMA"] = old_val
 
 
 # ── Full failure: all three tiers fail → error dict, no exception ───
