@@ -1,0 +1,211 @@
+/* Feed + Thought permalink pages — warm theme */
+
+body {
+  background: var(--warm-bg);
+  color: var(--warm-text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Layout ─────────────────────────────────────── */
+
+.feed-page,
+.thought-page {
+  flex: 1;
+  padding-top: calc(var(--nav-height) + 2rem);
+  padding-bottom: 3rem;
+}
+
+.container {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+/* ── Feed header ────────────────────────────────── */
+
+.feed-header {
+  margin-bottom: 2.5rem;
+}
+
+.feed-header h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  margin: 0 0 0.5rem;
+}
+
+.feed-subtitle {
+  color: var(--warm-muted);
+  font-size: 1rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ── Feed list ──────────────────────────────────── */
+
+.feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* ── Feed card (in list) ────────────────────────── */
+
+.feed-card {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 1.5rem 1.75rem;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+
+.feed-card:hover {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.10);
+  transform: translateY(-1px);
+}
+
+.feed-card-quote {
+  font-family: 'Courier Prime', monospace;
+  font-style: italic;
+  font-size: clamp(1rem, 2.5vw, 1.25rem);
+  line-height: 1.6;
+  margin: 0 0 1rem;
+  color: var(--warm-text);
+}
+
+.feed-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--warm-muted);
+}
+
+/* ── Mood badge ─────────────────────────────────── */
+
+.mood-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+
+.mood-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.mood-peaceful    { color: #4a9d8f; background: #e8f5f0; }
+.mood-content     { color: #6b8e5e; background: #eef5e8; }
+.mood-contemplative { color: #7b6fa0; background: #f0ecf5; }
+.mood-curious     { color: #c48a3f; background: #faf0e0; }
+.mood-active      { color: #d46b4a; background: #fae8e0; }
+.mood-excited     { color: #d44a6b; background: #fae0ea; }
+
+/* ── Full thought page ──────────────────────────── */
+
+.thought-card-full {
+  background: #fff;
+  border-radius: 24px;
+  padding: 2.5rem 2.25rem;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  margin-bottom: 2rem;
+}
+
+.thought-quote-full {
+  font-family: 'Courier Prime', monospace;
+  font-style: italic;
+  font-size: clamp(1.15rem, 3vw, 1.7rem);
+  line-height: 1.65;
+  margin: 0 0 1.5rem;
+  color: var(--warm-text);
+}
+
+.thought-meta-full {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--warm-muted);
+}
+
+/* ── Navigation ─────────────────────────────────── */
+
+.thought-nav {
+  margin-top: 1.5rem;
+}
+
+.back-link {
+  color: var(--warm-accent);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.back-link:hover {
+  text-decoration: underline;
+}
+
+/* ── States ─────────────────────────────────────── */
+
+.feed-loading,
+.feed-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--warm-muted);
+  font-size: 1rem;
+}
+
+.feed-empty a {
+  color: var(--warm-accent);
+}
+
+/* ── Footer ─────────────────────────────────────── */
+
+.feed-footer {
+  padding: 2rem 0;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--warm-muted);
+  border-top: 1px solid rgba(0,0,0,0.06);
+}
+
+.feed-footer a {
+  color: var(--warm-accent);
+  text-decoration: none;
+}
+
+.feed-footer a:hover {
+  text-decoration: underline;
+}
+
+/* ── Nav active link ────────────────────────────── */
+
+.links a.active {
+  color: var(--warm-accent);
+}
+
+/* ── Responsive ─────────────────────────────────── */
+
+@media (max-width: 600px) {
+  .thought-card-full {
+    padding: 1.75rem 1.25rem;
+    border-radius: 16px;
+  }
+
+  .feed-card {
+    padding: 1.25rem 1rem;
+  }
+}
