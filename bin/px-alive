@@ -109,9 +109,14 @@ def log(msg: str) -> None:
         if LOG_FILE.stat().st_size > 5_000_000:
             lines = LOG_FILE.read_text(encoding="utf-8").splitlines()
             half = len(lines) // 2
-            LOG_FILE.write_text("\n".join(lines[half:]) + "\n", encoding="utf-8")
-    except Exception:
-        pass
+            half_content = "\n".join(lines[half:]) + "\n"
+            import tempfile as _tmpmod
+            fd, tmp = _tmpmod.mkstemp(dir=str(LOG_FILE.parent), suffix=".tmp")
+            with os.fdopen(fd, "w") as f:
+                f.write(half_content)
+            os.replace(tmp, str(LOG_FILE))
+    except Exception as exc:
+        print(f"log rotation failed: {exc}", flush=True)
 
 
 def _pan_from_frigate(presence: dict | None) -> int:

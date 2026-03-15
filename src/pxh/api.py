@@ -1015,7 +1015,7 @@ async def get_session() -> Dict[str, Any]:
         summary = data["last_weather"].get("summary", "")
         if summary:
             data["last_weather"]["summary"] = _re.sub(
-                r"At \S+,", "At the weather station,", summary
+                r"At [^,]+,", "At the weather station,", summary
             )
     return data
 
@@ -1510,7 +1510,8 @@ def _sanitize_log_line(line: str) -> str:
     # Redact Ollama/model backend addresses (e.g. http://M1.local:11434)
     line = _re.sub(r"https?://\S+:\d{4,5}", "<backend>", line)
     # Redact model identifiers (e.g. deepseek-r1:1.5b, llama3.2:latest)
-    line = _re.sub(r"\b[a-z][\w.-]*:[0-9]+\.?[0-9]*[a-z]*\b", "<model>", line)
+    # Avoid matching port numbers like :8420 — require model name prefix (letters/hyphens before colon)
+    line = _re.sub(r"\b[a-z][a-z0-9._-]+:(?:[0-9]+\.?[0-9]*[a-z]*|latest)\b", "<model>", line)
     return line
 
 

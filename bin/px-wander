@@ -131,7 +131,12 @@ def speak(text: str) -> None:
         from robot_hat import enable_speaker
         enable_speaker()
     except Exception:
-        pass
+        try:
+            subprocess.run(["/usr/bin/python3", "-c",
+                "from robot_hat import enable_speaker; enable_speaker()"],
+                capture_output=True, timeout=3)
+        except Exception:
+            pass
     variant = os.environ.get("PX_VOICE_VARIANT", "en+m3")
     pitch   = os.environ.get("PX_VOICE_PITCH",   "82")
     rate    = os.environ.get("PX_VOICE_RATE",     "150")
@@ -152,8 +157,8 @@ def speak(text: str) -> None:
             ap.wait()
         else:
             es.wait()
-    except Exception:
-        pass
+    except Exception as exc:
+        log(f"speak error: {exc}")
 
 
 _sigterm_flag = threading.Event()

@@ -705,10 +705,10 @@ class TestPinVerify:
         assert resp.json()["verified"] is False
 
     def test_pin_verify_rate_limit(self, api_client):
-        """5 wrong PINs trigger lockout; 6th attempt gets 429."""
+        """3 wrong PINs trigger lockout; 4th attempt gets 429."""
         import unittest.mock
         with unittest.mock.patch.dict(os.environ, {"PX_ADMIN_PIN": "9999"}):
-            for _ in range(5):
+            for _ in range(3):
                 resp = api_client.post("/api/v1/pin/verify", json={"pin": "0000"})
                 assert resp.status_code == 200
                 assert resp.json()["verified"] is False
@@ -722,8 +722,8 @@ class TestPinVerify:
         import time as _t
 
         with unittest.mock.patch.dict(os.environ, {"PX_ADMIN_PIN": "9999"}):
-            # Accumulate 5 failures to trigger lockout
-            for _ in range(5):
+            # Accumulate 3 failures to trigger lockout
+            for _ in range(3):
                 resp = api_client.post("/api/v1/pin/verify", json={"pin": "0000"})
                 assert resp.status_code == 200
 
@@ -734,7 +734,7 @@ class TestPinVerify:
             # Verify state file was written
             assert api._pin_state_path().exists()
             saved = json.loads(api._pin_state_path().read_text())
-            assert saved["attempts"] >= 5
+            assert saved["attempts"] >= 3
             # lockout_until is now an ISO timestamp string
             from datetime import datetime, timezone
             assert saved["lockout_until"] is not None
@@ -751,13 +751,13 @@ class TestPinVerify:
             assert resp.status_code == 429
 
     def test_pin_escalating_lockout(self, api_client):
-        """5 failures -> 5 min lockout; 10 cumulative failures -> 30 min lockout."""
+        """3 failures -> 5 min lockout; 12 cumulative failures -> 30 min lockout."""
         import pxh.api as api
         import time as _t
 
         with unittest.mock.patch.dict(os.environ, {"PX_ADMIN_PIN": "9999"}):
-            # 5 failures: should trigger 5-minute (300s) lockout
-            for _ in range(5):
+            # 3 failures: should trigger 5-minute (300s) lockout
+            for _ in range(3):
                 api_client.post("/api/v1/pin/verify", json={"pin": "0000"})
 
             with api._pin_lock:
@@ -765,14 +765,20 @@ class TestPinVerify:
                 assert lockout_remaining > 250, f"Expected ~300s lockout, got {lockout_remaining}"
                 assert lockout_remaining <= 300
 
-            # Simulate time passing: clear lockout but keep cumulative attempts (5)
+            # Simulate time passing: clear lockout but keep cumulative attempts (3)
             with api._pin_lock:
                 api._pin_lockout_until = 0.0
                 api._save_pin_state()  # persist the cleared lockout to file
 
-            # 5 more failures (cumulative = 10): should trigger 30-minute lockout
-            for _ in range(5):
-                api_client.post("/api/v1/pin/verify", json={"pin": "0000"})
+            # 9 more failures (cumulative = 12 >= threshold 10): should trigger 30-minute lockout
+            for batch in range(3):
+                for _ in range(3):
+                    api_client.post("/api/v1/pin/verify", json={"pin": "0000"})
+                if batch < 2:
+                    # Clear intermediate lockouts (at cumulative 6, 9) to keep going
+                    with api._pin_lock:
+                        api._pin_lockout_until = 0.0
+                        api._save_pin_state()
 
             with api._pin_lock:
                 lockout_remaining = api._pin_lockout_until - _t.monotonic()
@@ -784,13 +790,13 @@ class TestPinVerify:
         import pxh.api as api
 
         with unittest.mock.patch.dict(os.environ, {"PX_ADMIN_PIN": "9999"}):
-            # Accumulate some failures
-            for _ in range(3):
+            # Accumulate some failures (2, not 3 — 3 triggers lockout)
+            for _ in range(2):
                 api_client.post("/api/v1/pin/verify", json={"pin": "0000"})
 
             assert api._pin_state_path().exists()
             saved = json.loads(api._pin_state_path().read_text())
-            assert saved["attempts"] == 3
+            assert saved["attempts"] == 2
 
             # Correct PIN resets everything and deletes lockout file
             resp = api_client.post("/api/v1/pin/verify", json={"pin": "9999"})

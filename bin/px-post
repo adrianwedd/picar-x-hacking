@@ -76,9 +76,13 @@ def log(msg: str, **extra) -> None:
             if log_file.stat().st_size > 5_000_000:
                 lines = log_file.read_text(encoding="utf-8").splitlines()
                 half = len(lines) // 2
-                log_file.write_text("\n".join(lines[half:]) + "\n", encoding="utf-8")
-        except Exception:
-            pass
+                half_content = "\n".join(lines[half:]) + "\n"
+                fd, tmp = tempfile.mkstemp(dir=str(log_file.parent), suffix=".tmp")
+                with os.fdopen(fd, "w") as f:
+                    f.write(half_content)
+                os.replace(tmp, str(log_file))
+        except Exception as exc:
+            print(f"log rotation failed: {exc}", flush=True)
     except OSError:
         pass
 
@@ -353,23 +357,26 @@ class BlueskyClient:
         # Add rich text facets (clickable links + hashtags)
         facets = []
         text_bytes = post_text.encode("utf-8")
+        search_start = 0
         for token in post_text.split():
             if token.startswith("https://") or token.startswith("http://"):
                 url_bytes = token.encode("utf-8")
-                start = text_bytes.find(url_bytes)
+                start = text_bytes.find(url_bytes, search_start)
                 if start >= 0:
                     facets.append({
                         "index": {"byteStart": start, "byteEnd": start + len(url_bytes)},
                         "features": [{"$type": "app.bsky.richtext.facet#link", "uri": token}],
                     })
+                    search_start = start + len(url_bytes)
             elif token.startswith("#") and len(token) > 1:
                 tag_bytes = token.encode("utf-8")
-                start = text_bytes.find(tag_bytes)
+                start = text_bytes.find(tag_bytes, search_start)
                 if start >= 0:
                     facets.append({
                         "index": {"byteStart": start, "byteEnd": start + len(tag_bytes)},
                         "features": [{"$type": "app.bsky.richtext.facet#tag", "tag": token[1:]}],
                     })
+                    search_start = start + len(tag_bytes)
         if facets:
             rec["facets"] = facets
         record = {
@@ -588,8 +595,8 @@ def flush_queue(bluesky: 'BlueskyClient', mastodon: 'MastodonClient', dry: bool)
                     entry["posted"]["mastodon"] = entry["posted"].get("mastodon") or "skipped"
                     processed += 1
                     break
-            except Exception:
-                pass  # feed read failed — continue posting
+            except Exception as exc:
+                log(f"feed cross-check failed: {exc}")
 
         # Build permalink URL and hashtags for social posts
         thought_ts = entry.get("ts", "")
