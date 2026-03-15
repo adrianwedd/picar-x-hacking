@@ -803,3 +803,122 @@ def test_absent_gate_blocks_calendar_check():
 def test_absent_gate_allows_emote():
     """emote is a silent physical expression — should NOT be in the absent gate."""
     assert "emote" not in ABSENT_GATED_ACTIONS
+
+
+# ---------------------------------------------------------------------------
+# expression() dispatch tests
+# ---------------------------------------------------------------------------
+
+expression = _MIND["expression"]
+BIN_DIR = _MIND["BIN_DIR"]
+
+
+def _thought(action, mood="curious", text="test thought", salience=0.5):
+    return {"thought": text, "mood": mood, "action": action, "salience": salience}
+
+
+@pytest.fixture(autouse=False)
+def _mock_awareness_and_battery(tmp_path):
+    """Stub AWARENESS_FILE and BATTERY_FILE so expression() gates don't block."""
+    old_aw = _MIND.get("AWARENESS_FILE")
+    old_bat = _MIND.get("BATTERY_FILE")
+    aw_file = tmp_path / "awareness.json"
+    bat_file = tmp_path / "battery.json"
+    aw_file.write_text(_json.dumps({"obi_mode": "calm"}))
+    bat_file.write_text(_json.dumps({"pct": 80, "charging": False}))
+    _MIND["AWARENESS_FILE"] = aw_file
+    _MIND["BATTERY_FILE"] = bat_file
+    yield
+    if old_aw is not None:
+        _MIND["AWARENESS_FILE"] = old_aw
+    if old_bat is not None:
+        _MIND["BATTERY_FILE"] = old_bat
+
+
+def test_expression_play_sound_calls_tool(_mock_awareness_and_battery):
+    """play_sound dispatches to tool-play-sound with PX_SOUND from mood mapping."""
+    with patch("subprocess.run") as mock_run:
+        expression(_thought("play_sound", mood="curious"), dry=True)
+    calls = [c for c in mock_run.call_args_list
+             if "tool-play-sound" in str(c)]
+    assert len(calls) == 1
+    env = calls[0].kwargs.get("env") or calls[0][1].get("env", {})
+    assert env.get("PX_SOUND") == "beep"
+    assert env.get("PX_DRY") == "1"
+
+
+def test_expression_photograph_calls_describe_scene(_mock_awareness_and_battery):
+    """photograph dispatches to tool-describe-scene via Popen, NOT tool-photograph."""
+    mock_proc = MagicMock()
+    mock_proc.communicate = MagicMock(return_value=("", ""))
+    with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+        expression(_thought("photograph"), dry=True)
+    calls = [c for c in mock_popen.call_args_list
+             if "tool-describe-scene" in str(c)]
+    assert len(calls) == 1
+    # Verify it's NOT tool-photograph
+    all_calls_str = str(mock_popen.call_args_list)
+    assert "tool-photograph" not in all_calls_str
+
+
+def test_expression_emote_calls_tool(_mock_awareness_and_battery):
+    """emote dispatches to tool-emote with PX_EMOTE from mood mapping."""
+    with patch("subprocess.run") as mock_run:
+        expression(_thought("emote", mood="happy"), dry=True)
+    calls = [c for c in mock_run.call_args_list
+             if "tool-emote" in str(c)]
+    assert len(calls) == 1
+    env = calls[0].kwargs.get("env") or calls[0][1].get("env", {})
+    assert env.get("PX_EMOTE") == "happy"
+
+
+def test_expression_look_around_calls_tool(_mock_awareness_and_battery):
+    """look_around dispatches to tool-look with PX_PAN and PX_TILT env vars."""
+    with patch("subprocess.run") as mock_run:
+        expression(_thought("look_around"), dry=True)
+    calls = [c for c in mock_run.call_args_list
+             if "tool-look" in str(c)]
+    assert len(calls) == 1
+    env = calls[0].kwargs.get("env") or calls[0][1].get("env", {})
+    assert "PX_PAN" in env
+    assert "PX_TILT" in env
+    # Verify pan/tilt are within expected ranges
+    pan = int(env["PX_PAN"])
+    tilt = int(env["PX_TILT"])
+    assert -40 <= pan <= 40
+    assert -10 <= tilt <= 30
+
+
+def test_expression_time_check_calls_tool(_mock_awareness_and_battery):
+    """time_check dispatches to tool-time."""
+    with patch("subprocess.run") as mock_run:
+        expression(_thought("time_check"), dry=True)
+    calls = [c for c in mock_run.call_args_list
+             if "tool-time" in str(c)]
+    assert len(calls) == 1
+
+
+def test_expression_calendar_check_calls_tool(_mock_awareness_and_battery):
+    """calendar_check dispatches to tool-gws-calendar with PX_CALENDAR_ACTION=next."""
+    with patch("subprocess.run") as mock_run:
+        expression(_thought("calendar_check"), dry=True)
+    calls = [c for c in mock_run.call_args_list
+             if "tool-gws-calendar" in str(c)]
+    assert len(calls) == 1
+    env = calls[0].kwargs.get("env") or calls[0][1].get("env", {})
+    assert env.get("PX_CALENDAR_ACTION") == "next"
+
+
+def test_unknown_action_logged(_mock_awareness_and_battery, tmp_path):
+    """An invented action logs 'unhandled action' without crashing."""
+    log_file = tmp_path / "px-mind.log"
+    old_log = _MIND.get("LOG_FILE")
+    _MIND["LOG_FILE"] = log_file
+    try:
+        with patch("subprocess.run"):
+            expression(_thought("invented_action"), dry=True)
+        log_content = log_file.read_text()
+        assert "unhandled action" in log_content
+    finally:
+        if old_log is not None:
+            _MIND["LOG_FILE"] = old_log

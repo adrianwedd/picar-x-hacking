@@ -2290,6 +2290,55 @@ def expression(thought: dict, dry: bool) -> None:
             except Exception as exc:
                 log(f"expression: px-alive restart check failed: {exc}")
 
+        elif action == "play_sound":
+            sound = MOOD_TO_SOUND.get(thought.get("mood", ""), "chime")
+            env["PX_SOUND"] = sound
+            subprocess.run([str(BIN_DIR / "tool-play-sound")],
+                           capture_output=True, text=True, check=False, env=env, timeout=15)
+
+        elif action == "photograph":
+            # tool-describe-scene is self-contained: yield_alive, capture, vision, speak
+            # Use Popen+SIGTERM for graceful cleanup on timeout
+            proc = subprocess.Popen(
+                [str(BIN_DIR / "tool-describe-scene")],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+            try:
+                proc.communicate(timeout=120)
+            except subprocess.TimeoutExpired:
+                log("expression: photograph timed out — sending SIGTERM")
+                proc.terminate()
+                try:
+                    proc.communicate(timeout=15)
+                except subprocess.TimeoutExpired:
+                    log("expression: photograph SIGTERM ignored — SIGKILL")
+                    proc.kill()
+                    proc.communicate()
+
+        elif action == "emote":
+            emote_name = MOOD_TO_EMOTE.get(thought.get("mood", ""), "idle")
+            env["PX_EMOTE"] = emote_name
+            subprocess.run([str(BIN_DIR / "tool-emote")],
+                           capture_output=True, text=True, check=False, env=env, timeout=15)
+
+        elif action == "look_around":
+            env["PX_PAN"] = str(_SYS_RNG.randint(-40, 40))
+            env["PX_TILT"] = str(_SYS_RNG.randint(-10, 30))
+            subprocess.run([str(BIN_DIR / "tool-look")],
+                           capture_output=True, text=True, check=False, env=env, timeout=15)
+            if text:
+                env["PX_TEXT"] = text[:2000]
+                subprocess.run([str(BIN_DIR / "tool-voice")],
+                               capture_output=True, text=True, check=False, env=env, timeout=45)
+
+        elif action == "time_check":
+            subprocess.run([str(BIN_DIR / "tool-time")],
+                           capture_output=True, text=True, check=False, env=env, timeout=15)
+
+        elif action == "calendar_check":
+            env["PX_CALENDAR_ACTION"] = "next"
+            subprocess.run([str(BIN_DIR / "tool-gws-calendar")],
+                           capture_output=True, text=True, check=False, env=env, timeout=60)
+
         else:
             log(f"expression: unhandled action: {action}")
 
