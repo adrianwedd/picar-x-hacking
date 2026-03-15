@@ -3,6 +3,7 @@ Description=SPARK social posting daemon
 After=network-online.target px-mind.service
 
 [Service]
+EnvironmentFile=-/home/pi/picar-x-hacking/.env
 ExecStart=/home/pi/picar-x-hacking/bin/px-post
 User=pi
 Restart=always
