@@ -57,8 +57,17 @@ def log(msg: str, **extra) -> None:
     }
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
-        with open(LOG_DIR / "tool-post.log", "a") as f:
+        log_file = LOG_DIR / "tool-post.log"
+        with open(log_file, "a") as f:
             f.write(json.dumps(entry) + "\n")
+        # Simple rotation: keep last half when file exceeds 5MB
+        try:
+            if log_file.stat().st_size > 5_000_000:
+                lines = log_file.read_text(encoding="utf-8").splitlines()
+                half = len(lines) // 2
+                log_file.write_text("\n".join(lines[half:]) + "\n", encoding="utf-8")
+        except Exception:
+            pass
     except OSError:
         pass
 
@@ -488,7 +497,7 @@ def flush_queue(bluesky: 'BlueskyClient', mastodon: 'MastodonClient', dry: bool)
     """Process one pending queue entry. Returns dict with processed/posted/rejected counts."""
     entries = _load_queue()
     if not entries:
-        return 0
+        return {"processed": 0, "posted": False, "rejected": False}
 
     # Load feed for repost guard
     feed_posts = []

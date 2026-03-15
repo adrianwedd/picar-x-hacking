@@ -120,6 +120,14 @@ def log(msg: str) -> None:
     with LOG_FILE.open("a", encoding="utf-8") as f:
         f.write(line + "\n")
     print(line, flush=True)
+    # Simple rotation: keep last half when file exceeds 5MB
+    try:
+        if LOG_FILE.stat().st_size > 5_000_000:
+            lines = LOG_FILE.read_text(encoding="utf-8").splitlines()
+            half = len(lines) // 2
+            LOG_FILE.write_text("\n".join(lines[half:]) + "\n", encoding="utf-8")
+    except Exception:
+        pass
 
 
 def rms(data: bytes) -> float:

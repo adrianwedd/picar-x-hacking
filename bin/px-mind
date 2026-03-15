@@ -725,6 +725,14 @@ def log(msg: str) -> None:
     with LOG_FILE.open("a", encoding="utf-8") as f:
         f.write(line + "\n")
     print(line, flush=True)
+    # Simple rotation: keep last half when file exceeds 5MB
+    try:
+        if LOG_FILE.stat().st_size > 5_000_000:
+            lines = LOG_FILE.read_text(encoding="utf-8").splitlines()
+            half = len(lines) // 2
+            LOG_FILE.write_text("\n".join(lines[half:]) + "\n", encoding="utf-8")
+    except Exception:
+        pass
 
 
 def classify_time_period(hour: int) -> str:
@@ -1272,7 +1280,7 @@ def filter_battery(raw: dict | None, prev_pct: int) -> dict | None:
             f"elapsed={elapsed:.0f}s/{BATTERY_GLITCH_MIN_ELAPSED_S}s)")
         if _battery_glitch_count < BATTERY_GLITCH_CONFIRMS:
             # Reject — return previous known-good value
-            return {"pct": prev_pct, "volts": raw["volts"]}
+            return {"pct": prev_pct, "volts": raw["volts"], "charging": raw.get("charging", False)}
         else:
             # Confirmed — battery really is low (or sensor is consistently broken)
             log(f"battery: accepting {pct}% after {_battery_glitch_count} confirmations "
@@ -1790,7 +1798,7 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
         "period_duration_min": round(period_duration_min, 1),
         "battery_pct": curr_batt if battery else prev_batt,
         "battery_volts": battery["volts"] if battery else None,
-        "battery_charging": battery["charging"] if battery else False,
+        "battery_charging": battery.get("charging", False) if battery else False,
         "listening": session.get("listening", False),
         "persona": session.get("persona"),
         "transitions": transitions,

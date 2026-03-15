@@ -587,6 +587,29 @@ _SYS_RNG = _test_random.SystemRandom()
 
 
 @patch.dict(os.environ, {"PX_POST_QA": "0"})
+def test_flush_empty_queue_returns_dict(_cursor_env):
+    """flush_queue() on an empty queue returns a dict with processed: 0."""
+    tmp = _cursor_env
+    # Ensure queue file does not exist
+    queue_file = tmp / "post_queue.jsonl"
+    if queue_file.exists():
+        queue_file.unlink()
+
+    bsky = MagicMock()
+    masto = MagicMock()
+
+    result = flush_queue(bsky, masto, dry=True)
+    assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+    assert result["processed"] == 0
+    assert result["posted"] is False
+    assert result["rejected"] is False
+
+    # Neither client should have been called
+    bsky.post.assert_not_called()
+    masto.post.assert_not_called()
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "0"})
 def test_per_destination_retry(_cursor_env):
     """Bluesky errored, feed ok — flush retries Bluesky but not feed."""
     tmp = _cursor_env

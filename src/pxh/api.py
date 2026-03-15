@@ -220,7 +220,7 @@ app = FastAPI(title="PiCar-X API", version="0.1.0", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://spark.wedd.au", "http://spark.wedd.au", "https://spark-api.wedd.au", "http://localhost:8420"],
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH"],
     allow_headers=["*"],
 )
 
@@ -675,12 +675,25 @@ async def public_awareness() -> Dict[str, Any]:
         "minutes_since_speech": awareness.get("minutes_since_speech"),
         "time_period": awareness.get("time_period"),
         "wifi_dbm": wifi_dbm,
-        "ha_calendar": awareness.get("ha_calendar"),
-        "ha_routines": awareness.get("ha_routines"),
-        "ha_context": awareness.get("ha_context"),
-        "ha_sleep": awareness.get("ha_sleep"),
+        # HA integration data stripped from public endpoint — exposes Obi's schedule,
+        # meds status, and Adrian's call status.  Available on authenticated /api/v1/session only.
+        "ha_calendar": None,
+        "ha_routines": None,
+        "ha_context": None,
+        "ha_sleep": None,
         "ts": awareness.get("ts"),
     }
+
+
+@app.get("/api/v1/awareness", dependencies=[Depends(_verify_token)])
+async def authenticated_awareness() -> Dict[str, Any]:
+    """Full awareness snapshot including HA integration data. Requires auth."""
+    try:
+        parsed = json.loads((_public_state_dir() / "awareness.json").read_text())
+        awareness = parsed if isinstance(parsed, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError, TypeError):
+        awareness = {}
+    return awareness
 
 
 @app.get("/api/v1/public/history")
@@ -1859,14 +1872,16 @@ async function pollFace(){
     }
   }catch(e){}
   try{
-    const aw=await fetch('/api/v1/public/awareness').then(r=>r.json());
-    const cal=aw.ha_calendar;
-    if(cal&&cal.length>0){const next=cal[0];const mins=next.starts_in_mins;let txt='';if(mins<=0)txt='📅 Now: '+next.title;else if(mins<60)txt='📅 '+next.title+' in '+mins+'min';else txt='📅 '+next.title+' in '+Math.floor(mins/60)+'h';document.getElementById('spark-calendar').textContent=txt;}
-    else{document.getElementById('spark-calendar').textContent='';}
-    const rt=aw.ha_routines;
-    if(rt){let parts=[];if(rt.meds_taken===false)parts.push('💊 Meds: not taken');else if(rt.meds_taken===true)parts.push('💊 Meds: \u2713');if(rt.water_mins_ago!=null){if(rt.water_mins_ago>120)parts.push('💧 Water: '+Math.floor(rt.water_mins_ago/60)+'h ago');else if(rt.water_mins_ago>60)parts.push('💧 Water: ~1h ago');else parts.push('💧 Water: recent');}document.getElementById('spark-routines').textContent=parts.join(' \u00b7 ');}
-    const ctx=aw.ha_context;
-    if(ctx){let parts=[];if(ctx.adrian_on_call)parts.push('📞 On call');if(ctx.office_light)parts.push('💡 Office');if(ctx.media_playing)parts.push('🎵 '+(ctx.media_title||'Playing'));document.getElementById('spark-context').textContent=parts.join(' \u00b7 ');}
+    if(_pinOk){
+      const aw=await api('/api/v1/awareness');
+      const cal=aw.ha_calendar;
+      if(cal&&cal.length>0){const next=cal[0];const mins=next.starts_in_mins;let txt='';if(mins<=0)txt='📅 Now: '+next.title;else if(mins<60)txt='📅 '+next.title+' in '+mins+'min';else txt='📅 '+next.title+' in '+Math.floor(mins/60)+'h';document.getElementById('spark-calendar').textContent=txt;}
+      else{document.getElementById('spark-calendar').textContent='';}
+      const rt=aw.ha_routines;
+      if(rt){let parts=[];if(rt.meds_taken===false)parts.push('💊 Meds: not taken');else if(rt.meds_taken===true)parts.push('💊 Meds: \u2713');if(rt.water_mins_ago!=null){if(rt.water_mins_ago>120)parts.push('💧 Water: '+Math.floor(rt.water_mins_ago/60)+'h ago');else if(rt.water_mins_ago>60)parts.push('💧 Water: ~1h ago');else parts.push('💧 Water: recent');}document.getElementById('spark-routines').textContent=parts.join(' \u00b7 ');}
+      const ctx=aw.ha_context;
+      if(ctx){let parts=[];if(ctx.adrian_on_call)parts.push('📞 On call');if(ctx.office_light)parts.push('💡 Office');if(ctx.media_playing)parts.push('🎵 '+(ctx.media_title||'Playing'));document.getElementById('spark-context').textContent=parts.join(' \u00b7 ');}
+    }
   }catch(e){}
   try{
     const ps=await fetch('/api/v1/public/feed').then(r=>r.json());

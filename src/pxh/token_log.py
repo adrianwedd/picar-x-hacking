@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 
 from filelock import FileLock
@@ -47,6 +48,16 @@ def log_usage(input_text: str, output_text: str) -> None:
             existing["output_tokens"] = existing.get("output_tokens", 0) + _est(output_text)
             existing["call_count"] = existing.get("call_count", 0) + 1
             existing["ts"] = utc_timestamp()
-            usage_file.write_text(json.dumps(existing))
+            fd, tmp = tempfile.mkstemp(dir=str(usage_file.parent), suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(existing, f)
+                os.replace(tmp, str(usage_file))
+            except Exception:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
     except Exception:
         _log.warning("token accounting failed", exc_info=True)
