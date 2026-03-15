@@ -1489,8 +1489,10 @@ def call_ollama(prompt: str, system: str,
 
 
 TMUX_SESSION = "px-claude"
+TMUX_MAX_TURNS = 20  # reset session after N turns to prevent context buildup / refusal
 _tmux_ready = False
 _tmux_timeout_count = 0
+_tmux_turn_count = 0
 
 
 def _tmux_run(args: list, **kwargs) -> subprocess.CompletedProcess:
@@ -1510,10 +1512,15 @@ def _tmux_ensure_session() -> bool:
     import shutil
 
     if _tmux_ready:
-        r = _tmux_run(["tmux", "has-session", "-t", TMUX_SESSION])
-        if r.returncode == 0:
-            return True
-        _tmux_ready = False
+        # Rotate session after N turns to prevent context buildup / Claude refusal
+        if _tmux_turn_count >= TMUX_MAX_TURNS:
+            log(f"tmux: rotating session after {_tmux_turn_count} turns")
+            _tmux_ready = False
+        else:
+            r = _tmux_run(["tmux", "has-session", "-t", TMUX_SESSION])
+            if r.returncode == 0:
+                return True
+            _tmux_ready = False
 
     claude_bin = shutil.which("claude")
     if not claude_bin:
@@ -1542,6 +1549,7 @@ def _tmux_ensure_session() -> bool:
         if "\u276f" in pane:  # ❯
             _tmux_ready = True
             _tmux_timeout_count = 0
+            _tmux_turn_count = 0
             log(f"tmux claude session ready")
             return True
 
@@ -1635,7 +1643,8 @@ def call_claude_haiku(prompt: str, system: str) -> dict:
             json_str = _extract_json_from_pane(after_marker)
             if json_str:
                 _tmux_timeout_count = 0
-                log(f"tmux response captured ({tick+1}s)")
+                _tmux_turn_count += 1
+                log(f"tmux response captured ({tick+1}s, turn {_tmux_turn_count}/{TMUX_MAX_TURNS})")
                 return {"response": json_str}
 
             # Fallback: collect ● lines and continuation lines
@@ -1662,6 +1671,7 @@ def call_claude_haiku(prompt: str, system: str) -> dict:
 
             if found_final_prompt and response_lines:
                 _tmux_timeout_count = 0
+                _tmux_turn_count += 1
                 resp = "\n".join(response_lines)
                 log(f"tmux response captured ({tick+1}s, {len(response_lines)} lines)")
                 return {"response": resp}
