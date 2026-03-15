@@ -2741,6 +2741,8 @@ def mind_loop(args) -> None:
     last_reactive_mono = 0.0
     last_battery_warn_mono = 0.0
     consecutive_critical = 0          # require 2 consecutive critical readings before shutdown
+    consecutive_reflection_failures = 0
+    REFLECTION_FAIL_WARN_THRESHOLD = 3  # warn after 3 consecutive failures
 
     # Exponential backoff: reflection interval grows during extended idle periods.
     # Resets on any interaction (listening, transition, reactive event).
@@ -2822,6 +2824,18 @@ def mind_loop(args) -> None:
         if should_reflect:
             thought = reflection(awareness, args.dry_run)
             last_reflection_mono = now
+
+            if thought is None:
+                consecutive_reflection_failures += 1
+                if consecutive_reflection_failures == REFLECTION_FAIL_WARN_THRESHOLD:
+                    log(f"reflection: {consecutive_reflection_failures} consecutive failures — speaking warning")
+                    env = os.environ.copy()
+                    env["PX_DRY"] = "1" if args.dry_run else "0"
+                    env["PX_TEXT"] = "I'm having trouble thinking right now. All my language backends seem to be down."
+                    subprocess.run([str(BIN_DIR / "tool-voice")], env=env,
+                                   capture_output=True, check=False, timeout=20)
+            else:
+                consecutive_reflection_failures = 0
 
             if thought and thought.get("action", "wait") != "wait":
                 # Layer 3: Expression (with cooldown)

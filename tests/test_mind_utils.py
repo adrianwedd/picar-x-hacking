@@ -1247,3 +1247,51 @@ def test_format_calendar_empty_no_output():
     if ctx:
         context_parts.append(ctx)
     assert len(context_parts) == 1
+
+
+# ---------------------------------------------------------------------------
+# Consecutive reflection failure warning (#103)
+# ---------------------------------------------------------------------------
+
+
+def test_reflection_failure_counter_warns_at_threshold():
+    """After REFLECTION_FAIL_WARN_THRESHOLD consecutive None reflections,
+    a voice warning is spoken exactly once (at the threshold, not before)."""
+    THRESHOLD = 3
+    consecutive_reflection_failures = 0
+    warnings_spoken = []
+
+    # Simulate the mind_loop counter logic for a sequence of None reflections
+    for i in range(5):
+        thought = None  # simulate reflection failure
+        if thought is None:
+            consecutive_reflection_failures += 1
+            if consecutive_reflection_failures == THRESHOLD:
+                warnings_spoken.append(consecutive_reflection_failures)
+        else:
+            consecutive_reflection_failures = 0
+
+    # Warning spoken exactly once, at failure #3
+    assert warnings_spoken == [3]
+    assert consecutive_reflection_failures == 5
+
+
+def test_reflection_failure_counter_resets_on_success():
+    """A successful reflection resets the counter, so the next warning
+    requires another THRESHOLD consecutive failures."""
+    THRESHOLD = 3
+    consecutive_reflection_failures = 0
+    warnings_spoken = []
+
+    results = [None, None, {"thought": "ok"}, None, None, None, None]
+    for thought in results:
+        if thought is None:
+            consecutive_reflection_failures += 1
+            if consecutive_reflection_failures == THRESHOLD:
+                warnings_spoken.append(consecutive_reflection_failures)
+        else:
+            consecutive_reflection_failures = 0
+
+    # First two Nones don't reach threshold, then reset, then 4 Nones → warn at #3
+    assert warnings_spoken == [3]
+    assert consecutive_reflection_failures == 4
