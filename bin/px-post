@@ -566,6 +566,7 @@ def flush_queue(bluesky: 'BlueskyClient', mastodon: 'MastodonClient', dry: bool)
     for entry in entries:
         # Skip fully posted entries
         posted = entry.get("posted", {})
+        posted_before = dict(posted)  # snapshot before mutations
         pending_destinations = [k for k, v in posted.items()
                                 if v is None or (isinstance(v, str) and v.startswith("error:"))]
         if not pending_destinations and entry.get("qa_result") is not None:
@@ -642,8 +643,17 @@ def flush_queue(bluesky: 'BlueskyClient', mastodon: 'MastodonClient', dry: bool)
                 entry["posted"]["mastodon"] = "skipped"  # below social threshold
 
         processed += 1
-        was_posted = True
-        break  # max 1 per flush cycle
+        # Did we actually send to any platform (not just skip)?
+        all_done = all(v in ("ok", "skipped") for v in entry["posted"].values())
+        any_newly_ok = any(
+            entry["posted"].get(d) == "ok" and posted_before.get(d) != "ok"
+            for d in ("feed", "bluesky", "mastodon")
+        )
+        if any_newly_ok:
+            was_posted = True
+            break  # max 1 actual post per flush cycle
+        if all_done and not any_newly_ok:
+            continue  # everything was already done or skipped — process next immediately
 
     _save_queue(entries)
     return {"processed": processed, "posted": was_posted, "rejected": was_rejected}
