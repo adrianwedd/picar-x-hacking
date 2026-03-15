@@ -54,6 +54,16 @@ class TestHealth:
         assert resp.status_code == 200
 
 
+# -- Security Headers --
+
+class TestSecurityHeaders:
+    def test_security_headers_present(self, api_client):
+        resp = api_client.get("/api/v1/health")
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+        assert resp.headers["X-Frame-Options"] == "DENY"
+        assert resp.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+
+
 # -- Auth --
 
 class TestAuth:
