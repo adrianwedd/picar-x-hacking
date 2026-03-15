@@ -171,8 +171,15 @@ def _play_tone_sequence(segments: list, device: str = "", amplitude: int = 22000
     try:
         from robot_hat import enable_speaker
         enable_speaker()
-    except Exception as exc:
-        log(f"enable_speaker failed: {exc}")
+    except Exception:
+        try:
+            subprocess.run(
+                ["/usr/bin/python3", "-c",
+                 "from robot_hat import enable_speaker; enable_speaker()"],
+                capture_output=True, timeout=3,
+            )
+        except Exception:
+            pass  # amp enable is best-effort; audio may still work via PulseAudio
     try:
         import math, wave as wv, tempfile
         all_samples: list[int] = []
@@ -1000,8 +1007,15 @@ def listen_loop(pa, model, args, stt=None, whisper=None, sensevoice=None) -> Non
                     try:
                         from robot_hat import enable_speaker
                         enable_speaker()
-                    except Exception as exc:
-                        log(f"enable_speaker failed: {exc}")
+                    except Exception:
+                        try:
+                            subprocess.run(
+                                ["/usr/bin/python3", "-c",
+                                 "from robot_hat import enable_speaker; enable_speaker()"],
+                                capture_output=True, timeout=3,
+                            )
+                        except Exception:
+                            pass
                     # Chime in background while we start recording
                     threading.Thread(target=play_chime, args=(args.aplay_device,), daemon=True).start()
                     # Periodic heartbeat: soft tick every 5s so user knows we're listening/thinking
