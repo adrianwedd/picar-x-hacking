@@ -713,6 +713,8 @@ def test_can_explore_corrupt_meta_fails_safe(explore_state):
 VALID_ACTIONS = _MIND["VALID_ACTIONS"]
 MOOD_TO_SOUND = _MIND["MOOD_TO_SOUND"]
 MOOD_TO_EMOTE = _MIND["MOOD_TO_EMOTE"]
+CHARGING_GATED_ACTIONS = _MIND["CHARGING_GATED_ACTIONS"]
+ABSENT_GATED_ACTIONS = _MIND["ABSENT_GATED_ACTIONS"]
 
 
 def test_valid_actions_includes_new_actions():
@@ -751,3 +753,53 @@ def test_mood_mapping_fallback():
     """Unknown moods fall back to sensible defaults."""
     assert MOOD_TO_SOUND.get("unknown_mood", "chime") == "chime"
     assert MOOD_TO_EMOTE.get("unknown_mood", "idle") == "idle"
+
+
+# ---------------------------------------------------------------------------
+# Gate set membership tests
+# ---------------------------------------------------------------------------
+
+
+def test_charging_gate_blocks_emote():
+    """emote uses servos — must be blocked while charging."""
+    assert "emote" in CHARGING_GATED_ACTIONS
+
+
+def test_charging_gate_blocks_look_around():
+    """look_around uses servos — must be blocked while charging."""
+    assert "look_around" in CHARGING_GATED_ACTIONS
+
+
+def test_charging_gate_blocks_calendar_check():
+    """calendar_check triggers internal emote (servos) — must be blocked while charging."""
+    assert "calendar_check" in CHARGING_GATED_ACTIONS
+
+
+def test_charging_gate_allows_photograph():
+    """photograph does not use servos — should NOT be in the charging gate."""
+    assert "photograph" not in CHARGING_GATED_ACTIONS
+
+
+def test_absent_gate_blocks_play_sound():
+    """play_sound produces audio — must be blocked when Obi is absent."""
+    assert "play_sound" in ABSENT_GATED_ACTIONS
+
+
+def test_absent_gate_blocks_photograph():
+    """photograph speaks the description — must be blocked when Obi is absent."""
+    assert "photograph" in ABSENT_GATED_ACTIONS
+
+
+def test_absent_gate_blocks_time_check():
+    """time_check speaks the time — must be blocked when Obi is absent."""
+    assert "time_check" in ABSENT_GATED_ACTIONS
+
+
+def test_absent_gate_blocks_calendar_check():
+    """calendar_check speaks calendar info — must be blocked when Obi is absent."""
+    assert "calendar_check" in ABSENT_GATED_ACTIONS
+
+
+def test_absent_gate_allows_emote():
+    """emote is a silent physical expression — should NOT be in the absent gate."""
+    assert "emote" not in ABSENT_GATED_ACTIONS

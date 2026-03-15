@@ -310,6 +310,10 @@ VALID_ACTIONS = {"wait", "greet", "comment", "remember", "look_at",
                  "play_sound", "photograph", "emote", "look_around",
                  "time_check", "calendar_check"}
 
+CHARGING_GATED_ACTIONS = {"scan", "look_at", "explore", "emote", "look_around", "calendar_check"}
+ABSENT_GATED_ACTIONS = {"greet", "comment", "weather_comment", "scan",
+                        "play_sound", "time_check", "calendar_check", "photograph"}
+
 MOOD_TO_SOUND = {
     "curious": "beep", "alert": "beep",
     "happy": "tada", "excited": "tada", "playful": "tada",
@@ -2072,7 +2076,7 @@ def expression(thought: dict, dry: bool) -> None:
         _obi_mode = _aw.get("obi_mode", "unknown")
     except Exception:
         _obi_mode = "unknown"
-    if _obi_mode == "absent" and action in ("greet", "comment", "weather_comment", "scan"):
+    if _obi_mode == "absent" and action in ABSENT_GATED_ACTIONS:
         log(f"expression: suppressed {action} — obi_mode=absent (night, Obi likely asleep)")
         return
 
@@ -2082,7 +2086,7 @@ def expression(thought: dict, dry: bool) -> None:
         _charging = bool(_batt.get("charging", False))
     except Exception:
         _charging = False
-    if _charging and action in ("scan", "look_at", "explore"):
+    if _charging and action in CHARGING_GATED_ACTIONS:
         log(f"expression: suppressed {action} — battery charging")
         return
 
