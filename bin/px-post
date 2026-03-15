@@ -21,6 +21,8 @@ import datetime as dt
 import difflib
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -70,6 +72,56 @@ def is_duplicate(thought: str, recent_posts: list[str]) -> bool:
         if ratio >= SIMILARITY_THRESHOLD:
             return True
     return False
+
+
+def run_qa_gate(thought: str) -> str | None:
+    """Return 'pass', 'rejected', 'ambiguous', or None (error/timeout).
+
+    Calls claude CLI with a binary YES/NO prompt. Response is stripped,
+    lowercased, and prefix-matched.
+    """
+    if os.environ.get("PX_POST_QA", "1") == "0":
+        return "pass"  # QA disabled for testing
+
+    claude_bin = (os.environ.get("PX_CLAUDE_BIN")
+                  or shutil.which("claude")
+                  or "/home/pi/.local/bin/claude")
+
+    prompt = ('Is this thought from a small robot interesting enough to share '
+              'publicly on social media?\n'
+              'Answer only YES or NO. Nothing else.\n\n'
+              f'The thought: "{thought}"')
+
+    # Strip Claude Code env vars to allow nested invocation
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("CLAUDE_CODE")
+           and k not in ("CLAUDECODE", "DISABLE_CLAUDE_CODE_PROTECTIONS")}
+
+    try:
+        result = subprocess.run(
+            [claude_bin, "-p", prompt,
+             "--no-session-persistence",
+             "--output-format", "text",
+             "--allowedTools", ""],
+            capture_output=True, text=True, timeout=15, env=env,
+        )
+        if result.returncode != 0:
+            log(f"qa gate error: claude exit {result.returncode}: {result.stderr[:200]}")
+            return None
+        resp = result.stdout.strip().lower()
+        if resp.startswith("yes"):
+            return "pass"
+        elif resp.startswith("no"):
+            return "rejected"
+        else:
+            log(f"qa gate ambiguous response: {result.stdout.strip()[:100]}")
+            return "ambiguous"
+    except subprocess.TimeoutExpired:
+        log("qa gate timeout (15s)")
+        return None
+    except Exception as exc:
+        log(f"qa gate error: {exc}")
+        return None
 
 
 CURSOR_FILE = STATE_DIR / "px-post-cursor.json"

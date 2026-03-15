@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import types
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -47,6 +49,10 @@ _POST = _load_post_helpers()
 qualifies = _POST["qualifies"]
 is_duplicate = _POST["is_duplicate"]
 poll_new_thoughts = _POST["poll_new_thoughts"]
+run_qa_gate = _POST["run_qa_gate"]
+
+# The subprocess module reference used inside the exec'd module globals
+_post_subprocess = _POST["subprocess"]
 
 
 def _make_line(thought="hello", salience=0.8, action="comment"):
@@ -235,3 +241,59 @@ def test_corrupt_jsonl_skipped(_cursor_env):
     results = poll_new_thoughts(tf)
     assert len(results) == 2
     assert [r["thought"] for r in results] == ["good1", "good2"]
+
+
+# ---------------------------------------------------------------------------
+# run_qa_gate() — Claude QA gate
+# ---------------------------------------------------------------------------
+
+
+def _mock_run_result(stdout="YES", returncode=0, stderr=""):
+    """Create a mock subprocess.CompletedProcess."""
+    result = MagicMock()
+    result.stdout = stdout
+    result.stderr = stderr
+    result.returncode = returncode
+    return result
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "1", "PX_CLAUDE_BIN": "/usr/bin/claude"})
+def test_qa_gate_pass():
+    """Claude responds YES — gate returns 'pass'."""
+    with patch.object(_post_subprocess, "run", return_value=_mock_run_result("YES")):
+        assert run_qa_gate("I see a bird on the fence") == "pass"
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "1", "PX_CLAUDE_BIN": "/usr/bin/claude"})
+def test_qa_gate_pass_verbose():
+    """Claude responds with YES prefix — gate returns 'pass' (prefix match)."""
+    with patch.object(_post_subprocess, "run", return_value=_mock_run_result("Yes, this is wonderful")):
+        assert run_qa_gate("The sunset is beautiful tonight") == "pass"
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "1", "PX_CLAUDE_BIN": "/usr/bin/claude"})
+def test_qa_gate_fail():
+    """Claude responds NO — gate returns 'rejected'."""
+    with patch.object(_post_subprocess, "run", return_value=_mock_run_result("NO")):
+        assert run_qa_gate("sonar: 42cm") == "rejected"
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "1", "PX_CLAUDE_BIN": "/usr/bin/claude"})
+def test_qa_gate_ambiguous():
+    """Claude responds with something other than YES/NO — gate returns 'ambiguous'."""
+    with patch.object(_post_subprocess, "run", return_value=_mock_run_result("Maybe")):
+        assert run_qa_gate("hmm not sure") == "ambiguous"
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "1", "PX_CLAUDE_BIN": "/usr/bin/claude"})
+def test_qa_gate_timeout():
+    """Subprocess times out — gate returns None."""
+    with patch.object(_post_subprocess, "run", side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=15)):
+        assert run_qa_gate("anything") is None
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "1", "PX_CLAUDE_BIN": "/usr/bin/claude"})
+def test_qa_response_whitespace():
+    """Whitespace-padded response is stripped before matching."""
+    with patch.object(_post_subprocess, "run", return_value=_mock_run_result("  YES\n")):
+        assert run_qa_gate("I wonder about the stars") == "pass"
