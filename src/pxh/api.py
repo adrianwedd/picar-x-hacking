@@ -1005,6 +1005,12 @@ async def get_session() -> Dict[str, Any]:
     # Redact history to last 10 entries (not full conversation log)
     if "history" in data:
         data["history"] = data["history"][-10:]
+    # Security: redact system prompt excerpt (contains child PII)
+    data.pop("last_prompt_excerpt", None)
+    # Security: strip lat/lon/station from weather (location disclosure)
+    if isinstance(data.get("last_weather"), dict):
+        for k in ("lat", "lon", "station", "url"):
+            data["last_weather"].pop(k, None)
     return data
 
 
@@ -1333,7 +1339,7 @@ _PENDING_DEVICE_TTL = 30  # seconds
 _pin_lock = threading.Lock()
 _pin_attempts = 0
 _pin_lockout_until = 0.0
-_PIN_MAX_ATTEMPTS = 5
+_PIN_MAX_ATTEMPTS = 3
 _PIN_LOCKOUT_SECONDS = 300       # 5 minutes after 5 failures
 _PIN_ESCALATED_SECONDS = 1800    # 30 minutes after 10 cumulative failures
 _PIN_ESCALATION_THRESHOLD = 10
@@ -1493,8 +1499,13 @@ _LOG_ALLOWLIST = {
 
 
 def _sanitize_log_line(line: str) -> str:
-    """Strip absolute file paths to avoid exposing internal architecture."""
-    return _re.sub(r"/home/\S+/", "<path>/", line)
+    """Strip paths, model names, and backend addresses from log output."""
+    line = _re.sub(r"/home/\S+/", "<path>/", line)
+    # Redact Ollama/model backend addresses (e.g. http://M1.local:11434)
+    line = _re.sub(r"https?://\S+:\d{4,5}", "<backend>", line)
+    # Redact model identifiers (e.g. deepseek-r1:1.5b, llama3.2:latest)
+    line = _re.sub(r"\b[a-z][\w.-]*:[0-9]+\.?[0-9]*[a-z]*\b", "<model>", line)
+    return line
 
 
 @app.get("/api/v1/logs/{service}", dependencies=[Depends(_verify_token)])
