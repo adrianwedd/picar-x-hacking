@@ -416,7 +416,13 @@ def _generate_post_id() -> str:
 
 
 def queue_thought(entry: dict) -> None:
-    """Append a qualifying thought to the post queue."""
+    """Append a qualifying thought to the post queue. Skips if already queued (dedup)."""
+    # Check for duplicates in existing queue
+    existing = _load_queue()
+    new_thought = entry["thought"][:100]
+    for existing_entry in existing:
+        if existing_entry.get("thought", "")[:100] == new_thought:
+            return  # already queued
     queue_entry = {
         "id": _generate_post_id(),
         "ts": entry.get("ts", ""),
