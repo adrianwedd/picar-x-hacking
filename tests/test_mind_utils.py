@@ -846,6 +846,11 @@ def test_absent_gate_allows_emote():
     assert "emote" not in ABSENT_GATED_ACTIONS
 
 
+def test_absent_gate_blocks_look_around():
+    """look_around speaks via tool-voice — must be blocked when Obi is absent."""
+    assert "look_around" in ABSENT_GATED_ACTIONS
+
+
 # ---------------------------------------------------------------------------
 # expression() dispatch tests
 # ---------------------------------------------------------------------------
