@@ -78,6 +78,30 @@ def test_tool_voice_dry_run(isolated_project):
     assert payload["dry"] is True
 
 
+def test_tool_voice_lock_timeout(isolated_project):
+    """PX_VOICE_LOCK_TIMEOUT lets callers fail fast when voice.lock is held."""
+    from filelock import FileLock
+
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "0"  # non-dry so the lock path is exercised
+    env["PX_TEXT"] = "Lock contention test"
+    env["PX_VOICE_LOCK_TIMEOUT"] = "1"
+
+    log_dir = env.get("LOG_DIR", str(PROJECT_ROOT / "logs"))
+    lock_path = str(Path(log_dir) / "voice.lock")
+    Path(log_dir).mkdir(parents=True, exist_ok=True)
+
+    # Hold the lock externally so tool-voice hits the timeout
+    with FileLock(lock_path, timeout=0):
+        result = subprocess.run(
+            ["bin/tool-voice"],
+            cwd=PROJECT_ROOT, text=True, capture_output=True, check=False, env=env,
+        )
+    payload = parse_json(result.stdout.strip())
+    assert payload["status"] == "error"
+    assert "voice lock timeout" in payload["error"]
+
+
 def test_tool_weather_dry_run(isolated_project):
     env = isolated_project["env"].copy()
     env["PX_DRY"] = "1"

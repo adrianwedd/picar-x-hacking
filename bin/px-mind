@@ -2345,6 +2345,22 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     return thought
 
 
+def _run_voice(env: dict, *, timeout: int = 45, label: str = "") -> subprocess.CompletedProcess:
+    """Run tool-voice and log voice-lock contention if detected."""
+    result = subprocess.run(
+        [str(BIN_DIR / "tool-voice")],
+        capture_output=True, text=True, check=False, env=env, timeout=timeout,
+    )
+    if result.returncode != 0 and result.stdout:
+        try:
+            payload = json.loads(result.stdout.strip().splitlines()[-1])
+            if "voice lock timeout" in payload.get("error", ""):
+                log(f"expression: voice contention — voice.lock busy, skipping speech{f' ({label})' if label else ''}")
+        except (json.JSONDecodeError, IndexError):
+            pass
+    return result
+
+
 def expression(thought: dict, dry: bool) -> None:
     """Layer 3: act on a thought."""
     global _last_spoken_text
@@ -2376,6 +2392,9 @@ def expression(thought: dict, dry: bool) -> None:
     text = thought.get("thought", "")
     env = os.environ.copy()
     env["PX_DRY"] = "1" if dry else "0"
+    # Use a short voice-lock timeout so expression() fails fast when another
+    # process (voice loop, px-wake-listen) is already speaking.
+    env["PX_VOICE_LOCK_TIMEOUT"] = "5"
 
     # Inject persona voice settings so tool-voice uses the right espeak voice.
     # For thought-generated text (greet/comment/scan/look_at), the reflection
@@ -2398,18 +2417,12 @@ def expression(thought: dict, dry: bool) -> None:
         if action == "greet":
             # Use tool-voice (not tool-perform) to avoid GPIO collision with px-alive
             env["PX_TEXT"] = text[:2000]
-            subprocess.run(
-                [str(BIN_DIR / "tool-voice")],
-                capture_output=True, text=True, check=False, env=env, timeout=45,
-            )
+            _run_voice(env, label="greet")
             _last_spoken_text = text[:200]
 
         elif action == "comment":
             env["PX_TEXT"] = text[:2000]
-            subprocess.run(
-                [str(BIN_DIR / "tool-voice")],
-                capture_output=True, text=True, check=False, env=env, timeout=45,
-            )
+            _run_voice(env, label="comment")
             _last_spoken_text = text[:200]
 
         elif action == "weather_comment":
@@ -2419,20 +2432,14 @@ def expression(thought: dict, dry: bool) -> None:
                 env["PX_TEXT"] = weather["summary"][:2000]
             else:
                 env["PX_TEXT"] = text[:2000]
-            subprocess.run(
-                [str(BIN_DIR / "tool-voice")],
-                capture_output=True, text=True, check=False, env=env, timeout=45,
-            )
+            _run_voice(env, label="weather_comment")
             _last_spoken_text = env["PX_TEXT"][:200]
 
         elif action == "scan":
             # Awareness already reads sonar every 30s; just speak the thought
             if text:
                 env["PX_TEXT"] = text[:2000]
-                subprocess.run(
-                    [str(BIN_DIR / "tool-voice")],
-                    capture_output=True, text=True, check=False, env=env, timeout=45,
-                )
+                _run_voice(env, label="scan")
                 _last_spoken_text = text[:200]
 
         elif action == "remember":
@@ -2446,10 +2453,7 @@ def expression(thought: dict, dry: bool) -> None:
             # px-alive handles physical servo movement; px-mind just speaks the thought
             if text:
                 env["PX_TEXT"] = text[:2000]
-                subprocess.run(
-                    [str(BIN_DIR / "tool-voice")],
-                    capture_output=True, text=True, check=False, env=env, timeout=45,
-                )
+                _run_voice(env, label="look_at")
                 _last_spoken_text = text[:200]
 
         elif action == "explore":
@@ -2610,8 +2614,7 @@ def expression(thought: dict, dry: bool) -> None:
                            capture_output=True, text=True, check=False, env=env, timeout=15)
             if text:
                 env["PX_TEXT"] = text[:2000]
-                subprocess.run([str(BIN_DIR / "tool-voice")],
-                               capture_output=True, text=True, check=False, env=env, timeout=45)
+                _run_voice(env, label="look_around")
 
         elif action == "time_check":
             subprocess.run([str(BIN_DIR / "tool-time")],
@@ -2627,7 +2630,7 @@ def expression(thought: dict, dry: bool) -> None:
             log(f"expression: unhandled action: {action}")
 
     except subprocess.TimeoutExpired:
-        log(f"expression timed out: {action}")
+        log(f"expression timed out: {action} (possible voice contention — another process may hold voice.lock)")
     except Exception as exc:
         log(f"expression error: {exc}")
 
@@ -2691,16 +2694,14 @@ def reactive_response(transition: str, awareness: dict, dry: bool) -> None:
         for k, v in PERSONA_VOICE_ENV[persona].items():
             env[k] = v
 
+    env["PX_VOICE_LOCK_TIMEOUT"] = "5"  # fail fast on voice contention
     log(f"reactive: {transition} → \"{text[:60]}\"")
 
     try:
-        subprocess.run(
-            [str(BIN_DIR / "tool-voice")],
-            capture_output=True, text=True, check=False, env=env, timeout=20,
-        )
+        _run_voice(env, timeout=20, label=f"reactive_{transition}")
         _last_spoken_text = text[:200]
     except subprocess.TimeoutExpired:
-        log(f"reactive voice timed out: {transition}")
+        log(f"reactive: voice contention — tool-voice timed out for {transition}")
     except Exception as exc:
         log(f"reactive error: {exc}")
 

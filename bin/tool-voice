@@ -19,7 +19,8 @@ from pxh.logging import log_event
 from pxh.state import update_session
 
 PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
-VOICE_LOCK = FileLock(str(Path(os.environ.get("LOG_DIR", PROJECT_ROOT / "logs")) / "voice.lock"), timeout=30)
+_lock_timeout = int(os.environ.get("PX_VOICE_LOCK_TIMEOUT", "30"))
+VOICE_LOCK = FileLock(str(Path(os.environ.get("LOG_DIR", PROJECT_ROOT / "logs")) / "voice.lock"), timeout=_lock_timeout)
 
 # Content safety filter — block dangerous how-to content before speaking
 import re as _re
