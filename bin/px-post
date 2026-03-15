@@ -334,14 +334,29 @@ class BlueskyClient:
             return "error:auth_failed"
 
         post_text = truncate_at_word(text, 300)
+        rec = {
+            "$type": "app.bsky.feed.post",
+            "text": post_text,
+            "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+        }
+        # Add link facets so URLs are clickable
+        facets = []
+        text_bytes = post_text.encode("utf-8")
+        for token in post_text.split():
+            if token.startswith("https://") or token.startswith("http://"):
+                url_bytes = token.encode("utf-8")
+                start = text_bytes.find(url_bytes)
+                if start >= 0:
+                    facets.append({
+                        "index": {"byteStart": start, "byteEnd": start + len(url_bytes)},
+                        "features": [{"$type": "app.bsky.richtext.facet#link", "uri": token}],
+                    })
+        if facets:
+            rec["facets"] = facets
         record = {
             "repo": self.did,
             "collection": "app.bsky.feed.post",
-            "record": {
-                "$type": "app.bsky.feed.post",
-                "text": post_text,
-                "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
-            },
+            "record": rec,
         }
         url = "https://bsky.social/xrpc/com.atproto.repo.createRecord"
         data = json.dumps(record).encode()
