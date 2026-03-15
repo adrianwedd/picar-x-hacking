@@ -675,6 +675,10 @@ async def public_awareness() -> Dict[str, Any]:
         "minutes_since_speech": awareness.get("minutes_since_speech"),
         "time_period": awareness.get("time_period"),
         "wifi_dbm": wifi_dbm,
+        "ha_calendar": awareness.get("ha_calendar"),
+        "ha_routines": awareness.get("ha_routines"),
+        "ha_context": awareness.get("ha_context"),
+        "ha_sleep": awareness.get("ha_sleep"),
         "ts": awareness.get("ts"),
     }
 
@@ -1660,6 +1664,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Nunito
         <div class="spark-stat"><span id="st-period">&#x2013;</span><br><span class="stat-lbl">time</span></div>
         <div class="spark-stat"><span id="st-persona">&#x2013;</span><br><span class="stat-lbl">persona</span></div>
       </div>
+      <div id="spark-awareness" style="padding:8px 16px;font-size:13px;color:var(--muted)">
+        <div id="spark-calendar" style="margin-bottom:6px"></div>
+        <div id="spark-routines" style="margin-bottom:6px"></div>
+        <div id="spark-context" style="margin-bottom:6px"></div>
+      </div>
+      <div id="spark-posting" style="padding:0 16px 8px;font-size:12px;color:var(--muted)"></div>
     </div>
   </div>
   <div id="panel-admin"   class="tab-panel">
@@ -1847,6 +1857,20 @@ async function pollFace(){
       el.textContent=(ch?'\u26A1':'')+bp+'%';
       el.style.color=bp<=15?'var(--danger)':bp<=30?'var(--orange)':'inherit';
     }
+  }catch(e){}
+  try{
+    const aw=await fetch('/api/v1/public/awareness').then(r=>r.json());
+    const cal=aw.ha_calendar;
+    if(cal&&cal.length>0){const next=cal[0];const mins=next.starts_in_mins;let txt='';if(mins<=0)txt='📅 Now: '+next.title;else if(mins<60)txt='📅 '+next.title+' in '+mins+'min';else txt='📅 '+next.title+' in '+Math.floor(mins/60)+'h';document.getElementById('spark-calendar').textContent=txt;}
+    else{document.getElementById('spark-calendar').textContent='';}
+    const rt=aw.ha_routines;
+    if(rt){let parts=[];if(rt.meds_taken===false)parts.push('💊 Meds: not taken');else if(rt.meds_taken===true)parts.push('💊 Meds: \u2713');if(rt.water_mins_ago!=null){if(rt.water_mins_ago>120)parts.push('💧 Water: '+Math.floor(rt.water_mins_ago/60)+'h ago');else if(rt.water_mins_ago>60)parts.push('💧 Water: ~1h ago');else parts.push('💧 Water: recent');}document.getElementById('spark-routines').textContent=parts.join(' \u00b7 ');}
+    const ctx=aw.ha_context;
+    if(ctx){let parts=[];if(ctx.adrian_on_call)parts.push('📞 On call');if(ctx.office_light)parts.push('💡 Office');if(ctx.media_playing)parts.push('🎵 '+(ctx.media_title||'Playing'));document.getElementById('spark-context').textContent=parts.join(' \u00b7 ');}
+  }catch(e){}
+  try{
+    const ps=await fetch('/api/v1/public/feed').then(r=>r.json());
+    if(ps.posts&&ps.posts.length>0){const last=ps.posts[ps.posts.length-1];document.getElementById('spark-posting').textContent='📣 Last post: "'+last.thought.substring(0,60)+'..." \u00b7 '+last.mood;}
   }catch(e){}
 }
 setInterval(pollFace,5000);
