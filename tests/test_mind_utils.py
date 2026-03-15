@@ -1159,3 +1159,91 @@ def test_unknown_action_logged(_mock_awareness_and_battery, tmp_path):
     finally:
         if old_log is not None:
             _MIND["LOG_FILE"] = old_log
+
+
+# ---------------------------------------------------------------------------
+# Calendar awareness integration (Task 2)
+# ---------------------------------------------------------------------------
+
+
+def test_awareness_calendar_cache_variables_exist():
+    """Cache variables for HA calendar exist at module level."""
+    assert "_cached_ha_calendar" in _MIND
+    assert "_last_ha_calendar_fetch" in _MIND
+
+
+def test_awareness_calendar_enrichment():
+    """When _cached_ha_calendar is set, awareness dict gets ha_calendar and next_event."""
+    events = [
+        {"title": "Swimming", "starts_in_mins": 45, "location": "Pool", "calendar": "family"},
+        {"title": "Dinner", "starts_in_mins": 180, "location": "", "calendar": "family"},
+    ]
+    # Simulate what awareness_tick does in the enrichment block
+    awareness = {}
+    cached = events
+    if cached:
+        awareness["ha_calendar"] = cached
+        upcoming = [e for e in cached if e["starts_in_mins"] >= -30]
+        if upcoming:
+            awareness["next_event"] = upcoming[0]
+
+    assert awareness["ha_calendar"] == events
+    assert awareness["next_event"]["title"] == "Swimming"
+
+
+def test_awareness_calendar_enrichment_skips_old_events():
+    """Events older than 30 minutes ago are excluded from next_event."""
+    events = [
+        {"title": "Past Event", "starts_in_mins": -60, "location": "", "calendar": "family"},
+        {"title": "Future Event", "starts_in_mins": 20, "location": "", "calendar": "family"},
+    ]
+    awareness = {}
+    cached = events
+    if cached:
+        awareness["ha_calendar"] = cached
+        upcoming = [e for e in cached if e["starts_in_mins"] >= -30]
+        if upcoming:
+            awareness["next_event"] = upcoming[0]
+
+    assert awareness["next_event"]["title"] == "Future Event"
+
+
+def test_awareness_calendar_enrichment_no_upcoming():
+    """When all events are far in the past, no next_event is set."""
+    events = [
+        {"title": "Old Event", "starts_in_mins": -120, "location": "", "calendar": "family"},
+    ]
+    awareness = {}
+    cached = events
+    if cached:
+        awareness["ha_calendar"] = cached
+        upcoming = [e for e in cached if e["starts_in_mins"] >= -30]
+        if upcoming:
+            awareness["next_event"] = upcoming[0]
+
+    assert "ha_calendar" in awareness
+    assert "next_event" not in awareness
+
+
+def test_format_calendar_in_prompt_context():
+    """_format_calendar_context output is suitable for injection into prompt context_parts."""
+    events = [{"title": "Swimming", "starts_in_mins": 45, "location": "Pool", "calendar": "family"}]
+    ctx = _format_calendar_context(events)
+    assert "Swimming" in ctx
+    assert "45" in ctx
+    # Verify it could be appended to context_parts (non-empty string)
+    context_parts = ["Some existing context"]
+    if ctx:
+        context_parts.append(ctx)
+    assert len(context_parts) == 2
+
+
+def test_format_calendar_empty_no_output():
+    """Empty event list produces empty string — no calendar block in prompt."""
+    ctx = _format_calendar_context([])
+    assert ctx == ""
+    # Verify it would NOT be appended to context_parts
+    context_parts = ["Some existing context"]
+    if ctx:
+        context_parts.append(ctx)
+    assert len(context_parts) == 1

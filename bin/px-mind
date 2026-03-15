@@ -1355,6 +1355,8 @@ _cached_weather: dict | None = None
 _last_weather_fetch: float = 0.0
 _cached_ha: dict | None = None
 _last_ha_fetch: float = 0.0
+_cached_ha_calendar: list | None = None
+_last_ha_calendar_fetch: float = 0.0
 _last_spoken_text: str = ""
 _mood_history: list[str] = []
 _last_reactive_phrases: dict = {}  # key="transition:persona", value=recent phrase list (max 3)
@@ -1369,6 +1371,7 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
     """Layer 1: gather perception, detect transitions, enrich context."""
     global _cached_weather, _last_weather_fetch, _time_period_start_mono
     global _cached_ha, _last_ha_fetch
+    global _cached_ha_calendar, _last_ha_calendar_fetch
 
     sonar_cm = read_sonar(dry)
     frigate = _fetch_frigate_presence(dry)
@@ -1397,6 +1400,20 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
         except Exception:
             pass  # network error — keep existing cache
         _last_ha_fetch = now_mono
+
+    # Refresh HA calendar periodically
+    if (now_mono - _last_ha_calendar_fetch) > HA_CALENDAR_INTERVAL_S:
+        try:
+            cal = _fetch_ha_calendar(dry)
+            if cal is not None:
+                _cached_ha_calendar = cal
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                _cached_ha_calendar = None
+                log(f"ha_calendar: auth failure ({exc.code}), cache cleared")
+        except Exception as exc:
+            log(f"ha_calendar: fetch failed: {exc}")
+        _last_ha_calendar_fetch = now_mono
 
     # Refresh weather periodically
     if (now_mono - _last_weather_fetch) > WEATHER_INTERVAL_S:
@@ -1475,6 +1492,14 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
     # Enrich with HA presence (who's home)
     if _cached_ha:
         awareness["ha_presence"] = _cached_ha
+
+    # Enrich with HA calendar (upcoming events)
+    if _cached_ha_calendar:
+        awareness["ha_calendar"] = _cached_ha_calendar
+        # Convenience: first upcoming event for quick access
+        upcoming = [e for e in _cached_ha_calendar if e["starts_in_mins"] >= -30]
+        if upcoming:
+            awareness["next_event"] = upcoming[0]
 
     # Enrich with ambient sound level (written by px-wake-listen)
     try:
@@ -2064,6 +2089,13 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
         if unknown_names: parts.append(f"{', '.join(unknown_names)} unknown")
         if parts:
             context_parts.append(f"Who's home (from Home Assistant): {'; '.join(parts)}")
+
+    # Calendar awareness
+    cal_events = awareness.get("ha_calendar")
+    if cal_events:
+        cal_ctx = _format_calendar_context(cal_events)
+        if cal_ctx:
+            context_parts.append(cal_ctx)
 
     # Inject topic seed, or free-will prompt if no seed was drawn
     if topic_seed is None:
