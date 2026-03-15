@@ -28,6 +28,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .state import load_session, update_session
 from .time import utc_timestamp
@@ -206,10 +207,24 @@ app = FastAPI(title="PiCar-X API", version="0.1.0", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://spark.wedd.au", "http://spark.wedd.au", "https://spark-api.wedd.au", "http://localhost:8000"],
+    allow_origins=["https://spark.wedd.au", "http://spark.wedd.au", "https://spark-api.wedd.au", "http://localhost:8420"],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Inject standard security headers into every response."""
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 _THERMAL_ZONE = Path("/sys/class/thermal/thermal_zone0/temp")
 
@@ -629,24 +644,15 @@ async def public_awareness() -> Dict[str, Any]:
     sys_stats = awareness.get("system") or {}
     wifi_dbm: Any = sys_stats.get("wifi_dbm")
 
-    # HA presence — project to safe fields only (strip GPS coords + entity_id)
-    raw_ha = awareness.get("ha_presence")
-    if isinstance(raw_ha, dict):
-        safe_people = [
-            {"name": p.get("name"), "state": p.get("state"), "home": p.get("home")}
-            for p in (raw_ha.get("people") or [])
-            if isinstance(p, dict)
-        ]
-        ha_presence: Any = {"people": safe_people}
-    else:
-        ha_presence = None
+    # HA presence stripped from public endpoint — occupancy data is sensitive.
+    # Available on authenticated /api/v1/session only.
 
     return {
         "obi_mode": awareness.get("obi_mode"),
         "person_present": person_present,
         "frigate_score": frigate_score,
         "detections": detections,
-        "ha_presence": ha_presence,
+        "ha_presence": None,
         "ambient_level": ambient.get("level"),
         "ambient_rms": ambient.get("rms"),
         "weather": weather_out,
