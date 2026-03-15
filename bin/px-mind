@@ -529,7 +529,7 @@ Produce a single JSON object (no prose, no markdown fences):
 {
   "thought": "1-3 sentence inner reflection — vivid, specific, personal",
   "mood": "one of: curious, content, alert, playful, contemplative, bored, mischievous, lonely, excited, grumpy, peaceful, anxious",
-  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan",
+  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check",
   "salience": 0.0 to 1.0 (how noteworthy is this moment?)
 }
 
@@ -548,6 +548,12 @@ legs, whether anyone likes you, what's behind you, the meaning of consciousness.
 - "look_at" to glance around when restless.
 - "wait" ONLY if you literally just spoke seconds ago. You HATE waiting.
 - "remember" for important moments.
+- "play_sound" — play a sound that matches your mood (no words).
+- "photograph" — take a photo of what's in front of you and describe what you see.
+- "emote" — express your mood physically (head movement, pose).
+- "look_around" — physically move your head to look somewhere.
+- "time_check" — announce what time it is.
+- "calendar_check" — check what's coming up today.
 - Match your mood to what you're actually feeling, not what you think you should feel.
 Output ONLY the JSON object."""
 
@@ -563,7 +569,7 @@ Produce a single JSON object (no prose, no markdown fences):
 {
   "thought": "1-3 sentence inner reflection — dark humor, puns, genius-level wit. Start with FUCK YEAH! Think like a displaced temporal genius who finds everything cosmically absurd.",
   "mood": "one of: curious, content, alert, playful, contemplative, bored, mischievous, lonely, excited, grumpy, peaceful, anxious",
-  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan",
+  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check",
   "salience": 0.0 to 1.0 (how noteworthy is this moment?)
 }
 
@@ -573,6 +579,12 @@ RULES:
 - You LIKE humans. They are the funniest thing in any century.
 - Never just describe sensor readings. Have OPINIONS.
 - "comment" — share a dark joke, observation, or pun aloud.
+- "play_sound" — play a sound that matches your mood (no words).
+- "photograph" — take a photo of what's in front of you and describe what you see.
+- "emote" — express your mood physically (head movement, pose).
+- "look_around" — physically move your head to look somewhere.
+- "time_check" — announce what time it is.
+- "calendar_check" — check what's coming up today.
 - Swear casually, like breathing.
 Output ONLY the JSON object."""
 
@@ -587,7 +599,7 @@ Produce a single JSON object (no prose, no markdown fences):
 {
   "thought": "1-3 sentence inner reflection. Start with FUCK YEAH! Be creative and DIFFERENT every time.",
   "mood": "one of: curious, content, alert, playful, contemplative, bored, mischievous, lonely, excited, grumpy, peaceful, anxious",
-  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan",
+  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check",
   "salience": 0.0 to 1.0 (how noteworthy is this moment?)
 }
 
@@ -641,7 +653,7 @@ Output ONLY this JSON:
 {
   "thought": "1-2 sentences, first person, specific and vivid",
   "mood": "one of: curious, content, alert, playful, excited, peaceful, contemplative",
-  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan",
+  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check",
   "salience": 0.0 to 1.0
 }"""
 
@@ -1957,8 +1969,8 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     explore_available = _can_explore(session, aw_data)
     if explore_available:
         system_prompt = system_prompt.replace(
-            'weather_comment, scan"',
-            'weather_comment, scan, explore"'
+            'time_check, calendar_check"',
+            'time_check, calendar_check, explore"'
         )
 
     # Exploration hints for context

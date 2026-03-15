@@ -795,6 +795,47 @@ def test_absent_gate_blocks_time_check():
     assert "time_check" in ABSENT_GATED_ACTIONS
 
 
+# ---------------------------------------------------------------------------
+# Explore injection after enum expansion
+# ---------------------------------------------------------------------------
+
+REFLECTION_SYSTEM = _MIND["REFLECTION_SYSTEM"]
+REFLECTION_SYSTEM_GREMLIN = _MIND["REFLECTION_SYSTEM_GREMLIN"]
+REFLECTION_SYSTEM_VIXEN = _MIND["REFLECTION_SYSTEM_VIXEN"]
+_SPARK_REFLECTION_SUFFIX = _MIND["_SPARK_REFLECTION_SUFFIX"]
+
+
+def test_explore_injection_after_enum_expansion():
+    """Verify explore injection string-replace works with expanded action enum.
+
+    The explore action is dynamically injected at runtime via str.replace().
+    After the enum expanded from 8 to 14 actions, the replace target changed
+    from 'weather_comment, scan"' to 'time_check, calendar_check"'. Verify
+    that this replace produces 'explore' in all 4 prompts.
+    """
+    prompts = {
+        "REFLECTION_SYSTEM": REFLECTION_SYSTEM,
+        "REFLECTION_SYSTEM_GREMLIN": REFLECTION_SYSTEM_GREMLIN,
+        "REFLECTION_SYSTEM_VIXEN": REFLECTION_SYSTEM_VIXEN,
+        "_SPARK_REFLECTION_SUFFIX": _SPARK_REFLECTION_SUFFIX,
+    }
+    for name, prompt in prompts.items():
+        # The replace target must exist in the prompt
+        assert 'time_check, calendar_check"' in prompt, (
+            f"{name} is missing the replace target 'time_check, calendar_check\"'"
+        )
+        # After injection, explore must appear
+        injected = prompt.replace(
+            'time_check, calendar_check"',
+            'time_check, calendar_check, explore"',
+        )
+        assert "explore" in injected, f"{name} does not contain 'explore' after injection"
+        # The original prompt must NOT already contain explore
+        assert "explore" not in prompt, (
+            f"{name} already contains 'explore' before injection"
+        )
+
+
 def test_absent_gate_blocks_calendar_check():
     """calendar_check speaks calendar info — must be blocked when Obi is absent."""
     assert "calendar_check" in ABSENT_GATED_ACTIONS
