@@ -925,12 +925,16 @@ def filter_battery(raw: dict | None, prev_pct: int) -> dict | None:
 
     pct = raw["pct"]
 
-    # First reading or no history — accept and seed, BUT reject implausibly
-    # low first readings (e.g. 0% from an ADC glitch on cold start).
+    # First reading or no history — accept and seed, BUT require confirmation
+    # for implausibly low first readings (e.g. 0% from an ADC glitch on cold start).
     if not _battery_history:
         if pct < BATTERY_CRITICAL:
-            log(f"battery: rejecting implausible first reading {pct}% (< {BATTERY_CRITICAL}%)")
-            return None
+            _battery_glitch_count += 1
+            log(f"battery: suspicious first reading {pct}% "
+                f"(count={_battery_glitch_count}/{BATTERY_GLITCH_CONFIRMS})")
+            if _battery_glitch_count < BATTERY_GLITCH_CONFIRMS:
+                return None
+            # Confirmed low — genuinely dead battery, accept it
         _battery_history.append(pct)
         _battery_glitch_count = 0
         return raw
@@ -1745,7 +1749,10 @@ def call_llm(prompt: str, system: str, persona: str = "") -> dict:
         try:
             result = call_claude_haiku(prompt, system)
         except Exception as exc:
-            log(f"claude crashed ({exc}), falling back to ollama")
+            try:
+                log(f"claude crashed ({exc}), falling back to ollama")
+            except Exception:
+                pass  # disk full — don't let logging block fallback
             result = {"error": str(exc)}
         if "error" not in result:
             try:

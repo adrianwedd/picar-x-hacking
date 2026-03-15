@@ -28,7 +28,7 @@ CHARGE_FALL_V   = 0.03    # V/poll drop to count as discharging evidence
 CHARGE_CONFIRM  = 2       # consecutive confirming readings required before transition
 
 
-VOLTAGE_FLOOR = 3.0  # ADC reads below this are I2C glitch, not real voltage
+VOLTAGE_FLOOR = 5.0  # 2S LiPo min is ~6.0V; anything below 5V is I2C glitch
 
 def volts_to_pct(v: float) -> int:
     return max(0, min(100, int((v - 6.0) / (8.4 - 6.0) * 100)))
