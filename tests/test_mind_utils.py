@@ -704,3 +704,50 @@ def test_can_explore_corrupt_meta_fails_safe(explore_state):
     """Corrupt meta file → blocked (fail-safe)."""
     (explore_state / "exploration_meta.json").write_text("not json")
     assert _can_explore(_base_session(), _base_awareness()) is False
+
+
+# ---------------------------------------------------------------------------
+# VALID_ACTIONS expansion + mood mapping dicts
+# ---------------------------------------------------------------------------
+
+VALID_ACTIONS = _MIND["VALID_ACTIONS"]
+MOOD_TO_SOUND = _MIND["MOOD_TO_SOUND"]
+MOOD_TO_EMOTE = _MIND["MOOD_TO_EMOTE"]
+
+
+def test_valid_actions_includes_new_actions():
+    """All 14 actions must be present in VALID_ACTIONS."""
+    expected = {
+        "wait", "greet", "comment", "remember", "look_at",
+        "weather_comment", "scan", "explore",
+        "play_sound", "photograph", "emote", "look_around",
+        "time_check", "calendar_check",
+    }
+    assert VALID_ACTIONS == expected
+
+
+def test_mood_to_sound_mapping():
+    """MOOD_TO_SOUND maps moods to the correct sound effects."""
+    assert MOOD_TO_SOUND["curious"] == "beep"
+    assert MOOD_TO_SOUND["alert"] == "beep"
+    assert MOOD_TO_SOUND["happy"] == "tada"
+    assert MOOD_TO_SOUND["excited"] == "tada"
+    assert MOOD_TO_SOUND["playful"] == "tada"
+    assert MOOD_TO_SOUND["content"] == "chime"
+    assert MOOD_TO_SOUND["peaceful"] == "chime"
+
+
+def test_mood_to_emote_mapping():
+    """MOOD_TO_EMOTE maps moods to the correct emote names."""
+    assert MOOD_TO_EMOTE["happy"] == "happy"
+    assert MOOD_TO_EMOTE["curious"] == "curious"
+    assert MOOD_TO_EMOTE["alert"] == "alert"
+    assert MOOD_TO_EMOTE["excited"] == "excited"
+    assert MOOD_TO_EMOTE["contemplative"] == "thinking"
+    assert MOOD_TO_EMOTE["peaceful"] == "shy"
+
+
+def test_mood_mapping_fallback():
+    """Unknown moods fall back to sensible defaults."""
+    assert MOOD_TO_SOUND.get("unknown_mood", "chime") == "chime"
+    assert MOOD_TO_EMOTE.get("unknown_mood", "idle") == "idle"

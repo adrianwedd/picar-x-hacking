@@ -306,7 +306,19 @@ CLAUDE_MODEL = os.environ.get("PX_MIND_CLAUDE_MODEL", "claude-haiku-4-5-20251001
 VALID_MOODS   = {"curious", "content", "alert", "playful", "contemplative", "bored",
                  "mischievous", "lonely", "excited", "grumpy", "peaceful", "anxious"}
 VALID_ACTIONS = {"wait", "greet", "comment", "remember", "look_at",
-                 "weather_comment", "scan", "explore"}
+                 "weather_comment", "scan", "explore",
+                 "play_sound", "photograph", "emote", "look_around",
+                 "time_check", "calendar_check"}
+
+MOOD_TO_SOUND = {
+    "curious": "beep", "alert": "beep",
+    "happy": "tada", "excited": "tada", "playful": "tada",
+    "content": "chime", "peaceful": "chime",
+}
+MOOD_TO_EMOTE = {
+    "happy": "happy", "curious": "curious", "alert": "alert",
+    "excited": "excited", "contemplative": "thinking", "peaceful": "shy",
+}
 
 # ── Mood momentum: valence (-1..1) × arousal (-1..1) ───────────────
 MOOD_COORDS: dict[str, tuple[float, float]] = {
