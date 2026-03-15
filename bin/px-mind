@@ -652,7 +652,34 @@ def atomic_write(path: Path, data: str) -> None:
 def log(msg: str) -> None:
     ts = dt.datetime.now().isoformat(timespec="seconds")
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    line = f"{ts} [mind] {msg}"
+    # Emoji routing for visual scanning
+    icon = "  "
+    ml = msg.lower()
+    if any(k in ml for k in ("thought:", "thought suppressed")):
+        icon = "\U0001f9e0"  # 🧠
+    elif any(k in ml for k in ("expressing", "comment", "greet", "spoken")):
+        icon = "\U0001f4ac"  # 💬
+    elif any(k in ml for k in ("awareness", "transition")):
+        icon = "\U0001f441\ufe0f "  # 👁️
+    elif any(k in ml for k in ("reflecting", "tmux response")):
+        icon = "\U0001f52e"  # 🔮
+    elif any(k in ml for k in ("failed", "error", "timeout", "crash")):
+        icon = "\u26a1"      # ⚡
+    elif any(k in ml for k in ("fallback", "falling back")):
+        icon = "\U0001f504"  # 🔄
+    elif any(k in ml for k in ("weather")):
+        icon = "\u2600\ufe0f "  # ☀️
+    elif any(k in ml for k in ("battery", "charging", "shutdown")):
+        icon = "\U0001f50b"  # 🔋
+    elif any(k in ml for k in ("starting", "stopped", "ready", "cognitive loop")):
+        icon = "\U0001f527"  # 🔧
+    elif any(k in ml for k in ("reactive:", "someone_")):
+        icon = "\U0001f3af"  # 🎯
+    elif "remembered" in ml:
+        icon = "\U0001f4be"  # 💾
+    elif "backoff" in ml:
+        icon = "\u23f3"      # ⏳
+    line = f"{ts} {icon} {msg}"
     with LOG_FILE.open("a", encoding="utf-8") as f:
         f.write(line + "\n")
     print(line, flush=True)
@@ -685,8 +712,9 @@ def read_sonar(dry: bool) -> float | None:
         if age < 15:
             val = data.get("distance_cm")
             return float(val) if val is not None else None
-    except Exception:
-        pass
+        log(f"sonar_live.json stale ({age:.0f}s) — falling back to tool-sonar")
+    except Exception as exc:
+        log(f"sonar_live.json read failed ({exc}) — falling back to tool-sonar")
     # Fallback: px-alive is dead/stale — use tool-sonar (will not cause a yield_alive conflict)
     try:
         env = os.environ.copy()
@@ -699,8 +727,8 @@ def read_sonar(dry: bool) -> float | None:
             payload = json.loads(result.stdout.strip().splitlines()[-1])
             val = payload.get("closest_cm")
             return float(val) if val is not None else None
-    except Exception:
-        pass
+    except Exception as exc:
+        log(f"tool-sonar fallback failed: {exc}")
     return None
 
 

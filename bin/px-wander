@@ -65,9 +65,28 @@ FALLBACK_DESCRIPTION = "I couldn't see anything right now."
 def log(msg: str) -> None:
     ts = dt.datetime.now().isoformat(timespec="seconds")
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ml = msg.lower()
+    icon = "  "
+    if "explore" in ml and ("start" in ml or "complete" in ml):
+        icon = "\U0001f9ed"  # 🧭
+    elif any(k in ml for k in ("sweep", "sonar", "dist=")):
+        icon = "\U0001f4e1"  # 📡
+    elif any(k in ml for k in ("step ", "forward", "turned", "reverse")):
+        icon = "\U0001f697"  # 🚗
+    elif any(k in ml for k in ("obstacle", "stuck", "blocked")):
+        icon = "\U0001f6a7"  # 🚧
+    elif any(k in ml for k in ("abort", "error", "failed")):
+        icon = "\u26a1"      # ⚡
+    elif "frigate" in ml:
+        icon = "\U0001f4f7"  # 📷
+    elif "vision" in ml or "photo" in ml:
+        icon = "\U0001f441\ufe0f "  # 👁️
+    elif "wander start" in ml or "wander complete" in ml:
+        icon = "\U0001f6b6"  # 🚶
+    line = f"{ts} {icon} {msg}"
     with LOG_FILE.open("a", encoding="utf-8") as f:
-        f.write(f"{ts} {msg}\n")
-    print(f"{ts} {msg}", file=sys.stderr)
+        f.write(line + "\n")
+    print(line, file=sys.stderr)
 
 
 def clamp(v, lo, hi):
