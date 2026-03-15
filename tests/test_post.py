@@ -1,13 +1,16 @@
-"""Tests for px-post qualification and deduplication logic."""
+"""Tests for px-post qualification, deduplication, and social posting logic."""
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
 import sys
 import types
+import urllib.error
+import urllib.request
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 
 import pytest
 
@@ -55,6 +58,10 @@ write_feed = _POST["write_feed"]
 
 # The subprocess module reference used inside the exec'd module globals
 _post_subprocess = _POST["subprocess"]
+_post_urllib_request = _POST["urllib"].request
+_post_urllib_error = _POST["urllib"].error
+BlueskyClient = _POST["BlueskyClient"]
+MastodonClient = _POST["MastodonClient"]
 
 
 def _make_line(thought="hello", salience=0.8, action="comment"):
@@ -372,3 +379,169 @@ def test_truncation_word_boundary():
 
     # Mastodon: max 500 — text is only 350, should be returned as-is
     assert truncate_at_word(text, 500) == text
+
+
+# ---------------------------------------------------------------------------
+# Helper: mock urllib.request.urlopen
+# ---------------------------------------------------------------------------
+
+
+def _mock_response(body: dict | bytes = b"", code: int = 200, headers: dict | None = None):
+    """Create a mock HTTP response context manager."""
+    if isinstance(body, dict):
+        body = json.dumps(body).encode()
+    resp = MagicMock()
+    resp.read.return_value = body
+    resp.status = code
+    resp.headers = headers or {}
+    resp.__enter__ = lambda s: s
+    resp.__exit__ = MagicMock(return_value=False)
+    return resp
+
+
+def _http_error(code: int, headers: dict | None = None):
+    """Create a urllib.error.HTTPError."""
+    hdrs = MagicMock()
+    hdrs.get = lambda key, default=None: (headers or {}).get(key, default)
+    return urllib.error.HTTPError(
+        url="https://example.com", code=code, msg="error",
+        hdrs=hdrs, fp=io.BytesIO(b""),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BlueskyClient tests
+# ---------------------------------------------------------------------------
+
+
+@patch.dict(os.environ, {"PX_BSKY_HANDLE": "test.bsky.social", "PX_BSKY_APP_PASSWORD": "pass123"})
+def test_bluesky_post_dry():
+    """With dry=True, no HTTP call is made, returns 'ok'."""
+    client = BlueskyClient()
+    with patch.object(_post_urllib_request, "urlopen") as mock_urlopen:
+        result = client.post("Hello from SPARK!", dry=True)
+        assert result == "ok"
+        mock_urlopen.assert_not_called()
+
+
+@patch.dict(os.environ, {"PX_BSKY_HANDLE": "test.bsky.social", "PX_BSKY_APP_PASSWORD": "pass123"})
+def test_bluesky_reauth_on_401():
+    """On 401 from createRecord, re-auth and retry. Verify 2 auth calls."""
+    client = BlueskyClient()
+
+    auth_resp = _mock_response({"accessJwt": "tok", "refreshJwt": "ref", "did": "did:plc:test"})
+    post_success = _mock_response({"uri": "at://..."})
+
+    # Sequence: auth ok -> createRecord 401 -> auth ok -> createRecord ok
+    with patch.object(_post_urllib_request, "urlopen") as mock_urlopen:
+        mock_urlopen.side_effect = [
+            auth_resp,           # initial _auth()
+            _http_error(401),    # first createRecord -> 401
+            auth_resp,           # re-auth in post()
+            post_success,        # retry createRecord
+        ]
+        result = client.post("test thought")
+        assert result == "ok"
+        # 2 auth calls (initial + re-auth) + 2 createRecord attempts = 4 total
+        assert mock_urlopen.call_count == 4
+
+
+@patch.dict(os.environ, {"PX_BSKY_HANDLE": "test.bsky.social", "PX_BSKY_APP_PASSWORD": "pass123"})
+def test_bluesky_disable_after_3_auth_failures():
+    """3 consecutive auth failures disable the client."""
+    client = BlueskyClient()
+
+    with patch.object(_post_urllib_request, "urlopen") as mock_urlopen:
+        mock_urlopen.side_effect = _http_error(400)
+
+        # Each post attempt triggers _auth() which fails
+        client.post("attempt 1")
+        client.post("attempt 2")
+        client.post("attempt 3")
+
+        assert client.disabled is True
+        # Further posts should be skipped without HTTP calls
+        mock_urlopen.reset_mock()
+        result = client.post("attempt 4")
+        assert result == "skipped"
+        mock_urlopen.assert_not_called()
+
+
+@patch.dict(os.environ, {"PX_BSKY_HANDLE": "test.bsky.social", "PX_BSKY_APP_PASSWORD": "pass123"})
+def test_bluesky_400_credentials():
+    """Auth returning 400 logs a message about checking credentials."""
+    client = BlueskyClient()
+    logged = []
+    orig_log = _POST["log"]
+
+    def capture_log(msg, **kw):
+        logged.append(msg)
+        orig_log(msg, **kw)
+
+    _POST["log"] = capture_log
+    try:
+        with patch.object(_post_urllib_request, "urlopen", side_effect=_http_error(400)):
+            client.post("test")
+        assert any("check PX_BSKY_HANDLE" in m for m in logged)
+    finally:
+        _POST["log"] = orig_log
+
+
+def test_missing_credentials_skipped():
+    """No PX_BSKY_HANDLE env — available() returns False, post returns 'skipped'."""
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("PX_BSKY_HANDLE", "PX_BSKY_APP_PASSWORD")}
+    with patch.dict(os.environ, env, clear=True):
+        client = BlueskyClient()
+        assert client.available() is False
+        result = client.post("anything")
+        assert result == "skipped"
+
+
+# ---------------------------------------------------------------------------
+# MastodonClient tests
+# ---------------------------------------------------------------------------
+
+
+@patch.dict(os.environ, {"PX_MASTODON_INSTANCE": "https://mastodon.social", "PX_MASTODON_TOKEN": "tok123"})
+def test_mastodon_post_dry():
+    """With dry=True, no HTTP call is made, returns 'ok'."""
+    client = MastodonClient()
+    with patch.object(_post_urllib_request, "urlopen") as mock_urlopen:
+        result = client.post("Hello from SPARK!", dry=True)
+        assert result == "ok"
+        mock_urlopen.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Cross-destination tests
+# ---------------------------------------------------------------------------
+
+
+@patch.dict(os.environ, {
+    "PX_BSKY_HANDLE": "test.bsky.social",
+    "PX_BSKY_APP_PASSWORD": "pass123",
+    "PX_MASTODON_INSTANCE": "https://mastodon.social",
+    "PX_MASTODON_TOKEN": "tok123",
+})
+def test_destination_independence():
+    """Bluesky failure does not prevent Mastodon from succeeding."""
+    bsky = BlueskyClient()
+    masto = MastodonClient()
+
+    mastodon_resp = _mock_response({"id": "12345"})
+
+    with patch.object(_post_urllib_request, "urlopen") as mock_urlopen:
+        # Auth succeeds for Bluesky, but createRecord fails with 500
+        auth_resp = _mock_response({"accessJwt": "tok", "refreshJwt": "ref", "did": "did:plc:test"})
+        mock_urlopen.side_effect = [
+            auth_resp,        # bsky auth
+            _http_error(500), # bsky createRecord fails
+        ]
+        bsky_result = bsky.post("test thought")
+        assert bsky_result.startswith("error:")
+
+    with patch.object(_post_urllib_request, "urlopen") as mock_urlopen:
+        mock_urlopen.return_value = mastodon_resp
+        masto_result = masto.post("test thought")
+        assert masto_result == "ok"

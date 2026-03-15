@@ -25,6 +25,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", Path(__file__).parent.parent))
@@ -240,6 +242,150 @@ def write_feed(thought: dict) -> bool:
         except Exception:
             pass
         return False
+
+
+class BlueskyClient:
+    def __init__(self):
+        self.handle = os.environ.get("PX_BSKY_HANDLE", "")
+        self.password = os.environ.get("PX_BSKY_APP_PASSWORD", "")
+        self.access_token = None
+        self.refresh_token = None
+        self.did = None
+        self.auth_failures = 0
+        self.disabled = False
+        self._logged_missing = False
+
+    def available(self) -> bool:
+        if not self.handle or not self.password:
+            if not self._logged_missing:
+                log("bluesky: credentials not configured — skipping")
+                self._logged_missing = True
+            return False
+        return not self.disabled
+
+    def _auth(self) -> bool:
+        """Authenticate via createSession. Returns True on success."""
+        url = "https://bsky.social/xrpc/com.atproto.server.createSession"
+        data = json.dumps({"identifier": self.handle, "password": self.password}).encode()
+        req = urllib.request.Request(url, data=data,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = json.loads(resp.read())
+                self.access_token = body["accessJwt"]
+                self.refresh_token = body.get("refreshJwt")
+                self.did = body["did"]
+                self.auth_failures = 0
+                return True
+        except urllib.error.HTTPError as e:
+            self.auth_failures += 1
+            if e.code == 400:
+                log("bluesky: auth failed (400) — check PX_BSKY_HANDLE and PX_BSKY_APP_PASSWORD")
+            else:
+                log(f"bluesky: auth failed ({e.code})")
+            if self.auth_failures >= 3:
+                self.disabled = True
+                log("bluesky: disabled after 3 consecutive auth failures")
+            return False
+        except Exception as exc:
+            self.auth_failures += 1
+            log(f"bluesky: auth error: {exc}")
+            if self.auth_failures >= 3:
+                self.disabled = True
+                log("bluesky: disabled after 3 consecutive auth failures")
+            return False
+
+    def post(self, text: str, dry: bool = False) -> str:
+        """Post text to Bluesky. Returns 'ok', 'error:reason', or 'skipped'."""
+        if not self.available():
+            return "skipped"
+        if dry:
+            log(f"bluesky [DRY]: {text[:80]}")
+            return "ok"
+        if not self.access_token and not self._auth():
+            return "error:auth_failed"
+
+        post_text = truncate_at_word(text, 300)
+        record = {
+            "repo": self.did,
+            "collection": "app.bsky.feed.post",
+            "record": {
+                "$type": "app.bsky.feed.post",
+                "text": post_text,
+                "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+            },
+        }
+        url = "https://bsky.social/xrpc/com.atproto.repo.createRecord"
+        data = json.dumps(record).encode()
+        req = urllib.request.Request(url, data=data, headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.access_token}",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                log(f"bluesky: posted ({len(post_text)} chars)")
+                return "ok"
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                log("bluesky: 401 — re-authenticating")
+                if self._auth():
+                    # Retry once with new token
+                    req.remove_header("Authorization")
+                    req.add_header("Authorization", f"Bearer {self.access_token}")
+                    try:
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            return "ok"
+                    except Exception as exc2:
+                        return f"error:retry_failed:{exc2}"
+                return "error:reauth_failed"
+            elif e.code == 429:
+                retry_after = e.headers.get("Retry-After", "unknown")
+                log(f"bluesky: rate limited (429), Retry-After: {retry_after}")
+                return "error:rate_limited"
+            return f"error:http_{e.code}"
+        except Exception as exc:
+            return f"error:{exc}"
+
+
+class MastodonClient:
+    def __init__(self):
+        self.instance = os.environ.get("PX_MASTODON_INSTANCE", "")
+        self.token = os.environ.get("PX_MASTODON_TOKEN", "")
+        self._logged_missing = False
+
+    def available(self) -> bool:
+        if not self.instance or not self.token:
+            if not self._logged_missing:
+                log("mastodon: credentials not configured — skipping")
+                self._logged_missing = True
+            return False
+        return True
+
+    def post(self, text: str, dry: bool = False) -> str:
+        if not self.available():
+            return "skipped"
+        if dry:
+            log(f"mastodon [DRY]: {text[:80]}")
+            return "ok"
+        post_text = truncate_at_word(text, 500)
+        url = f"{self.instance.rstrip('/')}/api/v1/statuses"
+        data = json.dumps({"status": post_text}).encode()
+        req = urllib.request.Request(url, data=data, headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.token}",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                log(f"mastodon: posted ({len(post_text)} chars)")
+                return "ok"
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                retry_after = e.headers.get("Retry-After", "unknown")
+                log(f"mastodon: rate limited (429), Retry-After: {retry_after}")
+                return "error:rate_limited"
+            return f"error:http_{e.code}"
+        except Exception as exc:
+            return f"error:{exc}"
 
 
 def main() -> None:
