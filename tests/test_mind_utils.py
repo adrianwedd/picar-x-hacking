@@ -304,6 +304,7 @@ def _reset_battery_state():
     """Clear battery history between tests."""
     _battery_history.clear()
     _MIND["_battery_glitch_count"] = 0
+    _MIND["_battery_glitch_first_mono"] = 0.0
 
 
 def test_battery_filter_accepts_normal_reading():
@@ -336,16 +337,28 @@ def test_battery_filter_rejects_implausible_large_drop():
 
 
 def test_battery_filter_accepts_after_confirmed_consecutive():
-    """After BATTERY_GLITCH_CONFIRMS consecutive low readings, accept it."""
+    """After BATTERY_GLITCH_CONFIRMS consecutive low readings spanning >=90s, accept it."""
     _reset_battery_state()
     for pct in [50, 49, 48]:
         filter_battery({"pct": pct, "volts": 7.2}, prev_pct=pct + 1)
-    # Send BATTERY_GLITCH_CONFIRMS consecutive glitch readings
-    for i in range(_BATTERY_GLITCH_CONFIRMS - 1):
+
+    # Send glitch readings all at t=0 — time-gap prevents counter passing 1
+    fake_time = [100.0]
+    with patch.object(_time, "monotonic", side_effect=lambda: fake_time[0]):
         r = filter_battery({"pct": 5, "volts": 6.0}, prev_pct=48)
-        assert r["pct"] == 48, f"should reject on attempt {i+1}"
-    # The Nth consecutive reading should be accepted
-    r = filter_battery({"pct": 5, "volts": 6.0}, prev_pct=48)
+        assert r["pct"] == 48, "should reject first glitch"
+        r = filter_battery({"pct": 5, "volts": 6.0}, prev_pct=48)
+        assert r["pct"] == 48, "same-tick glitch should not increment past 1"
+
+    # Advance time past the 90s gap and send remaining confirmations
+    for i in range(_BATTERY_GLITCH_CONFIRMS - 1):
+        fake_time[0] = 100.0 + 91.0 * (i + 1)
+        with patch.object(_time, "monotonic", side_effect=lambda: fake_time[0]):
+            r = filter_battery({"pct": 5, "volts": 6.0}, prev_pct=48)
+            if i < _BATTERY_GLITCH_CONFIRMS - 2:
+                assert r["pct"] == 48, f"should still reject on attempt {i+2}"
+
+    # The final reading (after enough time + confirmations) should be accepted
     assert r["pct"] == 5
 
 
