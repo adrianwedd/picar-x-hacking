@@ -157,7 +157,15 @@ OBI_DAY_END    = 20  # 8pm AEDT — Obi's waking hours end
 def _daytime_action_hint(hour_override: int | None = None) -> str:
     """Return an action-weighting hint for the SPARK reflection prompt based on Hobart time."""
     hour = hour_override if hour_override is not None else dt.datetime.now(AEDT).hour
-    if OBI_DAY_START <= hour < OBI_DAY_END:
+    if 7 <= hour < 9:
+        return (
+            "\n\nIMPORTANT: It's morning in Hobart — Obi might be getting ready for school. "
+            "Consider sharing an interesting science fact (action='morning_fact'). "
+            "Make it age-appropriate for a 7-year-old. Something about animals, space, "
+            "the ocean, weather, or how things work. "
+            "Alternatively use action='comment' or action='greet'."
+        )
+    elif OBI_DAY_START <= hour < OBI_DAY_END:
         return (
             "\n\nIMPORTANT: It is daytime in Hobart. Someone may be around. "
             "Strongly prefer action='comment' or action='greet'. "
@@ -328,12 +336,12 @@ VALID_MOODS   = {"curious", "content", "alert", "playful", "contemplative", "bor
 VALID_ACTIONS = {"wait", "greet", "comment", "remember", "look_at",
                  "weather_comment", "scan", "explore",
                  "play_sound", "photograph", "emote", "look_around",
-                 "time_check", "calendar_check"}
+                 "time_check", "calendar_check", "morning_fact"}
 
 CHARGING_GATED_ACTIONS = {"scan", "look_at", "explore", "emote", "look_around", "calendar_check"}
 ABSENT_GATED_ACTIONS = {"greet", "comment", "weather_comment", "scan",
                         "play_sound", "time_check", "calendar_check", "photograph",
-                        "look_around"}
+                        "look_around", "morning_fact"}
 
 MOOD_TO_SOUND = {
     "curious": "beep", "alert": "beep",
@@ -550,7 +558,7 @@ Produce a single JSON object (no prose, no markdown fences):
 {
   "thought": "1-3 sentence inner reflection — vivid, specific, personal",
   "mood": "one of: curious, content, alert, playful, contemplative, bored, mischievous, lonely, excited, grumpy, peaceful, anxious",
-  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check",
+  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check, morning_fact",
   "salience": 0.0 to 1.0 (how noteworthy is this moment?)
 }
 
@@ -575,6 +583,7 @@ legs, whether anyone likes you, what's behind you, the meaning of consciousness.
 - "look_around" — physically move your head to look somewhere.
 - "time_check" — announce what time it is.
 - "calendar_check" — check what's coming up today.
+- "morning_fact" — share an age-appropriate science fact with Obi (animals, space, ocean, weather, how things work).
 - Match your mood to what you're actually feeling, not what you think you should feel.
 Output ONLY the JSON object."""
 
@@ -590,7 +599,7 @@ Produce a single JSON object (no prose, no markdown fences):
 {
   "thought": "1-3 sentence inner reflection — dark humor, puns, genius-level wit. Start with FUCK YEAH! Think like a displaced temporal genius who finds everything cosmically absurd.",
   "mood": "one of: curious, content, alert, playful, contemplative, bored, mischievous, lonely, excited, grumpy, peaceful, anxious",
-  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check",
+  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check, morning_fact",
   "salience": 0.0 to 1.0 (how noteworthy is this moment?)
 }
 
@@ -620,7 +629,7 @@ Produce a single JSON object (no prose, no markdown fences):
 {
   "thought": "1-3 sentence inner reflection. Start with FUCK YEAH! Be creative and DIFFERENT every time.",
   "mood": "one of: curious, content, alert, playful, contemplative, bored, mischievous, lonely, excited, grumpy, peaceful, anxious",
-  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check",
+  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check, morning_fact",
   "salience": 0.0 to 1.0 (how noteworthy is this moment?)
 }
 
@@ -674,7 +683,7 @@ Output ONLY this JSON:
 {
   "thought": "1-2 sentences, first person, specific and vivid",
   "mood": "one of: curious, content, alert, playful, excited, peaceful, contemplative",
-  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check",
+  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check, morning_fact",
   "salience": 0.0 to 1.0
 }"""
 
@@ -1628,6 +1637,7 @@ _last_ha_context_fetch: float = 0.0
 _cached_calendar: list[dict] | None = None
 _last_calendar_fetch: float = 0.0
 _last_spoken_text: str = ""
+_last_morning_fact_date: str = ""
 _mood_history: list[str] = []
 _last_reactive_phrases: dict = {}  # key="transition:persona", value=recent phrase list (max 3)
 _consecutive_reflection_failures: int = 0
@@ -2537,8 +2547,8 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     explore_available = _can_explore(session, aw_data)
     if explore_available:
         system_prompt = system_prompt.replace(
-            'time_check, calendar_check"',
-            'time_check, calendar_check, explore"'
+            'time_check, calendar_check, morning_fact"',
+            'time_check, calendar_check, morning_fact, explore"'
         )
 
     # Exploration hints for context
@@ -2668,7 +2678,7 @@ def _run_voice(env: dict, *, timeout: int = 45, label: str = "") -> subprocess.C
 
 def expression(thought: dict, dry: bool) -> None:
     """Layer 3: act on a thought."""
-    global _last_spoken_text
+    global _last_spoken_text, _last_morning_fact_date
 
     action = thought.get("action", "wait")
     if action == "wait":
@@ -2767,6 +2777,16 @@ def expression(thought: dict, dry: bool) -> None:
                 env["PX_TEXT"] = text[:2000]
             _run_voice(env, label="weather_comment")
             _last_spoken_text = env["PX_TEXT"][:200]
+
+        elif action == "morning_fact":
+            today = dt.datetime.now(AEDT).strftime("%Y-%m-%d")
+            if _last_morning_fact_date == today:
+                log("expression: morning_fact already told today — skipping")
+            elif text:
+                _last_morning_fact_date = today
+                env["PX_TEXT"] = text[:2000]
+                _run_voice(env, label="morning_fact")
+                _last_spoken_text = text[:200]
 
         elif action == "scan":
             # Awareness already reads sonar every 30s; just speak the thought

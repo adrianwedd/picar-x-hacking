@@ -923,12 +923,12 @@ ABSENT_GATED_ACTIONS = _MIND["ABSENT_GATED_ACTIONS"]
 
 
 def test_valid_actions_includes_new_actions():
-    """All 14 actions must be present in VALID_ACTIONS."""
+    """All 15 actions must be present in VALID_ACTIONS."""
     expected = {
         "wait", "greet", "comment", "remember", "look_at",
         "weather_comment", "scan", "explore",
         "play_sound", "photograph", "emote", "look_around",
-        "time_check", "calendar_check",
+        "time_check", "calendar_check", "morning_fact",
     }
     assert VALID_ACTIONS == expected
 
@@ -1026,13 +1026,13 @@ def test_explore_injection_after_enum_expansion():
     }
     for name, prompt in prompts.items():
         # The replace target must exist in the prompt
-        assert 'time_check, calendar_check"' in prompt, (
-            f"{name} is missing the replace target 'time_check, calendar_check\"'"
+        assert 'time_check, calendar_check, morning_fact"' in prompt, (
+            f"{name} is missing the replace target 'time_check, calendar_check, morning_fact\"'"
         )
         # After injection, explore must appear
         injected = prompt.replace(
-            'time_check, calendar_check"',
-            'time_check, calendar_check, explore"',
+            'time_check, calendar_check, morning_fact"',
+            'time_check, calendar_check, morning_fact, explore"',
         )
         assert "explore" in injected, f"{name} does not contain 'explore' after injection"
         # The original prompt must NOT already contain explore

@@ -128,7 +128,9 @@ def call_claude_vision(image_path: Path) -> str:
 
     prompt = (
         f"Read the image at {image_path} and describe what you see "
-        f"in 2 concise sentences. Focus on people, objects, and setting."
+        f"in 2 short, fun sentences that a 7-year-old would enjoy. "
+        f"Use simple words. Focus on interesting things like colours, "
+        f"shapes, animals, or cool objects. Be enthusiastic but brief."
     )
     try:
         result = subprocess.run(
