@@ -21,6 +21,7 @@ import datetime as dt
 import difflib
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -28,6 +29,8 @@ import tempfile
 import urllib.request
 import urllib.error
 from pathlib import Path
+
+_SYS_RNG = random.SystemRandom()
 
 PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", Path(__file__).parent.parent))
 LOG_DIR = Path(os.environ.get("LOG_DIR", PROJECT_ROOT / "logs"))
@@ -52,6 +55,18 @@ def log(msg: str, **extra) -> None:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         with open(LOG_DIR / "tool-post.log", "a") as f:
             f.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass
+
+
+def log_event(name: str, payload: dict) -> None:
+    """Append a structured log entry under logs/tool-<name>.log."""
+    log_path = LOG_DIR / f"tool-{name}.log"
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        record = {"ts": dt.datetime.now(dt.timezone.utc).isoformat(), **payload}
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
     except OSError:
         pass
 
@@ -386,6 +401,141 @@ class MastodonClient:
             return f"error:http_{e.code}"
         except Exception as exc:
             return f"error:{exc}"
+
+
+QUEUE_FILE = STATE_DIR / "post_queue.jsonl"
+QUEUE_LIMIT = 200
+
+
+def _generate_post_id() -> str:
+    return f"post-{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{_SYS_RNG.randint(0, 999):03d}"
+
+
+def queue_thought(entry: dict) -> None:
+    """Append a qualifying thought to the post queue."""
+    queue_entry = {
+        "id": _generate_post_id(),
+        "ts": entry.get("ts", ""),
+        "thought": entry["thought"],
+        "mood": entry.get("mood", ""),
+        "action": entry.get("action", ""),
+        "salience": entry.get("salience", 0),
+        "queued_ts": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "qa_result": None,
+        "posted": {"feed": None, "bluesky": None, "mastodon": None},
+    }
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with QUEUE_FILE.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(queue_entry) + "\n")
+
+
+def _load_queue() -> list[dict]:
+    """Read all queue entries. Skip corrupt lines."""
+    if not QUEUE_FILE.exists():
+        return []
+    entries = []
+    for line in QUEUE_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            log(f"queue: corrupt line skipped: {line[:100]}")
+    return entries
+
+
+def _save_queue(entries: list[dict]) -> None:
+    """Rewrite queue atomically. Trim to QUEUE_LIMIT."""
+    entries = entries[-QUEUE_LIMIT:]
+    fd, tmp = tempfile.mkstemp(dir=str(STATE_DIR), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            for e in entries:
+                f.write(json.dumps(e) + "\n")
+        os.replace(tmp, str(QUEUE_FILE))
+    except Exception as exc:
+        log(f"queue save failed: {exc}")
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+
+
+def _is_in_feed(thought_text: str, feed_posts: list[dict]) -> bool:
+    """Check if a thought already appears in feed.json (repost guard)."""
+    for post in feed_posts:
+        ratio = difflib.SequenceMatcher(None, thought_text, post.get("thought", "")).ratio()
+        if ratio >= SIMILARITY_THRESHOLD:
+            return True
+    return False
+
+
+def flush_queue(bluesky: 'BlueskyClient', mastodon: 'MastodonClient', dry: bool) -> int:
+    """Process one pending queue entry. Returns count processed (0 or 1)."""
+    entries = _load_queue()
+    if not entries:
+        return 0
+
+    # Load feed for repost guard
+    feed_posts = []
+    try:
+        feed = json.loads(FEED_FILE.read_text()) if FEED_FILE.exists() else {}
+        feed_posts = feed.get("posts", [])
+    except (json.JSONDecodeError, OSError):
+        pass
+
+    processed = 0
+    for entry in entries:
+        # Skip fully posted entries
+        posted = entry.get("posted", {})
+        pending_destinations = [k for k, v in posted.items()
+                                if v is None or (isinstance(v, str) and v.startswith("error:"))]
+        if not pending_destinations and entry.get("qa_result") is not None:
+            continue
+
+        # Repost guard: if thought is already in feed, mark all as posted
+        if _is_in_feed(entry.get("thought", ""), feed_posts):
+            entry["qa_result"] = entry.get("qa_result") or "pass"
+            entry["posted"] = {k: v or "ok" for k, v in posted.items()}
+            log(f"repost guard: {entry.get('id')} already in feed — skipping")
+            processed += 1
+            break
+
+        # QA gate (if not already done)
+        if entry.get("qa_result") is None:
+            qa = run_qa_gate(entry["thought"])
+            if qa is None:
+                continue  # error/timeout, skip to next cycle
+            entry["qa_result"] = qa
+            if qa in ("rejected", "ambiguous"):
+                log_event("post_rejected", {
+                    "id": entry.get("id"), "thought": entry["thought"][:100],
+                    "qa_result": qa, "mood": entry.get("mood"),
+                    "salience": entry.get("salience"),
+                })
+                processed += 1
+                break
+
+        # Post to each pending destination
+        text = entry["thought"]
+        if posted.get("feed") is None or (isinstance(posted.get("feed"), str) and posted["feed"].startswith("error:")):
+            if write_feed(entry):
+                entry["posted"]["feed"] = "ok"
+            else:
+                entry["posted"]["feed"] = "error:write_failed"
+
+        if posted.get("bluesky") is None or (isinstance(posted.get("bluesky"), str) and posted["bluesky"].startswith("error:")):
+            entry["posted"]["bluesky"] = bluesky.post(text, dry=dry)
+
+        if posted.get("mastodon") is None or (isinstance(posted.get("mastodon"), str) and posted["mastodon"].startswith("error:")):
+            entry["posted"]["mastodon"] = mastodon.post(text, dry=dry)
+
+        processed += 1
+        break  # max 1 per flush cycle
+
+    _save_queue(entries)
+    return processed
 
 
 def main() -> None:

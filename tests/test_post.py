@@ -62,6 +62,11 @@ _post_urllib_request = _POST["urllib"].request
 _post_urllib_error = _POST["urllib"].error
 BlueskyClient = _POST["BlueskyClient"]
 MastodonClient = _POST["MastodonClient"]
+queue_thought = _POST["queue_thought"]
+_load_queue = _POST["_load_queue"]
+_save_queue = _POST["_save_queue"]
+flush_queue = _POST["flush_queue"]
+_is_in_feed = _POST["_is_in_feed"]
 
 
 def _make_line(thought="hello", salience=0.8, action="comment"):
@@ -146,11 +151,17 @@ def _cursor_env(tmp_path):
     """Redirect STATE_DIR for cursor tests; restore after."""
     orig_state = _POST["STATE_DIR"]
     orig_cursor = _POST["CURSOR_FILE"]
+    orig_queue = _POST["QUEUE_FILE"]
+    orig_feed = _POST["FEED_FILE"]
     _POST["STATE_DIR"] = tmp_path
     _POST["CURSOR_FILE"] = tmp_path / "px-post-cursor.json"
+    _POST["QUEUE_FILE"] = tmp_path / "post_queue.jsonl"
+    _POST["FEED_FILE"] = tmp_path / "feed.json"
     yield tmp_path
     _POST["STATE_DIR"] = orig_state
     _POST["CURSOR_FILE"] = orig_cursor
+    _POST["QUEUE_FILE"] = orig_queue
+    _POST["FEED_FILE"] = orig_feed
 
 
 def test_file_offset_cursor(_cursor_env):
@@ -545,3 +556,125 @@ def test_destination_independence():
         mock_urlopen.return_value = mastodon_resp
         masto_result = masto.post("test thought")
         assert masto_result == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Queue management tests
+# ---------------------------------------------------------------------------
+
+
+def _make_queue_entry(thought="test thought", posted=None, qa_result="pass", entry_id=None):
+    """Build a queue entry dict for testing."""
+    return {
+        "id": entry_id or f"post-20260315-100000-{_SYS_RNG.randint(0,999):03d}",
+        "ts": "2026-03-15T10:00:00+11:00",
+        "thought": thought,
+        "mood": "contemplative",
+        "action": "comment",
+        "salience": 0.82,
+        "queued_ts": "2026-03-15T10:00:05+00:00",
+        "qa_result": qa_result,
+        "posted": posted or {"feed": None, "bluesky": None, "mastodon": None},
+    }
+
+
+# Need _SYS_RNG for test helpers
+import random as _test_random
+_SYS_RNG = _test_random.SystemRandom()
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "0"})
+def test_per_destination_retry(_cursor_env):
+    """Bluesky errored, feed ok — flush retries Bluesky but not feed."""
+    tmp = _cursor_env
+    entry = _make_queue_entry(
+        thought="I see something interesting",
+        posted={"feed": "ok", "bluesky": "error:timeout", "mastodon": "ok"},
+        qa_result="pass",
+        entry_id="post-retry-001",
+    )
+    queue_file = tmp / "post_queue.jsonl"
+    queue_file.write_text(json.dumps(entry) + "\n")
+
+    bsky = MagicMock()
+    bsky.post.return_value = "ok"
+    masto = MagicMock()
+
+    count = flush_queue(bsky, masto, dry=True)
+    assert count == 1
+
+    # Bluesky was retried
+    bsky.post.assert_called_once()
+    # Mastodon was NOT retried (already "ok")
+    masto.post.assert_not_called()
+
+    # Verify queue entry updated
+    saved = json.loads(queue_file.read_text().strip())
+    assert saved["posted"]["feed"] == "ok"
+    assert saved["posted"]["bluesky"] == "ok"
+    assert saved["posted"]["mastodon"] == "ok"
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "0"})
+def test_flush_max_one_per_cycle(_cursor_env):
+    """Queue 3 entries. Flush once. Verify only 1 processed."""
+    tmp = _cursor_env
+    queue_file = tmp / "post_queue.jsonl"
+    lines = []
+    for i in range(3):
+        entry = _make_queue_entry(
+            thought=f"thought number {i}",
+            entry_id=f"post-batch-{i:03d}",
+        )
+        lines.append(json.dumps(entry))
+    queue_file.write_text("\n".join(lines) + "\n")
+
+    bsky = MagicMock()
+    bsky.post.return_value = "ok"
+    masto = MagicMock()
+    masto.post.return_value = "ok"
+
+    count = flush_queue(bsky, masto, dry=True)
+    assert count == 1
+
+    # Only 1 entry should have been touched
+    saved = [json.loads(l) for l in queue_file.read_text().strip().splitlines()]
+    posted_count = sum(1 for e in saved if e["posted"]["feed"] == "ok")
+    assert posted_count == 1
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "0"})
+def test_repost_guard_after_corruption(_cursor_env):
+    """Thought already in feed.json — queue entry marked ok for all destinations without re-sending."""
+    tmp = _cursor_env
+    thought_text = "The sky is particularly beautiful this evening"
+
+    # Pre-populate feed.json with the thought
+    feed = {"posts": [{"thought": thought_text, "mood": "calm", "ts": "", "posted_ts": ""}]}
+    (tmp / "feed.json").write_text(json.dumps(feed))
+
+    # Queue the same thought (simulating corruption recovery)
+    entry = _make_queue_entry(
+        thought=thought_text,
+        posted={"feed": None, "bluesky": None, "mastodon": None},
+        qa_result=None,
+        entry_id="post-corrupt-001",
+    )
+    queue_file = tmp / "post_queue.jsonl"
+    queue_file.write_text(json.dumps(entry) + "\n")
+
+    bsky = MagicMock()
+    masto = MagicMock()
+
+    count = flush_queue(bsky, masto, dry=True)
+    assert count == 1
+
+    # Neither client should have been called
+    bsky.post.assert_not_called()
+    masto.post.assert_not_called()
+
+    # All destinations should be marked "ok"
+    saved = json.loads(queue_file.read_text().strip())
+    assert saved["posted"]["feed"] == "ok"
+    assert saved["posted"]["bluesky"] == "ok"
+    assert saved["posted"]["mastodon"] == "ok"
