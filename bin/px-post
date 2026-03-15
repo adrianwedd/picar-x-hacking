@@ -535,8 +535,21 @@ def flush_queue(bluesky: 'BlueskyClient', mastodon: 'MastodonClient', dry: bool)
                 was_rejected = True
                 break
 
-        # Post to each pending destination
+        # Guard: only post to social if thought is in feed.json (prevents posting QA-removed thoughts)
         text = entry["thought"]
+        if posted.get("feed") == "ok" and (posted.get("bluesky") is None or posted.get("mastodon") is None):
+            try:
+                feed_data = json.loads(FEED_FILE.read_text()) if FEED_FILE.exists() else {"posts": []}
+                feed_texts = {p["thought"][:80] for p in feed_data.get("posts", [])}
+                if text[:80] not in feed_texts:
+                    log(f"skipping social post — thought removed from feed: {text[:60]}")
+                    entry["posted"]["bluesky"] = entry["posted"].get("bluesky") or "skipped"
+                    entry["posted"]["mastodon"] = entry["posted"].get("mastodon") or "skipped"
+                    processed += 1
+                    break
+            except Exception:
+                pass  # feed read failed — continue posting
+
         # Build permalink URL for social posts
         thought_ts = entry.get("ts", "")
         permalink = f"https://spark.wedd.au/thought/?ts={urllib.parse.quote(thought_ts)}" if thought_ts else ""
