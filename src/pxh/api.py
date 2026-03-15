@@ -1346,7 +1346,7 @@ _pin_lock = threading.Lock()
 _pin_attempts = 0
 _pin_lockout_until = 0.0
 _PIN_MAX_ATTEMPTS = 3
-_PIN_LOCKOUT_SECONDS = 300       # 5 minutes after 5 failures
+_PIN_LOCKOUT_SECONDS = 300       # 5 minutes after 3 failures
 _PIN_ESCALATED_SECONDS = 1800    # 30 minutes after 10 cumulative failures
 _PIN_ESCALATION_THRESHOLD = 10
 

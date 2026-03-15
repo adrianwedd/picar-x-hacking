@@ -79,7 +79,7 @@ def log(msg: str, **extra) -> None:
                 half = len(lines) // 2
                 half_content = "\n".join(lines[half:]) + "\n"
                 fd, tmp = tempfile.mkstemp(dir=str(log_file.parent), suffix=".tmp")
-                with os.fdopen(fd, "w") as f:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
                     f.write(half_content)
                 os.replace(tmp, str(log_file))
         except Exception as exc:
@@ -198,7 +198,7 @@ def _save_cursor(offset: int, inode: int) -> None:
     try:
         # Atomic write
         fd, tmp = tempfile.mkstemp(dir=str(STATE_DIR), suffix=".tmp")
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         os.replace(tmp, str(CURSOR_FILE))
     except Exception as exc:
@@ -286,7 +286,7 @@ def write_feed(thought: dict) -> bool:
 
     try:
         fd, tmp = tempfile.mkstemp(dir=str(STATE_DIR), suffix=".tmp")
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2)
         os.replace(tmp, str(FEED_FILE))
         return True
@@ -525,7 +525,7 @@ def _save_queue(entries: list[dict]) -> None:
     entries = entries[-QUEUE_LIMIT:]
     fd, tmp = tempfile.mkstemp(dir=str(STATE_DIR), suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             for e in entries:
                 f.write(json.dumps(e) + "\n")
         os.replace(tmp, str(QUEUE_FILE))
@@ -667,7 +667,7 @@ def write_health_status(queue_depth: int, total_posted: int, total_rejected: int
     }
     try:
         fd, tmp = tempfile.mkstemp(dir=str(STATE_DIR), suffix=".tmp")
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
         os.replace(tmp, str(STATUS_FILE))
     except Exception as exc:

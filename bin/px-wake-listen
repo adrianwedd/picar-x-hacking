@@ -128,7 +128,7 @@ def log(msg: str) -> None:
             half_content = "\n".join(lines[half:]) + "\n"
             import tempfile as _tmpmod
             fd, tmp = _tmpmod.mkstemp(dir=str(LOG_FILE.parent), suffix=".tmp")
-            with os.fdopen(fd, "w") as f:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(half_content)
             os.replace(tmp, str(LOG_FILE))
     except Exception as exc:
