@@ -1,0 +1,24 @@
+[Unit]
+Description=SPARK cognitive loop daemon
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/picar-x-hacking
+Environment=HOME=/home/pi
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=PULSE_SERVER=unix:/run/user/1000/pulse/native
+Environment=PATH=/home/pi/picar-x-hacking/.venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/pi/picar-x-hacking/bin/px-mind
+Restart=always
+RestartSec=10
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
