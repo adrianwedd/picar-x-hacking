@@ -300,6 +300,10 @@ If `post_queue.jsonl` is unreadable or entirely corrupt, px-post logs a warning 
 
 **Re-posting mitigation after queue corruption:** Per-destination status is lost, so re-queued thoughts could theoretically be re-posted to social platforms. To prevent this, the flush cycle checks `state/feed.json` before posting to Bluesky/Mastodon — if a thought already appears in feed.json (matched by timestamp + similarity), it is marked as already posted for ALL destinations without re-sending. This makes feed.json the source of truth for "was this already posted," providing a best-effort guard against duplicate social posts after queue corruption.
 
+**Feed write failure edge case:** If a social post succeeds but the feed.json write fails (disk full), the re-post guard has no record of the social post. On the next flush cycle, the thought could be re-posted. This is an acknowledged limitation of using feed.json as the dedup source — a dedicated "posted IDs" file would solve it but adds complexity. Given the low probability (disk full + queue corruption simultaneously), this is an acceptable trade-off.
+
+**Cursor rewind on queue loss:** When queue corruption triggers a "start fresh" event, the cursor file is NOT reset — it continues reading from where it left off. This means only NEW thoughts (generated after the corruption) are re-queued. Historical thoughts already read by the cursor are not re-processed. The feed.json cross-check provides a second layer of protection for any thoughts that do get re-queued.
+
 ### API error handling
 
 All HTTP calls (Claude QA, Bluesky, Mastodon) use explicit timeouts (15s for QA, 10s for social APIs). Responses are checked for status codes:
