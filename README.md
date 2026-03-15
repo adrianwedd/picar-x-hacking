@@ -107,13 +107,17 @@ This section traces the complete data flow from power-on to a robot response, an
 
 ### 1. Boot Sequence
 
-Three systemd services start automatically:
+Seven systemd services start automatically:
 
 ```
 Boot
- ├── px-alive.service        (root)   — claims Picarx() GPIO handle; starts gaze drift loop
- ├── px-wake-listen.service  (pi)     — loads Vosk wake word model; starts mic capture loop
- └── px-battery-poll.service (root)   — polls Robot HAT ADC every 30s → state/battery.json; plays rising/falling sweep tones on plug/unplug with voice announcement; escalating warnings + emergency shutdown at 10%
+ ├── px-alive.service           (root)   — claims Picarx() GPIO handle; starts gaze drift loop
+ ├── px-wake-listen.service     (pi)     — loads Vosk wake word model; starts mic capture loop
+ ├── px-battery-poll.service    (root)   — polls Robot HAT ADC every 30s → state/battery.json; plays rising/falling sweep tones on plug/unplug with voice announcement; escalating warnings + emergency shutdown at 10%
+ ├── px-api-server.service      (pi)     — REST API + SPARK web dashboard on port 8420
+ ├── px-post.service            (pi)     — social posting daemon; watches thoughts, QA-gates via Claude, posts to Bluesky/Mastodon + local feed
+ ├── px-frigate-stream.service  (pi)     — local go2rtc RTSP server for Frigate camera integration (stops px-alive to claim libcamera)
+ └── cloudflared.service        (pi)     — Cloudflare Tunnel (api.spark.wedd.au → localhost:8420)
 ```
 
 **`px-alive`** runs as root (GPIO access) and immediately calls `Picarx()`, claiming GPIO5 via `reset_mcu()`. It never releases this handle. All other processes that need servos must signal px-alive with `SIGUSR1` (via the `yield_alive` function in `px-env`) to make it exit cleanly. systemd restarts it after 10 seconds. The PCA9685 PWM chip retains the last servo position between restarts, so the robot head stays still.
@@ -291,19 +295,59 @@ px-mind (every cycle, ~60s)
  │    └── if salience > 0.7 → auto_remember() → state/notes-spark.jsonl
  │
  └── Layer 3 — Expression (2 min cooldown, pauses when session.listening=true or spark_quiet_mode=true)
-      valid actions: wait, greet, comment, remember, look_at, weather_comment, scan
+      valid actions: wait, greet, comment, remember, look_at, weather_comment,
+                     scan, explore, play_sound, photograph, emote, look_around,
+                     time_check, calendar_check
       dispatch based on reflection.action:
       ├── comment/greet     → tool-voice (via tool-voice-persona for rephrasing)
       ├── "remember"        → tool-remember
       ├── "look_at"         → tool-look (random gaze)
       ├── "weather_comment" → tool-weather + speak
-      └── "scan"            → sonar sweep
+      ├── "scan"            → sonar sweep
+      ├── "explore"         → tool-wander (short autonomous wander)
+      ├── "play_sound"      → tool-play-sound
+      ├── "photograph"      → tool-describe-scene
+      ├── "emote"           → tool-emote (emotional pose)
+      ├── "look_around"     → tool-look (pan sweep)
+      ├── "time_check"      → tool-time
+      └── "calendar_check"  → tool-gws-calendar
 ```
 
 **REFLECTION_SYSTEM_SPARK** enforces warm, optimistic content:
 > *"NEVER be dark, nihilistic, or adult-themed. SPARK is warm, curious, and science-loving. Think like a kind robot friend who delights in sharing fascinating things about the universe."*
 
 The reflection prompt is persona-isolated at the function level — `PERSONA_REFLECTION_SYSTEMS["spark"]` is selected at runtime from `awareness.json → persona` field.
+
+### 7b. Home Assistant Integration
+
+`px-mind` Layer 1 polls Home Assistant periodically to enrich the awareness context:
+
+- **Person presence** (every 5 min) — tracks `person.adrian`, `person.obi`, `person.maya`, `person.laura` via HA device trackers (home/away/zone)
+- **Calendar** (every 5 min) — reads Obi's and the family calendar (`HA_CALENDARS`) with an 8-hour lookahead, surfacing upcoming events in the reflection prompt so SPARK can give transition warnings
+- **Routines** (meds/water) — queries HA sensors for whether Obi has taken his medication today and when he last drank water; SPARK can gently nudge if either is overdue
+- **Context** (every 60 s) — monitors `binary_sensor.macbook_air_camera_in_use` (call detection), `light.office_light`, and `media_player.shack_speakers` so SPARK knows when Adrian is on a call and should stay quiet
+- **Sleep quality** (hourly) — reads Adrian's Pixel Watch sleep data from HA; available in the awareness snapshot for context-sensitive reflection
+
+All HA data is injected into the Layer 2 reflection prompt, so SPARK's thoughts and proactive speech are informed by the household context. Requires `PX_HA_HOST` and `PX_HA_TOKEN` in `.env`.
+
+### 7c. Social Posting (`px-post`)
+
+`px-post` is a daemon that publishes SPARK's best thoughts to social media and a local feed.
+
+```
+px-post (every 60s poll, every 300s flush)
+ ├── poll_new_thoughts()  — cursor-based read from state/thoughts-spark.jsonl
+ ├── qualifies()          — salience ≥ 0.7 OR action ∈ {comment, greet, weather_comment}
+ ├── is_duplicate()       — difflib similarity ≥ 0.75 against recent posts → reject
+ ├── queue_thought()      — append to state/post_queue.jsonl
+ └── flush_queue()        — one entry per cycle:
+      ├── run_qa_gate()   — Claude CLI binary YES/NO quality check (15s timeout)
+      ├── write_feed()    — append to state/feed.json (served by /api/v1/public/feed)
+      ├── BlueskyClient   — post to Bluesky (truncate at 300 chars, word boundary)
+      └── MastodonClient  — post to Mastodon (truncate at 500 chars)
+```
+
+Supports `--backfill` to process the entire thoughts file into `feed.json` without social posting. Single-instance guard via `fcntl.flock`. Requires `PX_BSKY_HANDLE` + `PX_BSKY_APP_PASSWORD` and/or `PX_MASTODON_INSTANCE` + `PX_MASTODON_TOKEN` in `.env`.
 
 ### 8. Memory System — Persona-Scoped Persistence
 
@@ -421,6 +465,10 @@ bin/px-spark --dry-run
 sudo systemctl status px-alive             # Idle gaze drift daemon
 sudo systemctl status px-wake-listen       # Wake word listener
 sudo systemctl status px-battery-poll      # Battery voltage poller (writes state/battery.json)
+sudo systemctl status px-api-server        # REST API + web dashboard (:8420)
+sudo systemctl status px-post              # Social posting daemon (Bluesky/Mastodon)
+sudo systemctl status px-frigate-stream    # Frigate camera RTSP stream
+sudo systemctl status cloudflared          # Cloudflare Tunnel
 ```
 
 ---
@@ -512,17 +560,39 @@ bin/px-api-server              # live
 bin/px-api-server --dry-run    # FORCE_DRY — remote callers cannot override
 ```
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/` | No | SPARK web dashboard (text chat + quick-action buttons) |
-| GET | `/api/v1/health` | No | Liveness probe |
-| POST | `/api/v1/chat` | Yes | Send text; SPARK picks a tool via LLM and executes it |
-| POST | `/api/v1/tool` | Yes | Execute a tool directly: `{"tool": "tool_voice", "params": {"text": "hey"}}` |
-| GET | `/api/v1/session` | Yes | Full session state |
-| PATCH | `/api/v1/session` | Yes | Update: `listening`, `confirm_motion_allowed`, `wheels_on_blocks`, `persona` |
-| GET | `/api/v1/tools` | Yes | List available tools |
-| GET | `/api/v1/jobs/{id}` | Yes | Poll async job (tool_wander returns 202) |
-| GET | `/photos/{filename}` | No | Serve captured photos (used by web UI photo button) |
+**Public (no auth)**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | SPARK web dashboard (text chat + quick-action buttons) |
+| GET | `/api/v1/health` | Liveness probe |
+| GET | `/api/v1/public/status` | Live SPARK status: persona, mood, last thought |
+| GET | `/api/v1/public/vitals` | System vitals: CPU, RAM, temp, battery, disk |
+| GET | `/api/v1/public/sonar` | Latest sonar reading from `sonar_live.json` |
+| GET | `/api/v1/public/awareness` | Awareness snapshot: mode, Frigate, ambient, weather, time context |
+| GET | `/api/v1/public/history` | Ring buffer of up to 60 vitals readings (~30 min) |
+| GET | `/api/v1/public/thoughts` | Recent SPARK thoughts (newest first, `?limit=12`) |
+| GET | `/api/v1/public/feed` | SPARK's public thought feed (for social posting) |
+| GET | `/api/v1/public/services` | Service status dict (used by web UI) |
+| POST | `/api/v1/public/chat` | Lightweight public chat with SPARK (rate-limited) |
+| POST | `/api/v1/pin/verify` | Verify admin PIN (issues Bearer token for authenticated endpoints) |
+| GET | `/photos/{filename}` | Serve captured photos (used by web UI photo button) |
+
+**Authenticated (Bearer token)**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/chat` | Send text; SPARK picks a tool via LLM and executes it |
+| POST | `/api/v1/tool` | Execute a tool directly: `{"tool": "tool_voice", "params": {"text": "hey"}}` |
+| GET | `/api/v1/session` | Full session state |
+| PATCH | `/api/v1/session` | Update: `listening`, `confirm_motion_allowed`, `wheels_on_blocks`, `persona` |
+| POST | `/api/v1/session/history/clear` | Wipe conversation history (keeps other session fields) |
+| GET | `/api/v1/tools` | List available tools |
+| GET | `/api/v1/jobs/{id}` | Poll async job (tool_wander returns 202) |
+| GET | `/api/v1/services` | Status of all managed services |
+| POST | `/api/v1/services/{svc}/{action}` | Start/stop/restart a managed service |
+| POST | `/api/v1/device/{action}` | Reboot or shut down the host device |
+| GET | `/api/v1/logs/{service}` | Tail last N lines from a service log |
 
 ---
 
@@ -669,6 +739,7 @@ picar-x-hacking/
 │   ├── px-wake-listen            # Wake word listener (systemd)
 │   ├── px-battery-poll           # Battery voltage poller (systemd)
 │   ├── px-api-server             # REST API launcher
+│   ├── px-post                   # Social posting daemon (Bluesky, Mastodon, local feed)
 │   ├── px-statusline             # Claude Code statusbar script
 │   ├── px-{circle,drive,look,…}  # Hardware control scripts
 │   ├── tool-{voice,look,drive,…} # Voice loop tool wrappers (26 tools)
@@ -693,7 +764,11 @@ picar-x-hacking/
 │   ├── px-alive.service
 │   ├── px-wake-listen.service
 │   ├── px-battery-poll.service
-│   └── px-mind.service
+│   ├── px-mind.service
+│   ├── px-api-server.service
+│   ├── px-post.service
+│   ├── px-frigate-stream.service
+│   └── cloudflared.service
 ├── sounds/                       # Bundled audio
 ├── models/                       # STT models (gitignored, ~500MB)
 └── .env                          # API token (gitignored)
