@@ -2351,13 +2351,21 @@ def _run_voice(env: dict, *, timeout: int = 45, label: str = "") -> subprocess.C
         [str(BIN_DIR / "tool-voice")],
         capture_output=True, text=True, check=False, env=env, timeout=timeout,
     )
-    if result.returncode != 0 and result.stdout:
-        try:
-            payload = json.loads(result.stdout.strip().splitlines()[-1])
-            if "voice lock timeout" in payload.get("error", ""):
-                log(f"expression: voice contention — voice.lock busy, skipping speech{f' ({label})' if label else ''}")
-        except (json.JSONDecodeError, IndexError):
-            pass
+    if result.returncode != 0:
+        logged = False
+        if result.stdout:
+            try:
+                payload = json.loads(result.stdout.strip().splitlines()[-1])
+                if "voice lock timeout" in payload.get("error", ""):
+                    log(f"expression: voice contention — voice.lock busy, skipping speech"
+                        f"{f' ({label})' if label else ''}")
+                    logged = True
+            except (json.JSONDecodeError, IndexError):
+                pass
+        if not logged:
+            log(f"expression: tool-voice failed rc={result.returncode}"
+                f" stderr={result.stderr[-200:]!r}"
+                f"{f' ({label})' if label else ''}")
     return result
 
 

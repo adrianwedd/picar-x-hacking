@@ -309,7 +309,7 @@ def _collect_history_sample(state_dir: "Path", persona: str = "") -> "Dict[str, 
     try:
         bdata = json.loads((state_dir / "battery.json").read_text())
         sample["battery_pct"] = bdata.get("pct")
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError, TypeError):
         sample["battery_pct"] = None
 
     # Sonar — age gate: null if > 60s
@@ -325,7 +325,7 @@ def _collect_history_sample(state_dir: "Path", persona: str = "") -> "Dict[str, 
         tdata = json.loads((state_dir / "token_usage.json").read_text())
         sample["tokens_in"] = tdata.get("input_tokens", 0)
         sample["tokens_out"] = tdata.get("output_tokens", 0)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError, TypeError):
         sample["tokens_in"] = None
         sample["tokens_out"] = None
 
@@ -348,7 +348,7 @@ def _collect_history_sample(state_dir: "Path", persona: str = "") -> "Dict[str, 
             sample["wind_kmh"] = None
             sample["humidity_pct"] = None
             sample["rain_24h_mm"] = None
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError, TypeError):
         sample["ambient_rms"] = None
         sample["weather_temp_c"] = None
         sample["wind_kmh"] = None
@@ -362,7 +362,7 @@ def _collect_history_sample(state_dir: "Path", persona: str = "") -> "Dict[str, 
         last = json.loads(lines[-1]) if lines else {}
         sample["salience"] = last.get("salience")
         sample["mood_val"] = _MOOD_VAL.get((last.get("mood") or "").lower())
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError, TypeError):
         sample["salience"] = None
         sample["mood_val"] = None
 
@@ -512,7 +512,7 @@ async def public_status() -> Dict[str, Any]:
                     break
             except (json.JSONDecodeError, ValueError):
                 continue
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError, TypeError):
         pass  # expected on missing/corrupt thoughts file
 
     return {
@@ -559,7 +559,7 @@ async def public_vitals() -> Dict[str, Any]:
         data = json.loads((_public_state_dir() / "battery.json").read_text())
         battery_pct = data.get("pct")
         battery_charging = bool(data.get("charging", False))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError, TypeError):
         pass
 
     tokens_in = tokens_out = None
@@ -567,7 +567,7 @@ async def public_vitals() -> Dict[str, Any]:
         tdata = json.loads((_public_state_dir() / "token_usage.json").read_text())
         tokens_in = tdata.get("input_tokens", 0)
         tokens_out = tdata.get("output_tokens", 0)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError, TypeError):
         pass
 
     wifi_dbm = _read_wifi_dbm()
@@ -613,7 +613,7 @@ async def public_awareness() -> Dict[str, Any]:
     try:
         parsed = json.loads((_public_state_dir() / "awareness.json").read_text())
         awareness = parsed if isinstance(parsed, dict) else {}
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError, TypeError):
         awareness = {}
 
     # frigate: absent/None → Frigate offline → person_present=None (hidden in UI)

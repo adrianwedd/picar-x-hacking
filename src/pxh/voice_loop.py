@@ -645,6 +645,7 @@ def validate_action(action: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
     return tool, sanitized
 
 
+_tool_exec_lock = threading.Lock()
 _last_tool_execution = 0.0
 
 
@@ -653,10 +654,13 @@ def execute_tool(tool: str, env_overrides: Dict[str, str], dry_mode: bool) -> Tu
     # Brief cooldown between consecutive tool calls to allow GPIO/I2C handles
     # to be fully released by the previous tool subprocess.  500 ms is enough
     # for lgpio file descriptors to close and the PCA9685 bus to settle.
+    # Lock serialises the debounce check-sleep window so two threads cannot
+    # both read the same _last_tool_execution and skip the sleep (TOCTOU fix).
     # Fixes: https://github.com/.../issues/43
-    elapsed = time.monotonic() - _last_tool_execution
-    if elapsed < 0.5:
-        time.sleep(0.5 - elapsed)
+    with _tool_exec_lock:
+        elapsed = time.monotonic() - _last_tool_execution
+        if elapsed < 0.5:
+            time.sleep(0.5 - elapsed)
 
     command_path = TOOL_COMMANDS[tool]
     if not command_path.exists():
@@ -677,14 +681,16 @@ def execute_tool(tool: str, env_overrides: Dict[str, str], dry_mode: bool) -> Tu
         for k, v in PERSONA_VOICE_ENV[session_persona].items():
             env[k] = v
 
-    result = subprocess.run(
-        [str(command_path)],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
-    )
-    _last_tool_execution = time.monotonic()
+    try:
+        result = subprocess.run(
+            [str(command_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+    finally:
+        _last_tool_execution = time.monotonic()
     return result.returncode, result.stdout, result.stderr
 
 
