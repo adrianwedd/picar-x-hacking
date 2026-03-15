@@ -92,9 +92,11 @@ from unittest.mock import MagicMock, patch
 
 
 def _make_frigate_event(score=0.75, top_score=None, x=0.2, y=0.1, w=0.3, h=0.8,
-                        speed=0.0, vel_angle=0.0, end_time=None, label="person"):
+                        speed=0.0, vel_angle=0.0, end_time=None, label="person",
+                        camera="picar_x"):
     return {
         "label": label,
+        "camera": camera,
         "end_time": end_time or _time.time() - 5,
         "data": {
             "box": [x, y, w, h],

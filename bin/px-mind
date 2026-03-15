@@ -113,6 +113,17 @@ REACTIVE_COOLDOWN_S    = 30    # min seconds between reactive responses (was 15)
 AMBIENT_STALE_S        = 60    # ignore ambient_sound.json older than this
 FRIGATE_HOST           = os.environ.get("PX_FRIGATE_HOST", "http://pi5-hailo.local:5000")
 FRIGATE_CAMERA         = os.environ.get("PX_FRIGATE_CAMERA", "picar_x")
+# All cameras to query for multi-room presence awareness
+FRIGATE_ALL_CAMERAS    = [c.strip() for c in os.environ.get(
+    "PX_FRIGATE_CAMERAS", "picar_x,picamera,driveway_camera,garden_camera"
+).split(",") if c.strip()]
+# Camera-to-room mapping for human-readable awareness context
+FRIGATE_CAMERA_ROOMS   = {
+    "picar_x": "SPARK's view",
+    "picamera": "indoor",
+    "driveway_camera": "driveway",
+    "garden_camera": "garden",
+}
 FRIGATE_WINDOW_S       = 90    # look for events in the last 90 seconds
 FRIGATE_MIN_SCORE      = 0.60  # ignore detections below this confidence
 FRIGATE_TIMEOUT_S      = 2     # short timeout — must not stall the awareness loop
@@ -764,14 +775,16 @@ def read_sonar(dry: bool) -> float | None:
 
 
 def _fetch_frigate_presence(dry: bool = False) -> dict | None:
-    """Query Frigate for all recent object detections across all COCO labels.
+    """Query Frigate for recent detections across ALL configured cameras.
 
     Returns a dict with:
-      - person_present: bool (backward compat)
-      - event_count:    int  (person events, backward compat)
+      - person_present: bool  (any camera, backward compat)
+      - event_count:    int   (total person events, backward compat)
       - score:          float|None (best person score, backward compat)
-      - detections:     [{label, score, count}, ...] sorted by score desc
-      - x_center/speed/velocity_angle: person-specific (backward compat)
+      - detections:     [{label, score, count}, ...] sorted by score desc (all cameras)
+      - x_center/speed/velocity_angle: person-specific from primary camera (backward compat)
+      - cameras:        {camera_name: {person: bool, detections: [{label, score, count}], room: str}}
+      - rooms_with_people: [str] — human-readable list of rooms with person detected
 
     None means Frigate is unreachable — caller falls back to sonar/ambient heuristics.
     dry=True returns None immediately without any network call.
@@ -779,56 +792,89 @@ def _fetch_frigate_presence(dry: bool = False) -> dict | None:
     if dry:
         return None
     since = time.time() - FRIGATE_WINDOW_S
-    # Fetch all labels (no label= filter)
+    # Fetch events from ALL cameras in one call (no camera= filter)
     url = (
         f"{FRIGATE_HOST}/api/events"
-        f"?camera={FRIGATE_CAMERA}"
-        f"&limit=100&after={since:.3f}"
+        f"?limit=200&after={since:.3f}"
     )
     try:
         req = urllib.request.Request(url, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=FRIGATE_TIMEOUT_S) as resp:
             events = json.loads(resp.read())
     except Exception:
-        return None  # network down, mDNS timeout, JSON parse error, etc.
+        return None
 
-    # Guard against unexpected payload shapes (e.g. Frigate error dict)
     if not isinstance(events, list):
         return None
 
+    # Filter to configured cameras only
+    tracked_cams = set(FRIGATE_ALL_CAMERAS)
+    events = [e for e in events if isinstance(e, dict) and e.get("camera") in tracked_cams]
+
     qualifying = [
         e for e in events
-        if isinstance(e, dict)
         if max(e.get("data", {}).get("score", 0),
                e.get("data", {}).get("top_score", 0)) >= FRIGATE_MIN_SCORE
     ]
 
-    # Group by label: best score + count
-    by_label: dict = {}
+    # ── Per-camera breakdown ──
+    cam_data: dict[str, list] = {c: [] for c in FRIGATE_ALL_CAMERAS}
+    for e in qualifying:
+        cam = e.get("camera", "")
+        if cam in cam_data:
+            cam_data[cam].append(e)
+
+    cameras = {}
+    rooms_with_people = []
+    for cam_name, cam_events in cam_data.items():
+        by_label: dict = {}
+        for e in cam_events:
+            label = e.get("label", "unknown")
+            score = round(max(e.get("data", {}).get("score", 0),
+                              e.get("data", {}).get("top_score", 0)), 3)
+            if label not in by_label:
+                by_label[label] = {"score": score, "count": 0}
+            else:
+                by_label[label]["score"] = max(by_label[label]["score"], score)
+            by_label[label]["count"] += 1
+
+        dets = sorted(
+            [{"label": k, "score": v["score"], "count": v["count"]} for k, v in by_label.items()],
+            key=lambda d: d["score"], reverse=True,
+        )
+        has_person = "person" in by_label
+        room = FRIGATE_CAMERA_ROOMS.get(cam_name, cam_name)
+        cameras[cam_name] = {"person": has_person, "detections": dets, "room": room}
+        if has_person:
+            rooms_with_people.append(room)
+
+    # ── Global aggregation (backward compat) ──
+    all_by_label: dict = {}
     for e in qualifying:
         label = e.get("label", "unknown")
         score = round(max(e.get("data", {}).get("score", 0),
                           e.get("data", {}).get("top_score", 0)), 3)
-        if label not in by_label:
-            by_label[label] = {"score": score, "count": 0}
+        if label not in all_by_label:
+            all_by_label[label] = {"score": score, "count": 0}
         else:
-            by_label[label]["score"] = max(by_label[label]["score"], score)
-        by_label[label]["count"] += 1
+            all_by_label[label]["score"] = max(all_by_label[label]["score"], score)
+        all_by_label[label]["count"] += 1
 
     detections = sorted(
-        [{"label": k, "score": v["score"], "count": v["count"]} for k, v in by_label.items()],
-        key=lambda d: d["score"],
-        reverse=True,
+        [{"label": k, "score": v["score"], "count": v["count"]} for k, v in all_by_label.items()],
+        key=lambda d: d["score"], reverse=True,
     )
 
-    person_events = [e for e in qualifying if e.get("label") == "person"]
-    person_present = len(person_events) > 0
+    all_person_events = [e for e in qualifying if e.get("label") == "person"]
+    person_present = len(all_person_events) > 0
 
-    # Person-specific fields (backward compat)
+    # Person-specific fields from primary camera (backward compat)
     x_center = speed = velocity_angle = None
     best_person_score = None
-    if person_events:
-        best_p = max(person_events, key=lambda e: e.get("end_time") or 0)
+    primary_person = [e for e in all_person_events if e.get("camera") == FRIGATE_CAMERA]
+    best_pool = primary_person or all_person_events
+    if best_pool:
+        best_p = max(best_pool, key=lambda e: e.get("end_time") or 0)
         box = best_p["data"].get("box") or []
         x_center = round(box[0] + box[2] / 2, 3) if len(box) == 4 else None
         speed = best_p["data"].get("average_estimated_speed")
@@ -838,12 +884,14 @@ def _fetch_frigate_presence(dry: bool = False) -> dict | None:
 
     return {
         "person_present": person_present,
-        "event_count": len(person_events),
+        "event_count": len(all_person_events),
         "score": best_person_score,
         "detections": detections,
         "x_center": x_center,
         "speed": speed,
         "velocity_angle": velocity_angle,
+        "cameras": cameras,
+        "rooms_with_people": rooms_with_people,
         "ts": utc_timestamp(),
     }
 
@@ -1863,14 +1911,15 @@ def awareness_tick(prev: dict, dry: bool) -> tuple[dict, list[str]]:
     if frigate is not None:
         atomic_write(FRIGATE_FILE, json.dumps(frigate, indent=2))
 
+    if frigate is None:
+        frigate_str = "offline"
+    elif frigate.get("person_present"):
+        rooms = frigate.get("rooms_with_people", [])
+        frigate_str = f"person({', '.join(rooms)})" if rooms else "person"
+    else:
+        frigate_str = "no-person"
+    sonar_str = f"{sonar_cm:.0f}" if sonar_cm is not None else "??"
     if transitions:
-        if frigate is None:
-            frigate_str = "offline"
-        elif frigate.get("person_present"):
-            frigate_str = "person"
-        else:
-            frigate_str = "no-person"
-        sonar_str = f"{sonar_cm:.0f}" if sonar_cm is not None else "??"
         log(f"awareness: transitions={transitions} sonar={sonar_str}cm frigate={frigate_str} period={time_period}")
 
     return awareness, transitions
@@ -2361,6 +2410,21 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     obi_mode = awareness.get("obi_mode", "unknown")
     if obi_mode != "unknown":
         context_parts.append(f"Household activity level: {obi_mode}")
+
+    # Multi-camera presence (Frigate)
+    frigate_data = awareness.get("frigate") or {}
+    rooms_with_people = frigate_data.get("rooms_with_people", [])
+    if rooms_with_people:
+        context_parts.append(f"People detected by cameras in: {', '.join(rooms_with_people)}")
+    cam_detections = frigate_data.get("cameras", {})
+    non_person_sightings = []
+    for cam_name, cam_info in cam_detections.items():
+        for det in cam_info.get("detections", []):
+            if det["label"] != "person":
+                room = cam_info.get("room", cam_name)
+                non_person_sightings.append(f"{det['label']} in {room}")
+    if non_person_sightings:
+        context_parts.append(f"Other things spotted: {', '.join(non_person_sightings)}")
 
     # Who's home (from Home Assistant)
     ha = awareness.get("ha_presence")
