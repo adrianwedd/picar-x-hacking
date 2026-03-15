@@ -1223,11 +1223,17 @@ _PIN_MAX_ATTEMPTS = 5
 _PIN_LOCKOUT_SECONDS = 30
 
 
+class DeviceActionRequest(BaseModel):
+    confirm: bool = False
+
+
 @app.post("/api/v1/device/{action}", dependencies=[Depends(_verify_token)])
-async def device_control(action: str) -> JSONResponse:
+async def device_control(action: str, body: DeviceActionRequest = DeviceActionRequest()) -> JSONResponse:
     """Reboot or shut down the host device. Action: reboot | shutdown."""
     if action not in _DEVICE_ACTIONS:
         raise HTTPException(status_code=400, detail=f"unknown action: {action}")
+    if not body.confirm:
+        return JSONResponse(status_code=400, content={"error": "confirm: true required"})
     try:
         subprocess.Popen(_DEVICE_ACTIONS[action])
     except Exception as exc:
@@ -1533,7 +1539,7 @@ async function loadSvcs(){
   } catch(e){}
 }
 async function svcAct(svc,act){try{await api('/api/v1/services/'+svc+'/'+act,{method:'POST'});}catch(e){}setTimeout(loadSvcs,1500);}
-async function confirmDev(act){if(confirm('Really '+act+' the Pi?'))try{await api('/api/v1/device/'+act,{method:'POST'});}catch(e){}}
+async function confirmDev(act){if(confirm('Really '+act+' the Pi?'))try{await api('/api/v1/device/'+act,{method:'POST',body:JSON.stringify({confirm:true})});}catch(e){}}
 async function loadParental(){
   try{
     const s=await api('/api/v1/session');

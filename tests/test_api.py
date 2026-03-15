@@ -387,7 +387,8 @@ class TestWebUI:
 
 class TestDeviceControl:
     def test_device_rejects_invalid_action(self, api_client, auth_headers):
-        resp = api_client.post("/api/v1/device/explode", headers=auth_headers)
+        resp = api_client.post("/api/v1/device/explode", headers=auth_headers,
+                               json={"confirm": True})
         assert resp.status_code == 400
         assert "explode" in resp.json()["detail"]
 
@@ -395,11 +396,23 @@ class TestDeviceControl:
         resp = api_client.post("/api/v1/device/reboot")
         assert resp.status_code == 401
 
+    def test_device_reboot_requires_confirm(self, api_client, auth_headers):
+        resp = api_client.post("/api/v1/device/reboot", headers=auth_headers)
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "confirm: true required"
+
+    def test_device_shutdown_requires_confirm(self, api_client, auth_headers):
+        resp = api_client.post("/api/v1/device/shutdown", headers=auth_headers,
+                               json={"confirm": False})
+        assert resp.status_code == 400
+        assert resp.json()["error"] == "confirm: true required"
+
     def test_device_reboot_mocked(self, api_client, auth_headers):
         from unittest.mock import patch, MagicMock
         mock_proc = MagicMock()
         with patch("pxh.api.subprocess.Popen", return_value=mock_proc) as mock_popen:
-            resp = api_client.post("/api/v1/device/reboot", headers=auth_headers)
+            resp = api_client.post("/api/v1/device/reboot", headers=auth_headers,
+                                   json={"confirm": True})
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
@@ -410,7 +423,8 @@ class TestDeviceControl:
         from unittest.mock import patch, MagicMock
         mock_proc = MagicMock()
         with patch("pxh.api.subprocess.Popen", return_value=mock_proc) as mock_popen:
-            resp = api_client.post("/api/v1/device/shutdown", headers=auth_headers)
+            resp = api_client.post("/api/v1/device/shutdown", headers=auth_headers,
+                                   json={"confirm": True})
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "ok"
@@ -420,7 +434,8 @@ class TestDeviceControl:
     def test_device_reboot_popen_error(self, api_client, auth_headers):
         from unittest.mock import patch
         with patch("pxh.api.subprocess.Popen", side_effect=OSError("no such file")):
-            resp = api_client.post("/api/v1/device/reboot", headers=auth_headers)
+            resp = api_client.post("/api/v1/device/reboot", headers=auth_headers,
+                                   json={"confirm": True})
         assert resp.status_code == 500
         assert resp.json()["status"] == "error"
 
