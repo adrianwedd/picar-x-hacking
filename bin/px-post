@@ -773,7 +773,9 @@ def main(argv: list[str]) -> int:
 
     dry = args.dry_run or os.environ.get("PX_POST_DRY", "0") != "0"
 
-    # Single-instance guard (PID file — survives crashes unlike flock)
+    # Single-instance guard (PID file — survives crashes unlike flock).
+    # TOCTOU note: read-check-write is non-atomic, but systemd serialises restarts
+    # (RestartSec=30), making simultaneous starts practically impossible.
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     pid_file = STATE_DIR / "px-post.pid"
     my_pid = os.getpid()
