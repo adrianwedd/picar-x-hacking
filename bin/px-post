@@ -833,7 +833,19 @@ def flush_queue(bluesky: 'BlueskyClient', mastodon: 'MastodonClient', dry: bool)
     except (json.JSONDecodeError, OSError):
         feed_texts = set()
 
-    for entry in entries:
+    # Prioritise entries where BOTH platforms need posting (avoids Mastodon-only
+    # entries starving Bluesky for hours)
+    def _social_priority(e):
+        p = e.get("posted", {})
+        b_pending = p.get("bluesky") is None or (isinstance(p.get("bluesky"), str) and p["bluesky"].startswith("error:"))
+        m_pending = p.get("mastodon") is None or (isinstance(p.get("mastodon"), str) and p["mastodon"].startswith("error:"))
+        if b_pending and m_pending:
+            return 0  # both — highest priority
+        if b_pending or m_pending:
+            return 1  # one platform
+        return 2  # neither
+
+    for entry in sorted(entries, key=_social_priority):
         posted = entry.get("posted", {})
         # Need social posting?
         social_pending = any(
