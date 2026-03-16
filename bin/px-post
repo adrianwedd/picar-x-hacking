@@ -101,19 +101,22 @@ def log_event(name: str, payload: dict) -> None:
 
 
 # Private content that must never be published — medical, custody, household details
-PRIVATE_CONTENT_PATTERNS = [
-    "meds", "medication", "medicated", "prescription",
-    "custody", "mum's place", "dad's place", "mum's house", "dad's house",
-    "thirsty", "hydration", "water intake",
-    "sleep quality", "sleep score",
-    "on a call", "mic active",
-]
+import re as _re
+
+# Private content that must never be published — medical, custody, household details.
+# Uses word-boundary regex to avoid false positives (e.g. "comedies" matching "meds").
+_PRIVATE_PATTERNS_RE = _re.compile(r'\b(?:' + '|'.join([
+    r"meds", r"medication", r"medicated", r"prescription",
+    r"custody", r"mum'?s place", r"dad'?s place", r"mum'?s house", r"dad'?s house",
+    r"thirsty", r"hydration", r"water intake",
+    r"sleep quality", r"sleep score",
+    r"on a call", r"mic active",
+]) + r')\b', _re.IGNORECASE)
 
 
 def _contains_private_content(text: str) -> bool:
     """Return True if text contains private/medical content that shouldn't be published."""
-    lower = text.lower()
-    return any(pattern in lower for pattern in PRIVATE_CONTENT_PATTERNS)
+    return bool(_PRIVATE_PATTERNS_RE.search(text))
 
 
 def qualifies(entry: dict) -> bool:
@@ -132,6 +135,8 @@ def qualifies(entry: dict) -> bool:
 def qualifies_social(entry: dict) -> bool:
     """Return True if this thought qualifies for Bluesky/Mastodon (higher threshold)."""
     if not REQUIRED_FIELDS.issubset(entry.keys()):
+        return False
+    if _contains_private_content(entry.get("thought", "")):
         return False
     if entry.get("salience", 0) >= MIN_SALIENCE_SOCIAL:
         return True
@@ -589,6 +594,13 @@ def flush_queue(bluesky: 'BlueskyClient', mastodon: 'MastodonClient', dry: bool)
         pending_destinations = [k for k, v in posted.items()
                                 if v is None or (isinstance(v, str) and v.startswith("error:"))]
         if not pending_destinations and entry.get("qa_result") is not None:
+            continue
+
+        # Privacy gate (defense in depth — catch pre-filter queued entries)
+        if _contains_private_content(entry.get("thought", "")):
+            entry["posted"] = {k: v or "skipped" for k, v in entry.get("posted", {}).items()}
+            log(f"flush: private content blocked: {entry.get('thought', '')[:50]}")
+            processed += 1
             continue
 
         # Repost guard: if thought is already in feed, mark feed as done but NOT social
