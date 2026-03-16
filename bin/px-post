@@ -68,7 +68,7 @@ THOUGHT_IMAGE_DIR = STATE_DIR / "thought-images"
 
 
 def generate_thought_card(thought_text: str, mood: str, ts: str) -> 'Path | None':
-    """Generate a branded 1200x630 PNG thought card. Returns path or None on failure."""
+    """Generate a branded 1080x1080 square thought card. Returns path or None on failure."""
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
@@ -78,132 +78,111 @@ def generate_thought_card(thought_text: str, mood: str, ts: str) -> 'Path | None
     try:
         THOUGHT_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Sanitize ts for filename
         safe_ts = _re.sub(r'[^a-zA-Z0-9_\-]', '_', ts) if ts else "unknown"
         out_path = THOUGHT_IMAGE_DIR / f"{safe_ts}.png"
 
-        # If already generated, return existing
         if out_path.exists():
             return out_path
 
-        W, H = 1200, 630
-        BG_COLOR = '#fdf6ec'
-        CARD_COLOR = '#ffffff'
-        TEXT_COLOR = '#2d2d2d'
-        URL_COLOR = '#e8875a'
-        BUBBLE_OUTLINE = '#e0d5c8'
-        BADGE_BG = '#f0f0f0'
-        GREEN_DOT = '#4ade80'
-
-        img = Image.new('RGB', (W, H), BG_COLOR)
+        W, H = 1080, 1080
+        img = Image.new('RGB', (W, H), '#fdf6ec')
         draw = ImageDraw.Draw(img)
 
-        # Load fonts (with fallbacks)
-        try:
-            font_title = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf', 42)
-        except OSError:
-            font_title = ImageFont.load_default()
-        try:
-            font_quote = ImageFont.truetype('/usr/share/fonts/opentype/urw-base35/NimbusMonoPS-Italic.otf', 28)
-        except OSError:
-            font_quote = ImageFont.load_default()
-        try:
-            font_mood = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 18)
-        except OSError:
-            font_mood = ImageFont.load_default()
-        try:
-            font_url = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', 16)
-        except OSError:
-            font_url = ImageFont.load_default()
+        # Warm gradient background
+        for y in range(H):
+            t = y / H
+            draw.line([(0, y), (W, y)],
+                       fill=(int(253 - t * 20), int(246 - t * 28), int(236 - t * 35)))
 
-        # Card dimensions
-        card_x, card_y = 60, 50
-        card_w, card_h = W - 120, H - 140
-        card_r = 20
+        # Fonts with fallbacks
+        def _font(path, size):
+            try:
+                return ImageFont.truetype(path, size)
+            except OSError:
+                return ImageFont.load_default()
 
-        # Shadow (offset by 4px)
-        draw.rounded_rectangle(
-            [card_x + 4, card_y + 4, card_x + card_w + 4, card_y + card_h + 4],
-            radius=card_r, fill='#e8e0d4'
-        )
-        # Card
-        draw.rounded_rectangle(
-            [card_x, card_y, card_x + card_w, card_y + card_h],
-            radius=card_r, fill=CARD_COLOR
-        )
+        font_mood = _font('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 16)
+        font_url = _font('/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', 14)
 
-        # SPARK title with green dot
-        title_x, title_y = card_x + 40, card_y + 30
-        draw.ellipse([title_x, title_y + 10, title_x + 14, title_y + 24], fill=GREEN_DOT)
-        draw.text((title_x + 22, title_y), "SPARK", fill=TEXT_COLOR, font=font_title)
+        # Adaptive font size based on text length
+        n = len(thought_text)
+        if n < 60:
+            font_sz, wrap_w = 48, 18
+        elif n < 100:
+            font_sz, wrap_w = 42, 22
+        elif n < 160:
+            font_sz, wrap_w = 36, 28
+        elif n < 250:
+            font_sz, wrap_w = 32, 30
+        else:
+            font_sz, wrap_w = 28, 34
 
-        # Thought text — wrap at ~55 chars, max 6 lines
-        wrapped = textwrap.fill(thought_text, width=55)
+        font_quote = _font('/usr/share/fonts/opentype/urw-base35/NimbusMonoPS-Italic.otf', font_sz)
+        deco_sz = int(font_sz * 1.8)
+        font_deco = _font('/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf', deco_sz)
+        font_deco_close = _font('/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf', int(deco_sz * 0.6))
+
+        ix, iw = 100, W - 100
+
+        # Wrap and measure text block
+        wrapped = textwrap.fill(thought_text, width=wrap_w)
         lines = wrapped.split('\n')
-        max_lines = 6
-        if len(lines) > max_lines:
-            lines = lines[:max_lines]
-            lines[-1] = lines[-1][:52] + '...'
+        line_h = int(font_sz * 1.4)
 
-        text_x = card_x + 40
-        text_y = title_y + 70
-        line_height = 38
-        for i, line in enumerate(lines):
-            draw.text((text_x, text_y + i * line_height), line, fill=TEXT_COLOR, font=font_quote)
+        # Total block: open quote + text + close quote
+        open_h = int(deco_sz * 0.55)
+        text_h = len(lines) * line_h
+        close_h = int(deco_sz * 0.35)
+        total = open_h + text_h + close_h
 
-        # Mood badge bottom-left
-        mood_str = mood.lower() if mood else 'content'
-        mood_color = MOOD_COLORS.get(mood_str, '#6b8e5e')
+        # Golden ratio vertical placement (0.38 from top)
+        badge_zone = 80
+        usable_top, usable_bottom = 60, H - 60 - badge_zone
+        usable = usable_bottom - usable_top
+        block_y = usable_top + int((usable - total) * 0.38)
 
-        badge_x = card_x + 40
-        badge_y = card_y + card_h - 55
-        # Measure mood text width
-        mood_display = mood_str
+        # Opening quote mark — accent coral
+        draw.text((ix - 15, block_y), chr(8220), fill='#e8875a', font=font_deco)
+
+        # Thought text
+        text_y = block_y + open_h
+        for line in lines:
+            draw.text((ix + 10, text_y), line, fill='#2d2d2d', font=font_quote)
+            text_y += line_h
+
+        # Closing quote mark — smaller, after last word
         try:
-            mood_bbox = draw.textbbox((0, 0), mood_display, font=font_mood)
-            mood_tw = mood_bbox[2] - mood_bbox[0]
+            lb = draw.textbbox((0, 0), lines[-1], font=font_quote)
+            last_w = lb[2] - lb[0]
         except AttributeError:
-            mood_tw = len(mood_display) * 10
-        badge_w = mood_tw + 40  # padding for dot + text
-        badge_h = 30
+            last_w = len(lines[-1]) * int(font_sz * 0.6)
+        cx = min(ix + 10 + last_w + 8, iw - int(deco_sz * 0.4))
+        cy = text_y - line_h + int(font_sz * 0.4)
+        draw.text((cx, cy), chr(8221), fill='#e8875a', font=font_deco_close)
 
-        draw.rounded_rectangle(
-            [badge_x, badge_y, badge_x + badge_w, badge_y + badge_h],
-            radius=12, fill=BADGE_BG
-        )
-        # Mood dot
-        dot_x = badge_x + 10
-        dot_y = badge_y + 9
-        draw.ellipse([dot_x, dot_y, dot_x + 12, dot_y + 12], fill=mood_color)
-        # Mood text
-        draw.text((dot_x + 18, badge_y + 5), mood_display, fill=mood_color, font=font_mood)
-
-        # URL bottom-right
-        url_text = "spark.wedd.au"
+        # Bottom bar: mood badge left, green dot + URL right
+        bar_y = H - 75
+        mood_str = (mood or 'content').lower()
+        mc = MOOD_COLORS.get(mood_str, '#6b8e5e')
         try:
-            url_bbox = draw.textbbox((0, 0), url_text, font=font_url)
-            url_tw = url_bbox[2] - url_bbox[0]
+            mb = draw.textbbox((0, 0), mood_str, font=font_mood)
+            mtw = mb[2] - mb[0]
         except AttributeError:
-            url_tw = len(url_text) * 10
-        draw.text(
-            (card_x + card_w - 40 - url_tw, card_y + card_h - 50),
-            url_text, fill=URL_COLOR, font=font_url
-        )
+            mtw = len(mood_str) * 9
+        draw.rounded_rectangle([ix, bar_y, ix + mtw + 40, bar_y + 30],
+                                radius=15, fill='#ffffff', outline='#e8e0d4')
+        draw.ellipse([ix + 10, bar_y + 9, ix + 20, bar_y + 19], fill=mc)
+        draw.text((ix + 27, bar_y + 6), mood_str, fill=mc, font=font_mood)
 
-        # Bubble tail circles below card
-        bubble_cx = card_x + 100
-        bubble_y1 = card_y + card_h + 15
-        bubble_y2 = bubble_y1 + 25
-        # Larger bubble
-        draw.ellipse(
-            [bubble_cx - 10, bubble_y1 - 10, bubble_cx + 10, bubble_y1 + 10],
-            fill=CARD_COLOR, outline=BUBBLE_OUTLINE, width=2
-        )
-        # Smaller bubble
-        draw.ellipse(
-            [bubble_cx - 15 - 6, bubble_y2 - 6, bubble_cx - 15 + 6, bubble_y2 + 6],
-            fill=CARD_COLOR, outline=BUBBLE_OUTLINE, width=2
-        )
+        url = 'spark.wedd.au'
+        try:
+            ub = draw.textbbox((0, 0), url, font=font_url)
+            utw = ub[2] - ub[0]
+        except AttributeError:
+            utw = len(url) * 8
+        dx = iw - utw - 18
+        draw.ellipse([dx, bar_y + 9, dx + 10, bar_y + 19], fill='#4ade80')
+        draw.text((dx + 15, bar_y + 7), url, fill='#a89888', font=font_url)
 
         img.save(str(out_path), 'PNG', optimize=True)
         log(f"thought card generated: {out_path.name}")
