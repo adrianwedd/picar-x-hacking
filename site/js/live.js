@@ -264,6 +264,8 @@
       thoughts.forEach((_, i) => {
         const d = document.createElement('button');
         d.className = 'carousel-dot' + (i === 0 ? ' active' : '');
+        d.setAttribute('role', 'tab');
+        d.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
         d.setAttribute('aria-label', 'Thought ' + (i + 1));
         d.addEventListener('click', () => { _carouselIdx = i; _showSlide(i); });
         dots.appendChild(d);
@@ -281,8 +283,10 @@
     container.querySelectorAll('.carousel-slide').forEach((s, i) =>
       s.classList.toggle('active', i === idx));
     const dots = document.getElementById('carousel-dots');
-    if (dots) dots.querySelectorAll('.carousel-dot').forEach((d, i) =>
-      d.classList.toggle('active', i === idx));
+    if (dots) dots.querySelectorAll('.carousel-dot').forEach((d, i) => {
+      d.classList.toggle('active', i === idx);
+      d.setAttribute('aria-selected', i === idx ? 'true' : 'false');
+    });
   }
 
   let _swipeStartX = null;
@@ -371,6 +375,11 @@
       clearInterval(dotTimer);
       clearInterval(thoughtsTimer);
     } else {
+      // Clear any stale timers before creating new ones (dedup guard)
+      clearInterval(pollTimer);
+      clearInterval(waveformTimer);
+      clearInterval(dotTimer);
+      clearInterval(thoughtsTimer);
       poll();            // immediate refresh on return
       fetchThoughts();
       pollTimer      = setInterval(poll, POLL_MS);

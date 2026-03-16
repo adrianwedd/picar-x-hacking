@@ -644,18 +644,20 @@ def flush_queue(bluesky: 'BlueskyClient', mastodon: 'MastodonClient', dry: bool)
                 entry["posted"]["mastodon"] = "skipped"  # below social threshold
 
         processed += 1
-        # Did we make a social API call (not just feed write or skip)?
-        social_posted = any(
-            entry["posted"].get(d) == "ok" and posted_before.get(d) != "ok"
+        # Did we attempt a social API call (not just feed write or skip)?
+        social_attempted = any(
+            entry["posted"].get(d) != posted_before.get(d) and entry["posted"].get(d) != "skipped"
             for d in ("bluesky", "mastodon")
         )
         feed_posted = entry["posted"].get("feed") == "ok" and posted_before.get("feed") != "ok"
         if feed_posted:
             was_posted = True
-        if social_posted:
-            was_posted = True
-            break  # rate limit: max 1 social API call per flush cycle
-        # No social post this entry — continue to next (feed-only writes don't consume the slot)
+        if social_attempted:
+            if any(entry["posted"].get(d) == "ok" and posted_before.get(d) != "ok"
+                   for d in ("bluesky", "mastodon")):
+                was_posted = True
+            break  # rate limit: max 1 social API attempt per flush cycle (success or failure)
+        # No social attempt this entry — continue to next (feed-only writes don't consume the slot)
 
     _save_queue(entries)
     return {"processed": processed, "posted": was_posted, "rejected": was_rejected}

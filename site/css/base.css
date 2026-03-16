@@ -180,3 +180,12 @@ section:first-of-type { padding-top: calc(var(--nav-height) + 5rem); }
 /* Live card inner layout */
 .live-meta { display: flex; gap: 1rem; margin-top: 0.75rem; font-size: 0.8rem; opacity: 0.5; }
 .live-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.5; margin-bottom: 0.5rem; }
+
+/* Accessibility: respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
