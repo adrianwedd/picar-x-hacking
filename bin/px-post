@@ -127,6 +127,10 @@ def generate_thought_card(thought_text: str, mood: str, ts: str) -> 'Path | None
         # Wrap and measure text block
         wrapped = textwrap.fill(thought_text, width=wrap_w)
         lines = wrapped.split('\n')
+        max_lines = 18
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            lines[-1] = lines[-1][:wrap_w - 3] + '...'
         line_h = int(font_sz * 1.4)
 
         # Total block: open quote + text + close quote
