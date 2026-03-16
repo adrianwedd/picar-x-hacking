@@ -2681,7 +2681,7 @@ def _run_voice(env: dict, *, timeout: int = 45, label: str = "") -> subprocess.C
     return result
 
 
-def expression(thought: dict, dry: bool) -> None:
+def expression(thought: dict, dry: bool, awareness: dict | None = None) -> None:
     """Layer 3: act on a thought."""
     global _last_spoken_text, _last_morning_fact_date
 
@@ -2690,12 +2690,14 @@ def expression(thought: dict, dry: bool) -> None:
         return
 
     # Gate speech on obi_mode: at night when Obi is absent, suppress non-essential actions
-    _aw = {}
-    try:
-        _aw = json.loads(AWARENESS_FILE.read_text(encoding="utf-8"))
-        _obi_mode = _aw.get("obi_mode", "unknown")
-    except Exception:
-        _obi_mode = "unknown"
+    _aw = awareness or {}
+    if not _aw:
+        try:
+            _aw = json.loads(AWARENESS_FILE.read_text(encoding="utf-8"))
+        except Exception as exc:
+            log(f"expression: awareness read failed: {exc}")
+    _obi_mode = _aw.get("obi_mode", "unknown")
+    log(f"expression: obi_mode={_obi_mode} hour={_aw.get('hour','?')} action={action}")
     if _obi_mode == "absent" and action in ABSENT_GATED_ACTIONS:
         log(f"expression: suppressed {action} — obi_mode=absent (night, Obi likely asleep)")
         return
@@ -3185,7 +3187,7 @@ def mind_loop(args) -> None:
             if thought and thought.get("action", "wait") != "wait":
                 # Layer 3: Expression (with cooldown)
                 if (now - last_expression_mono) > EXPRESSION_COOLDOWN_S:
-                    expression(thought, args.dry_run)
+                    expression(thought, args.dry_run, awareness=awareness)
                     last_expression_mono = now
                 else:
                     log(f"expression suppressed (cooldown): {thought['action']}")
@@ -3231,7 +3233,7 @@ def main(argv) -> int:
             prev = awareness
             thought = reflection(awareness, dry=True)
             if thought and thought.get("action") != "wait":
-                expression(thought, dry=True)
+                expression(thought, dry=True, awareness=awareness)
             time.sleep(0.3)
         log("dry-run complete")
         PID_FILE.unlink(missing_ok=True)
