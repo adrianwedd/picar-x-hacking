@@ -758,7 +758,7 @@ details > *:not(summary) { margin-top: 0.75rem; }
 
 .carousel-quote {
   font-family: 'Courier Prime', 'Courier New', monospace;
-  font-size: clamp(0.95rem, 2.2vw, 1.35rem);
+  font-size: clamp(0.85rem, 1.8vw, 1.1rem);
   font-style: italic;
   line-height: 1.55;
   color: var(--warm-text);
