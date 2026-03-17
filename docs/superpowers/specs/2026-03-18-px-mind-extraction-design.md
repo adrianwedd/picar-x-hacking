@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-18
 **Issue:** #78
-**Scope:** Relocate all Python code from `bin/px-mind` heredoc into `src/pxh/mind.py`; consolidate duplicate `atomic_write`; update 3 test files to use direct imports
+**Scope:** Relocate all Python code from `bin/px-mind` heredoc into `src/pxh/mind.py`; consolidate duplicate `atomic_write`; update 2 test files to use direct imports (third is unchanged)
 
 ---
 
@@ -62,7 +62,12 @@ All call sites remain unchanged — same function name, same signature.
 
 New function that resets all ~25 mutable module globals to their default values. Called by a pytest fixture before each test to prevent cross-test contamination from shared module state.
 
-The function uses `global` declarations for each mutable variable and resets them to their initial values (None/0.0 for caches, empty list/dict for collections, False for flags, 0.4/0.0 for mood valence/arousal).
+The function uses `global` declarations for each mutable variable and resets them to their initial values (None/0.0 for caches, empty list/dict for collections, False for flags, 0.4/0.0 for mood valence/arousal). The definitive list of globals should be built by grepping for `global ` declarations in the heredoc during implementation. Consider adding a test assertion that detects new module-level mutables not included in `_reset_state()`.
+
+**Additional preservation notes:**
+- Preserve `if __name__ == "__main__"` guard (essential for `python -m`)
+- Preserve `from __future__ import annotations` as first import if present
+- Do a line-by-line diff of both `atomic_write` implementations before consolidating to confirm they are identical
 
 **Everything else is verbatim.** All 57 functions, 70+ constants, imports, docstrings — copied as-is.
 
@@ -85,7 +90,7 @@ if [[ -f "$ENV_FILE" ]]; then
     set +a
 fi
 
-python -m pxh.mind "$@"
+exec python -m pxh.mind "$@"
 ```
 
 This follows the same pattern as `bin/px-api-server`. The venv python is used (px-env activates it), PYTHONPATH includes both `$PROJECT_ROOT/src` and `/home/pi/picar-x` (for `robot_hat` in `_play_alarm_beeps()`).
