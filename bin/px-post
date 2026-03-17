@@ -634,12 +634,8 @@ class MastodonClient:
         self._logged_missing = False
 
     def available(self) -> bool:
-        if not self.instance or not self.token:
-            if not self._logged_missing:
-                log("mastodon: credentials not configured — skipping")
-                self._logged_missing = True
-            return False
-        return True
+        # Mastodon account terminated — disabled until a new instance is set up
+        return False
 
     def _upload_media(self, image_path: 'Path', alt_text: str) -> 'str | None':
         """Upload media to Mastodon. Returns media ID or None."""
