@@ -654,7 +654,7 @@ _tool_exec_lock = threading.Lock()
 _last_tool_execution = 0.0
 
 
-def execute_tool(tool: str, env_overrides: Dict[str, str], dry_mode: bool) -> Tuple[int, str, str]:
+def execute_tool(tool: str, env_overrides: Dict[str, str], dry_mode: bool, timeout: Optional[float] = None) -> Tuple[int, str, str]:
     global _last_tool_execution
     # Brief cooldown between consecutive tool calls to allow GPIO/I2C handles
     # to be fully released by the previous tool subprocess.  500 ms is enough
@@ -693,7 +693,10 @@ def execute_tool(tool: str, env_overrides: Dict[str, str], dry_mode: bool) -> Tu
             text=True,
             check=False,
             env=env,
+            timeout=timeout,
         )
+    except subprocess.TimeoutExpired:
+        return 1, json.dumps({"status": "error", "error": f"tool {tool} timed out after {timeout}s"}), ""
     finally:
         _last_tool_execution = time.monotonic()
     return result.returncode, result.stdout, result.stderr

@@ -1103,7 +1103,7 @@ async def run_tool(body: ToolRequest) -> JSONResponse:
             loop = asyncio.get_running_loop()
             try:
                 rc, stdout, stderr = await loop.run_in_executor(
-                    None, execute_tool, tool, env_overrides, dry
+                    None, execute_tool, tool, env_overrides, dry, SYNC_TIMEOUT_SLOW
                 )
                 _set_job(job_id, {
                     "status": "complete",
@@ -1129,8 +1129,8 @@ async def run_tool(body: ToolRequest) -> JSONResponse:
     loop = asyncio.get_running_loop()
     try:
         rc, stdout, stderr = await asyncio.wait_for(
-            loop.run_in_executor(None, execute_tool, tool, env_overrides, dry),
-            timeout=timeout,
+            loop.run_in_executor(None, execute_tool, tool, env_overrides, dry, timeout),
+            timeout=timeout + 2,
         )
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail=f"tool {tool} timed out after {timeout}s")
@@ -1209,7 +1209,7 @@ def _do_chat_turn(text: str, dry: bool) -> Dict[str, Any]:
     except VoiceLoopError as exc:
         return {"status": "error", "error": str(exc), "action": action}
 
-    t_rc, t_stdout, t_stderr = execute_tool(tool, env_overrides, dry)
+    t_rc, t_stdout, t_stderr = execute_tool(tool, env_overrides, dry, SYNC_TIMEOUT_DEFAULT)
     return {
         "status": "ok" if t_rc == 0 else "error",
         "tool": tool,
