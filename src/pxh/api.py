@@ -988,7 +988,8 @@ async def verify_pin(body: PinRequest, request: Request) -> JSONResponse:
             ip_data = data.get("ips", {}).get(client_ip, {})
             lockout_iso = ip_data.get("lockout_until")
         else:
-            lockout_iso = data.get("lockout_until")
+            # v1 format has no per-IP info — ignore it (load_pin_state discards v1)
+            lockout_iso = None
         if lockout_iso:
             lockout_dt = datetime.fromisoformat(lockout_iso)
             if datetime.now(timezone.utc) < lockout_dt:
@@ -1028,6 +1029,12 @@ async def verify_pin(body: PinRequest, request: Request) -> JSONResponse:
                 _pin_lockout_until[client_ip] = _time.monotonic() + _PIN_ESCALATED_SECONDS
             elif ip_attempts % _PIN_MAX_ATTEMPTS == 0:
                 _pin_lockout_until[client_ip] = _time.monotonic() + _PIN_LOCKOUT_SECONDS
+            # Prune expired entries to bound in-memory dict size
+            if len(_pin_attempts) > _PIN_MAX_IPS:
+                expired = [ip for ip, t in _pin_lockout_until.items() if now >= t]
+                for ip in expired:
+                    _pin_attempts.pop(ip, None)
+                    _pin_lockout_until.pop(ip, None)
             _save_pin_state()
         return JSONResponse(status_code=200, content={"verified": False})
 
@@ -1121,8 +1128,8 @@ async def run_tool(body: ToolRequest) -> JSONResponse:
                     "tool": tool,
                     "returncode": rc,
                     "dry": dry,
-                    "stdout": stdout[-2048:],
-                    "stderr": stderr[-1024:],
+                    "stdout": stdout[-4096:],
+                    "stderr": stderr[-2048:],
                 })
             except VoiceLoopError as exc:
                 _set_job(job_id, {"status": "error", "tool": tool, "error": str(exc)})
@@ -1162,8 +1169,8 @@ async def run_tool(body: ToolRequest) -> JSONResponse:
             "returncode": rc,
             "tool": tool,
             "dry": dry,
-            "stdout": stdout[-2048:],
-            "stderr": stderr[-1024:],
+            "stdout": stdout[-4096:],
+            "stderr": stderr[-2048:],
         },
     )
 
@@ -1387,6 +1394,7 @@ _PIN_MAX_ATTEMPTS = 3
 _PIN_LOCKOUT_SECONDS = 300       # 5 minutes after 3 failures
 _PIN_ESCALATED_SECONDS = 1800    # 30 minutes after 10 cumulative failures
 _PIN_ESCALATION_THRESHOLD = 10
+_PIN_MAX_IPS = 1000              # bound in-memory dict size
 
 
 def _pin_state_path() -> Path:
@@ -1747,7 +1755,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Nunito
     <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:20px">
       <div id="f-status" style="font-size:13px;font-weight:800;color:var(--muted);letter-spacing:.1em;text-transform:uppercase">idle</div>
       <div id="f-ring" style="width:140px;height:140px;border-radius:50%;border:5px solid var(--spark);display:flex;align-items:center;justify-content:center;font-size:72px;box-shadow:0 0 30px rgba(0,212,170,.3);transition:border-color .5s,box-shadow .5s;animation:pulse-ring 2s ease-in-out infinite">&#x1F914;</div>
-      <div style="background:var(--surface2);border-radius:var(--radius);padding:18px 20px;max-width:340px;width:100%;border-left:4px solid var(--spark)">
+      <div style="background:var(--surface2);border-radius:var(--radius);padding:18px 20px;max-width:480px;width:100%;border-left:4px solid var(--spark)">
         <div style="font-size:11px;font-weight:800;color:var(--spark);margin-bottom:8px;letter-spacing:.05em">SPARK IS THINKING</div>
         <div id="f-thought" style="font-size:15px;line-height:1.6;font-style:italic">Loading&#x2026;</div>
       </div>
@@ -1966,7 +1974,7 @@ async function pollFace(){
   }catch(e){}
   try{
     const ps=await fetch('/api/v1/public/feed').then(r=>r.json());
-    if(ps.posts&&ps.posts.length>0){const last=ps.posts[ps.posts.length-1];document.getElementById('spark-posting').textContent='📣 Last post: "'+last.thought.substring(0,60)+'..." \u00b7 '+last.mood;}
+    if(ps.posts&&ps.posts.length>0){const last=ps.posts[ps.posts.length-1];document.getElementById('spark-posting').textContent='📣 Last post: "'+last.thought+'" \u00b7 '+last.mood;}
   }catch(e){}
 }
 setInterval(pollFace,5000);
