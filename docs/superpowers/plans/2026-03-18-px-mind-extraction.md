@@ -107,7 +107,7 @@ All 6 call sites (`atomic_write(AWARENESS_FILE, ...`, etc.) keep the same name �
 
 - [ ] **Step 4: Add `_reset_state()` function for test isolation**
 
-Add this function after the last mutable global declaration block (after `_tmux_turn_count = 0`). It resets all 27 mutable module globals:
+Add this function after the last mutable global declaration block (after `_tmux_turn_count = 0`). It resets all 30 mutable module globals:
 
 ```python
 def _reset_state():
@@ -230,35 +230,125 @@ Expected: Starts, prints "starting pid=...", runs 3 awareness cycles, exits 0.
 **Files:**
 - Modify: `tests/test_mind_utils.py`
 
-- [ ] **Step 1: Replace the heredoc-parsing hack with direct imports**
+**CRITICAL: Two patterns to handle.**
+1. **Reads** — `_MIND["compute_obi_mode"]` → direct function name `compute_obi_mode`
+2. **Writes** — `_MIND["BATTERY_FILE"] = x` → `pxh.mind.BATTERY_FILE = x` (module-attribute mutation). A bare `BATTERY_FILE = x` would create a local variable, not mutate the module global.
 
-Delete the `_load_mind_helpers()` function (lines 14–85 of the current file) and any `_MIND = _load_mind_helpers()` call.
+- [ ] **Step 1: Delete the heredoc-parsing hack**
 
-Replace the top of the file with direct imports. Keep existing `import json as _json`, `import time as _time`, `from unittest.mock import ...` etc. Add:
+Delete the `_load_mind_helpers()` function (lines 14–85) and the `_MIND = _load_mind_helpers()` call at line 119.
+
+Also delete ALL 11 secondary `_load_mind_helpers()` calls throughout the file:
+- Line 812: `_MIND = _load_mind_helpers()` (in `test_read_battery_includes_charging`)
+- Lines 1331, 1339, 1348: `m = _load_mind_helpers()` (routine context tests)
+- Lines 1440, 1449, 1458, 1466, 1474, 1482: `_g = _load_mind_helpers()` (HA context tests)
+
+These secondary calls existed for isolation (fresh globals dict). After extraction, `_reset_state()` in the autouse fixture handles this.
+
+- [ ] **Step 2: Add the complete import list**
+
+Replace the imports section with:
 
 ```python
+"""Tests for px-mind utility functions."""
+from __future__ import annotations
+
+import datetime as _dt
+import json as _json
+import os
+import time as _time
+import urllib.error
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+import pxh.mind  # needed for module-attribute writes (pxh.mind.X = val)
 from pxh.mind import (
+    # Functions
+    _can_explore,
     _daytime_action_hint,
+    _fetch_frigate_presence,
+    _fetch_ha_calendar,
+    _fetch_ha_presence,
+    _fetch_ha_sleep,
+    _format_calendar_context,
+    _format_ha_context,
+    _format_routine_context,
+    _parse_calendar_events,
     _reset_state,
-    apply_mood_momentum,
-    classify_time_period,
     compute_obi_mode,
-    extract_json,
+    expression,
     filter_battery,
-    nearest_mood,
-    notes_file_for_persona,
-    text_similarity,
-    thoughts_file_for_persona,
+    read_battery,
+    # Constants
+    ABSENT_GATED_ACTIONS,
+    BATTERY_GLITCH_CONFIRMS,
+    BATTERY_MAX_DROP_PER_TICK,
+    BIN_DIR,
+    CHARGING_GATED_ACTIONS,
+    HOBART_TZ,
+    MOOD_TO_EMOTE,
+    MOOD_TO_SOUND,
+    REFLECTION_SYSTEM,
+    REFLECTION_SYSTEM_GREMLIN,
+    REFLECTION_SYSTEM_VIXEN,
+    VALID_ACTIONS,
+    _SPARK_REFLECTION_SUFFIX,
 )
 ```
 
-Scan the rest of the file for any additional `_MIND["..."]` references and add those functions/constants to the import list. Common ones: `_fetch_frigate_presence`, `_pick_reflection_seed`, `_pick_spark_angles`, `_cleanup_thought_images`, `load_recent_thoughts`, `append_thought`, `auto_remember`, `awareness_tick`, and constants like `VALID_ACTIONS`, `VALID_MOODS`, `TOPIC_SEEDS`, `SPARK_ANGLES`, `HOBART_TZ`, `FRIGATE_CAMERA_ROOMS`, `THOUGHTS_LIMIT`, `NOTES_LIMIT`, `SALIENCE_THRESHOLD`.
+Note: `_battery_history` is a mutable global — access it as `pxh.mind._battery_history` in tests that read it.
 
-- [ ] **Step 2: Replace all `_MIND["name"]` references with direct names**
+- [ ] **Step 3: Replace all read-only `_MIND["name"]` with direct names**
 
-Search for `_MIND[` throughout the file. Every `_MIND["compute_obi_mode"]` becomes `compute_obi_mode`. Every `_MIND["VALID_ACTIONS"]` becomes `VALID_ACTIONS`.
+Search for `_MIND["` throughout the file. For **reads** (right-hand side of assignments or function calls):
+- `_MIND["compute_obi_mode"]` → already imported as `compute_obi_mode`
+- `_MIND["VALID_ACTIONS"]` → already imported as `VALID_ACTIONS`
+- `_MIND["read_battery"]` → already imported as `read_battery`
+- etc.
 
-- [ ] **Step 3: Add `_reset_state` autouse fixture**
+For lines like `read_battery = _MIND["read_battery"]` inside functions, delete the line entirely — the function is already imported at module level.
+
+For `m["_format_routine_context"]` and `_g["_format_ha_context"]` in the secondary-call tests, replace with the direct import name (e.g., `_format_routine_context(...)` and `_format_ha_context(...)`). Delete the `m = ...` / `_g = ...` lines.
+
+- [ ] **Step 4: Convert all write-through mutations to module-attribute access**
+
+These lines mutate module globals via the globals dict. They MUST use `pxh.mind.X = val`, not bare `X = val`:
+
+```python
+# Line 323-324: battery glitch state (now handled by _reset_state, but verify)
+pxh.mind._battery_glitch_count = 0
+pxh.mind._battery_glitch_first_mono = 0.0
+
+# Line 457-458, 462-463: HA credentials
+pxh.mind.HA_TOKEN = token
+pxh.mind.HA_HOST = host
+# ... restore in finally block:
+pxh.mind.HA_TOKEN = old_token
+pxh.mind.HA_HOST = old_host
+
+# Line 826, 834: battery file path
+pxh.mind.BATTERY_FILE = battery_file
+# ... restore: pxh.mind.BATTERY_FILE = old_file
+
+# Line 867, 870: state dir
+pxh.mind.STATE_DIR = tmp_path
+# ... restore: pxh.mind.STATE_DIR = old
+
+# Line 1093-1094, 1097-1099: awareness + battery files
+pxh.mind.AWARENESS_FILE = aw_file
+pxh.mind.BATTERY_FILE = bat_file
+# ... restore both
+
+# Line 1180, 1188: log file
+pxh.mind.LOG_FILE = log_file
+# ... restore: pxh.mind.LOG_FILE = old_log
+```
+
+Similarly, `_MIND.get("X")` reads become `getattr(pxh.mind, "X", default)` or just `pxh.mind.X` if the attribute always exists.
+
+- [ ] **Step 5: Add `_reset_state` autouse fixture**
 
 Add near the top of the file (after imports):
 
@@ -271,17 +361,17 @@ def _clean_mind_state():
     _reset_state()
 ```
 
-- [ ] **Step 4: Remove leftover imports from the hack**
+- [ ] **Step 6: Remove leftover imports from the hack**
 
-Remove `import sys`, `import types` if they were only used by the deleted `_load_mind_helpers()`. Keep them if other code uses them.
+Remove `import sys`, `import types` if they were only used by the deleted `_load_mind_helpers()`.
 
-- [ ] **Step 5: Run the tests**
+- [ ] **Step 7: Run the tests**
 
 ```bash
 source .venv/bin/activate && python -m pytest tests/test_mind_utils.py -v 2>&1 | tail -30
 ```
 
-Expected: All tests pass. Fix any `ImportError` or `NameError` by adding missing names to the import list.
+Expected: All tests pass. Fix any `ImportError`, `NameError`, or `AttributeError` by adding missing names to the import list or fixing write-through patterns.
 
 ---
 
@@ -366,7 +456,7 @@ importable module. bin/px-mind is now a 15-line thin launcher.
 Changes from verbatim copy:
 - PROJECT_ROOT fallback uses .parent.parent.parent (src/pxh/ depth)
 - atomic_write imported from pxh.state (consolidated in prior commit)
-- _reset_state() added for test isolation of 27 mutable globals
+- _reset_state() added for test isolation of 30 mutable globals
 
 Test migration:
 - test_mind_utils.py: heredoc-parsing hack replaced with direct imports
