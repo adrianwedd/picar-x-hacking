@@ -1029,12 +1029,22 @@ async def verify_pin(body: PinRequest, request: Request) -> JSONResponse:
                 _pin_lockout_until[client_ip] = _time.monotonic() + _PIN_ESCALATED_SECONDS
             elif ip_attempts % _PIN_MAX_ATTEMPTS == 0:
                 _pin_lockout_until[client_ip] = _time.monotonic() + _PIN_LOCKOUT_SECONDS
-            # Prune expired entries to bound in-memory dict size
+            # Prune to bound in-memory dict size
             if len(_pin_attempts) > _PIN_MAX_IPS:
+                # Phase 1: evict expired lockouts
                 expired = [ip for ip, t in _pin_lockout_until.items() if now >= t]
                 for ip in expired:
                     _pin_attempts.pop(ip, None)
                     _pin_lockout_until.pop(ip, None)
+                # Phase 2: if still over cap, evict lowest-count entries
+                if len(_pin_attempts) > _PIN_MAX_IPS:
+                    by_count = sorted(
+                        ((ip, c) for ip, c in _pin_attempts.items() if ip != client_ip),
+                        key=lambda x: x[1],
+                    )
+                    for ip, _ in by_count[:len(_pin_attempts) - _PIN_MAX_IPS]:
+                        _pin_attempts.pop(ip, None)
+                        _pin_lockout_until.pop(ip, None)
             _save_pin_state()
         return JSONResponse(status_code=200, content={"verified": False})
 
@@ -1757,7 +1767,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Nunito
       <div id="f-ring" style="width:140px;height:140px;border-radius:50%;border:5px solid var(--spark);display:flex;align-items:center;justify-content:center;font-size:72px;box-shadow:0 0 30px rgba(0,212,170,.3);transition:border-color .5s,box-shadow .5s;animation:pulse-ring 2s ease-in-out infinite">&#x1F914;</div>
       <div style="background:var(--surface2);border-radius:var(--radius);padding:18px 20px;max-width:480px;width:100%;border-left:4px solid var(--spark)">
         <div style="font-size:11px;font-weight:800;color:var(--spark);margin-bottom:8px;letter-spacing:.05em">SPARK IS THINKING</div>
-        <div id="f-thought" style="font-size:15px;line-height:1.6;font-style:italic">Loading&#x2026;</div>
+        <div id="f-thought" style="font-size:15px;line-height:1.6;font-style:italic;overflow-wrap:break-word;word-break:break-word">Loading&#x2026;</div>
       </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
         <div class="spark-stat"><span id="st-mood">&#x2013;</span><br><span class="stat-lbl">mood</span></div>

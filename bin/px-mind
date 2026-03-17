@@ -132,6 +132,7 @@ FRIGATE_FILE           = STATE_DIR / "frigate_presence.json"
 
 HA_HOST                = os.environ.get("PX_HA_HOST", "http://homeassistant.local:8123")
 HA_TOKEN               = os.environ.get("PX_HA_TOKEN", "")
+HA_DEBUG               = os.environ.get("PX_HA_DEBUG", "") == "1"
 HA_TIMEOUT_S           = 3
 HA_INTERVAL_S          = 300   # refresh HA presence every 5 min
 # Person entities to track (unknown = no device; state values: home/away/unknown/<zone>)
@@ -965,7 +966,8 @@ def _fetch_ha_presence(dry: bool = False) -> dict | None:
         with urllib.request.urlopen(req, timeout=HA_TIMEOUT_S) as r:
             return json.loads(r.read())
 
-    log("ha_presence: fetching...")
+    if HA_DEBUG:
+        log("ha_presence: fetching...")
     result: dict = {"people": []}
 
     for entity_id in HA_PEOPLE:
@@ -978,7 +980,8 @@ def _fetch_ha_presence(dry: bool = False) -> dict | None:
                 "state": state,
                 "home": state == "home",
             })
-            log(f"ha_presence: {entity_id} → {name}={state}")
+            if HA_DEBUG:
+                log(f"ha_presence: {entity_id} → {name}={state}")
         except urllib.error.HTTPError as exc:
             if exc.code in (401, 403):
                 raise   # re-raise so caller can clear the stale cache
@@ -987,8 +990,9 @@ def _fetch_ha_presence(dry: bool = False) -> dict | None:
             log(f"ha_presence: {entity_id} error: {exc}")
 
     if result["people"]:
-        summary = ", ".join(f"{p['name']}={p['state']}" for p in result["people"])
-        log(f"ha_presence: result: {summary}")
+        if HA_DEBUG:
+            summary = ", ".join(f"{p['name']}={p['state']}" for p in result["people"])
+            log(f"ha_presence: result: {summary}")
         return result
     log("ha_presence: no people found")
     return None
@@ -1000,7 +1004,8 @@ def _fetch_ha_sleep(dry: bool = False) -> dict | None:
         if not HA_TOKEN:
             log("ha_sleep: skipped — no PX_HA_TOKEN")
         return None
-    log("ha_sleep: fetching sensor.sleep...")
+    if HA_DEBUG:
+        log("ha_sleep: fetching sensor.sleep...")
     headers = {"Authorization": f"Bearer {HA_TOKEN}", "Accept": "application/json"}
     try:
         req = urllib.request.Request(f"{HA_HOST}/api/states/sensor.sleep", headers=headers)
@@ -1008,14 +1013,16 @@ def _fetch_ha_sleep(dry: bool = False) -> dict | None:
             data = json.loads(r.read())
         total_s = float(data["state"])
         if total_s <= 0:
-            log(f"ha_sleep: sensor returned {total_s}s — unavailable")
+            if HA_DEBUG:
+                log(f"ha_sleep: sensor returned {total_s}s — unavailable")
             return None
         hours = round(total_s / 3600, 1)
         quality = "good" if hours >= 7 else "ok" if hours >= 5.5 else "poor"
-        log(f"ha_sleep: {hours}h ({quality})")
+        if HA_DEBUG:
+            log(f"ha_sleep: {hours}h ({quality})")
         return {"sleep_hours": hours, "sleep_quality": quality}
     except (urllib.error.HTTPError, urllib.error.URLError, ValueError, KeyError, json.JSONDecodeError) as exc:
-        log(f"ha_sleep: fetch error: {type(exc).__name__}: {exc}")
+        log(f"ha_sleep: error: {type(exc).__name__}: {exc}")
         return None
     except Exception as exc:
         log(f"ha_sleep: unexpected error: {exc}")
@@ -1075,7 +1082,8 @@ def _fetch_ha_calendar(dry: bool = False) -> list[dict] | None:
         if not HA_TOKEN:
             log("ha_calendar: skipped — no PX_HA_TOKEN")
         return None
-    log(f"ha_calendar: fetching {len(HA_CALENDARS)} calendars...")
+    if HA_DEBUG:
+        log(f"ha_calendar: fetching {len(HA_CALENDARS)} calendars...")
     headers = {"Authorization": f"Bearer {HA_TOKEN}", "Accept": "application/json"}
 
     now = dt.datetime.now(dt.timezone.utc)
@@ -1093,9 +1101,10 @@ def _fetch_ha_calendar(dry: bool = False) -> list[dict] | None:
                 raw = json.loads(r.read())
             if isinstance(raw, list):
                 parsed = _parse_calendar_events(raw, cal_id, now)
-                log(f"ha_calendar: {cal_id} → {len(raw)} raw, {len(parsed)} after filter")
-                for ev in parsed:
-                    log(f"ha_calendar:   '{ev['title']}' starts_in={ev['starts_in_mins']}min")
+                if HA_DEBUG:
+                    log(f"ha_calendar: {cal_id} → {len(raw)} raw, {len(parsed)} after filter")
+                    for ev in parsed:
+                        log(f"ha_calendar:   '{ev['title']}' starts_in={ev['starts_in_mins']}min")
                 all_events.extend(parsed)
             else:
                 log(f"ha_calendar: {cal_id} → unexpected response type: {type(raw).__name__}")
@@ -1107,11 +1116,13 @@ def _fetch_ha_calendar(dry: bool = False) -> list[dict] | None:
             log(f"ha_calendar: {cal_id} error: {exc}")
 
     if not all_events:
-        log("ha_calendar: no events found")
+        if HA_DEBUG:
+            log("ha_calendar: no events found")
         return None
 
     all_events.sort(key=lambda e: e["starts_in_mins"])
-    log(f"ha_calendar: {len(all_events)} events total, next: '{all_events[0]['title']}' in {all_events[0]['starts_in_mins']}min")
+    if HA_DEBUG:
+        log(f"ha_calendar: {len(all_events)} events total, next: '{all_events[0]['title']}' in {all_events[0]['starts_in_mins']}min")
     return all_events
 
 
@@ -1134,7 +1145,8 @@ def _fetch_ha_routines(dry: bool = False) -> dict | None:
         with urllib.request.urlopen(req, timeout=HA_TIMEOUT_S) as s:
             data = json.loads(s.read())
         result["meds_taken"] = data["state"] == "on"
-        log(f"ha_routines: meds_toggle={data['state']}")
+        if HA_DEBUG:
+            log(f"ha_routines: meds_toggle={data['state']}")
     except Exception as exc:
         log(f"ha_routines: meds_toggle error: {exc}")
     # Water button — derive minutes since last press
@@ -1146,13 +1158,15 @@ def _fetch_ha_routines(dry: bool = False) -> dict | None:
         last_changed = dt.datetime.fromisoformat(data["last_changed"].replace("Z", "+00:00"))
         mins_ago = (dt.datetime.now(dt.timezone.utc) - last_changed).total_seconds() / 60
         result["water_mins_ago"] = round(mins_ago)
-        log(f"ha_routines: drank_water last_changed={data['last_changed']} ({round(mins_ago)}min ago)")
+        if HA_DEBUG:
+            log(f"ha_routines: drank_water last_changed={data['last_changed']} ({round(mins_ago)}min ago)")
     except Exception as exc:
         log(f"ha_routines: drank_water error: {exc}")
-    if result:
-        log(f"ha_routines: result: {result}")
-    else:
-        log("ha_routines: no data returned")
+    if HA_DEBUG:
+        if result:
+            log(f"ha_routines: result: {result}")
+        else:
+            log("ha_routines: no data returned")
     return result if result else None
 
 
@@ -1185,7 +1199,8 @@ def _fetch_ha_context(dry: bool = False) -> dict | None:
         if not HA_TOKEN:
             log("ha_context: skipped — no PX_HA_TOKEN")
         return None
-    log(f"ha_context: fetching {len(HA_CONTEXT_ENTITIES)} entities...")
+    if HA_DEBUG:
+        log(f"ha_context: fetching {len(HA_CONTEXT_ENTITIES)} entities...")
     headers = {"Authorization": f"Bearer {HA_TOKEN}", "Accept": "application/json"}
     result: dict = {}
     for key, entity_id in HA_CONTEXT_ENTITIES.items():
@@ -1197,16 +1212,19 @@ def _fetch_ha_context(dry: bool = False) -> dict | None:
             if key == "media_player":
                 result["media_playing"] = data["state"] == "playing"
                 result["media_title"] = data.get("attributes", {}).get("media_title", "")
-                log(f"ha_context: {entity_id} → state={data['state']}, title={result['media_title']!r}")
+                if HA_DEBUG:
+                    log(f"ha_context: {entity_id} → state={data['state']}, title={result['media_title']!r}")
             else:
                 result[key] = data["state"] == "on"
-                log(f"ha_context: {entity_id} → state={data['state']} (on={result[key]})")
+                if HA_DEBUG:
+                    log(f"ha_context: {entity_id} → state={data['state']} (on={result[key]})")
         except Exception as exc:
             log(f"ha_context: {entity_id} error: {exc}")
-    if result:
-        log(f"ha_context: result: {result}")
-    else:
-        log("ha_context: no data returned")
+    if HA_DEBUG:
+        if result:
+            log(f"ha_context: result: {result}")
+        else:
+            log("ha_context: no data returned")
     return result if result else None
 
 
