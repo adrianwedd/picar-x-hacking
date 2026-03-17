@@ -93,12 +93,17 @@ def _check_rate_limit(ip: str) -> bool:
         return True
 
 
+_TRUSTED_PROXIES = {"127.0.0.1", "::1"}
+
+
 def _get_client_ip(request: "Request") -> str:
-    """Extract client IP, respecting X-Forwarded-For behind a reverse proxy."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """Extract client IP, only trusting X-Forwarded-For from known proxies."""
+    peer = request.client.host if request.client else "unknown"
+    if peer in _TRUSTED_PROXIES:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return peer
 
 
 def _strip_control_chars(s: str) -> str:
@@ -965,21 +970,25 @@ async def public_chat(req: PublicChatRequest, request: Request):
 
 
 @app.post("/api/v1/pin/verify")
-async def verify_pin(body: PinRequest) -> JSONResponse:
+async def verify_pin(body: PinRequest, request: Request) -> JSONResponse:
     """Verify the admin PIN. Public endpoint — no Bearer token required."""
-    global _pin_attempts, _pin_lockout_until
     now = _time.monotonic()
+    client_ip = _get_client_ip(request)
 
-    # Fast path: in-memory lockout check
+    # Fast path: in-memory lockout check (per-IP)
     with _pin_lock:
-        if now < _pin_lockout_until:
+        if now < _pin_lockout_until.get(client_ip, 0.0):
             return JSONResponse(status_code=429, content={"verified": False, "error": "too many attempts"})
 
-    # File-based lockout check (survives restarts)
+    # File-based lockout check (survives restarts, per-IP)
     from datetime import datetime, timezone
     try:
         data = json.loads(_pin_state_path().read_text())
-        lockout_iso = data.get("lockout_until")
+        if data.get("version") == 2:
+            ip_data = data.get("ips", {}).get(client_ip, {})
+            lockout_iso = ip_data.get("lockout_until")
+        else:
+            lockout_iso = data.get("lockout_until")
         if lockout_iso:
             lockout_dt = datetime.fromisoformat(lockout_iso)
             if datetime.now(timezone.utc) < lockout_dt:
@@ -998,12 +1007,13 @@ async def verify_pin(body: PinRequest) -> JSONResponse:
     match = secrets.compare_digest(submitted, expected)
     if match:
         with _pin_lock:
-            _pin_attempts = 0
-            _pin_lockout_until = 0.0
+            _pin_attempts.pop(client_ip, None)
+            _pin_lockout_until.pop(client_ip, None)
             _save_pin_state()
-        # Delete lockout file on success
+        # Delete lockout file if no IPs remain locked out
         try:
-            _pin_state_path().unlink(missing_ok=True)
+            if not _pin_attempts and not _pin_lockout_until:
+                _pin_state_path().unlink(missing_ok=True)
         except OSError:
             pass
         return JSONResponse(status_code=200, content={
@@ -1012,11 +1022,12 @@ async def verify_pin(body: PinRequest) -> JSONResponse:
         })
     else:
         with _pin_lock:
-            _pin_attempts += 1
-            if _pin_attempts >= _PIN_ESCALATION_THRESHOLD and _pin_attempts % _PIN_MAX_ATTEMPTS == 0:
-                _pin_lockout_until = _time.monotonic() + _PIN_ESCALATED_SECONDS
-            elif _pin_attempts % _PIN_MAX_ATTEMPTS == 0:
-                _pin_lockout_until = _time.monotonic() + _PIN_LOCKOUT_SECONDS
+            _pin_attempts[client_ip] = _pin_attempts.get(client_ip, 0) + 1
+            ip_attempts = _pin_attempts[client_ip]
+            if ip_attempts >= _PIN_ESCALATION_THRESHOLD and ip_attempts % _PIN_MAX_ATTEMPTS == 0:
+                _pin_lockout_until[client_ip] = _time.monotonic() + _PIN_ESCALATED_SECONDS
+            elif ip_attempts % _PIN_MAX_ATTEMPTS == 0:
+                _pin_lockout_until[client_ip] = _time.monotonic() + _PIN_LOCKOUT_SECONDS
             _save_pin_state()
         return JSONResponse(status_code=200, content={"verified": False})
 
@@ -1370,8 +1381,8 @@ _PENDING_DEVICE_MAX = 5
 _PENDING_DEVICE_TTL = 30  # seconds
 
 _pin_lock = threading.Lock()
-_pin_attempts = 0
-_pin_lockout_until = 0.0
+_pin_attempts: dict[str, int] = {}
+_pin_lockout_until: dict[str, float] = {}
 _PIN_MAX_ATTEMPTS = 3
 _PIN_LOCKOUT_SECONDS = 300       # 5 minutes after 3 failures
 _PIN_ESCALATED_SECONDS = 1800    # 30 minutes after 10 cumulative failures
@@ -1386,51 +1397,76 @@ def _pin_state_path() -> Path:
 def _load_pin_state() -> None:
     """Load PIN lockout state from disk (called at startup).
 
-    Uses UTC ISO timestamps so the lockout survives API restarts.
+    Version 2 stores per-IP data. Version 1 (global) is discarded on migration
+    because there is no IP info to preserve.
     """
     global _pin_attempts, _pin_lockout_until
     from datetime import datetime, timezone
     try:
         data = json.loads(_pin_state_path().read_text())
-        _pin_attempts = int(data.get("attempts", 0))
-        lockout_iso = data.get("lockout_until")
-        if lockout_iso:
-            lockout_dt = datetime.fromisoformat(lockout_iso)
-            remaining = (lockout_dt - datetime.now(timezone.utc)).total_seconds()
-            _pin_lockout_until = _time.monotonic() + remaining if remaining > 0 else 0.0
-        else:
-            _pin_lockout_until = 0.0
+        if data.get("version") != 2:
+            # Old global format (v1) — no IP info to migrate; reset
+            _pin_attempts = {}
+            _pin_lockout_until = {}
+            return
+        now_mono = _time.monotonic()
+        now_utc = datetime.now(timezone.utc)
+        ips = data.get("ips", {})
+        for ip, info in ips.items():
+            attempts = int(info.get("attempts", 0))
+            if attempts > 0:
+                _pin_attempts[ip] = attempts
+            lockout_iso = info.get("lockout_until")
+            if lockout_iso:
+                lockout_dt = datetime.fromisoformat(lockout_iso)
+                remaining = (lockout_dt - now_utc).total_seconds()
+                if remaining > 0:
+                    _pin_lockout_until[ip] = now_mono + remaining
     except (FileNotFoundError, json.JSONDecodeError, ValueError, TypeError):
-        _pin_attempts = 0
-        _pin_lockout_until = 0.0
-    # Also try migrating the old pin_attempts.json if it exists
+        _pin_attempts = {}
+        _pin_lockout_until = {}
+    # Also try migrating the old pin_attempts.json — discard (no IP info)
     old_path = _public_state_dir() / "pin_attempts.json"
     if old_path.exists() and not _pin_state_path().exists():
         try:
-            old_data = json.loads(old_path.read_text())
-            _pin_attempts = int(old_data.get("attempts", 0))
-        except (json.JSONDecodeError, ValueError, TypeError):
+            old_path.unlink()
+        except OSError:
             pass
 
 
 def _save_pin_state() -> None:
     """Persist PIN lockout state to disk (atomic write). Must be called under _pin_lock.
 
-    Stores lockout_until as a UTC ISO 8601 timestamp so it survives restarts.
+    Version 2 schema: per-IP attempts and lockout timestamps.
     """
     from datetime import datetime, timezone, timedelta
     import tempfile
-    if _pin_lockout_until > 0:
-        remaining = _pin_lockout_until - _time.monotonic()
-        if remaining > 0:
-            lockout_iso = (datetime.now(timezone.utc) + timedelta(seconds=remaining)).isoformat()
-        else:
-            lockout_iso = None
-    else:
+    now_mono = _time.monotonic()
+    now_utc = datetime.now(timezone.utc)
+    # Build per-IP data
+    all_ips = set(_pin_attempts.keys()) | set(_pin_lockout_until.keys())
+    ips_data: dict[str, dict] = {}
+    for ip in all_ips:
+        attempts = _pin_attempts.get(ip, 0)
+        lockout_mono = _pin_lockout_until.get(ip, 0.0)
         lockout_iso = None
+        if lockout_mono > 0:
+            remaining = lockout_mono - now_mono
+            if remaining > 0:
+                lockout_iso = (now_utc + timedelta(seconds=remaining)).isoformat()
+        if attempts > 0 or lockout_iso:
+            ips_data[ip] = {
+                "attempts": attempts,
+                "lockout_until": lockout_iso,
+            }
+    # Cap at 1000 IPs to prevent unbounded growth
+    if len(ips_data) > 1000:
+        expired = [ip for ip, v in ips_data.items() if not v.get("lockout_until")]
+        for ip in expired[:len(ips_data) - 1000]:
+            del ips_data[ip]
     data = {
-        "attempts": _pin_attempts,
-        "lockout_until": lockout_iso,
+        "version": 2,
+        "ips": ips_data,
         "last_attempt_ts": utc_timestamp(),
     }
     path = _pin_state_path()

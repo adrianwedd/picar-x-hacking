@@ -613,16 +613,16 @@ class TestPinVerify:
     def reset_pin_state(self):
         """Reset rate-limit state before each PIN test."""
         import pxh.api as api
-        api._pin_attempts = 0
-        api._pin_lockout_until = 0.0
+        api._pin_attempts.clear()
+        api._pin_lockout_until.clear()
         # Remove persisted state file if present
         try:
             api._pin_state_path().unlink(missing_ok=True)
         except Exception:
             pass
         yield
-        api._pin_attempts = 0
-        api._pin_lockout_until = 0.0
+        api._pin_attempts.clear()
+        api._pin_lockout_until.clear()
         try:
             api._pin_state_path().unlink(missing_ok=True)
         except Exception:
@@ -731,19 +731,21 @@ class TestPinVerify:
             resp = api_client.post("/api/v1/pin/verify", json={"pin": "0000"})
             assert resp.status_code == 429
 
-            # Verify state file was written
+            # Verify state file was written (version 2 per-IP format)
             assert api._pin_state_path().exists()
             saved = json.loads(api._pin_state_path().read_text())
-            assert saved["attempts"] >= 3
-            # lockout_until is now an ISO timestamp string
+            assert saved["version"] == 2
+            # TestClient peer IP is "testclient"
+            ip_data = saved["ips"].get("testclient", {})
+            assert ip_data.get("attempts", 0) >= 3
             from datetime import datetime, timezone
-            assert saved["lockout_until"] is not None
-            lockout_dt = datetime.fromisoformat(saved["lockout_until"])
+            assert ip_data["lockout_until"] is not None
+            lockout_dt = datetime.fromisoformat(ip_data["lockout_until"])
             assert lockout_dt > datetime.now(timezone.utc)
 
             # Simulate restart: reset in-memory state, then reload from file
-            api._pin_attempts = 0
-            api._pin_lockout_until = 0.0
+            api._pin_attempts.clear()
+            api._pin_lockout_until.clear()
             api._load_pin_state()
 
             # Lockout should still be active after "restart"
@@ -760,14 +762,15 @@ class TestPinVerify:
             for _ in range(3):
                 api_client.post("/api/v1/pin/verify", json={"pin": "0000"})
 
+            ip = "testclient"
             with api._pin_lock:
-                lockout_remaining = api._pin_lockout_until - _t.monotonic()
+                lockout_remaining = api._pin_lockout_until.get(ip, 0.0) - _t.monotonic()
                 assert lockout_remaining > 250, f"Expected ~300s lockout, got {lockout_remaining}"
                 assert lockout_remaining <= 300
 
             # Simulate time passing: clear lockout but keep cumulative attempts (3)
             with api._pin_lock:
-                api._pin_lockout_until = 0.0
+                api._pin_lockout_until.pop(ip, None)
                 api._save_pin_state()  # persist the cleared lockout to file
 
             # 9 more failures (cumulative = 12 >= threshold 10): should trigger 30-minute lockout
@@ -777,11 +780,11 @@ class TestPinVerify:
                 if batch < 2:
                     # Clear intermediate lockouts (at cumulative 6, 9) to keep going
                     with api._pin_lock:
-                        api._pin_lockout_until = 0.0
+                        api._pin_lockout_until.pop(ip, None)
                         api._save_pin_state()
 
             with api._pin_lock:
-                lockout_remaining = api._pin_lockout_until - _t.monotonic()
+                lockout_remaining = api._pin_lockout_until.get(ip, 0.0) - _t.monotonic()
                 assert lockout_remaining > 1750, f"Expected ~1800s lockout, got {lockout_remaining}"
                 assert lockout_remaining <= 1800
 
@@ -796,13 +799,15 @@ class TestPinVerify:
 
             assert api._pin_state_path().exists()
             saved = json.loads(api._pin_state_path().read_text())
-            assert saved["attempts"] == 2
+            assert saved["version"] == 2
+            ip_data = saved["ips"].get("testclient", {})
+            assert ip_data.get("attempts", 0) == 2
 
             # Correct PIN resets everything and deletes lockout file
             resp = api_client.post("/api/v1/pin/verify", json={"pin": "9999"})
             assert resp.json()["verified"] is True
 
-            # Lockout file is deleted on successful PIN
+            # Lockout file is deleted on successful PIN (no IPs remain)
             assert not api._pin_state_path().exists()
 
 
