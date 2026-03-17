@@ -28,6 +28,17 @@ state/battery.json
 state/frigate_presence.json
 state/sonar_live.json
 state/*.lock
+state/exploring.json
+state/feed.json
+state/post_queue.jsonl
+state/px-post-cursor.json
+state/px-post.pid
+state/px-post-status.json
+state/thought-images/
+state/token_usage.json
+state/pin_lockout.json
+state/*.tmp
+state/.*.tmp
 photos/
 .env
 bin/go2rtc
