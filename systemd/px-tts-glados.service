@@ -1,0 +1,18 @@
+[Unit]
+Description=GLaDOS TTS server for GREMLIN persona
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/picar-x-hacking
+ExecStart=/home/pi/picar-x-hacking/bin/tts-glados-server
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=0
+Environment=GLADOS_DIR=/home/pi/glados-tts
+Environment=PX_GLADOS_PORT=7861
+
+[Install]
+WantedBy=multi-user.target
