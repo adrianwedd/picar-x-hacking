@@ -60,7 +60,7 @@ bin/px-spark [--dry-run] [--input-mode voice|text]
            │                            │                            │
     ┌──────▼──────┐  ┌─────────────────▼────────────────┐  ┌───────▼───────┐
     │  tool-*     │  │         px-env                    │  │  REST API     │
-    │  37 tools   │  │  PYTHONPATH · LOG_DIR · venv      │  │  :8420        │
+    │  38 tools   │  │  PYTHONPATH · LOG_DIR · venv      │  │  :8420        │
     │  JSON out   │  │  yield_alive() · PX_VOICE_DEVICE  │  │  Bearer auth  │
     └──────┬──────┘  └──────────────────────────────────┘  └───────────────┘
            │
@@ -212,7 +212,7 @@ The voice loop captures all stdout and scans it for a JSON action object. It use
 
 ```python
 validate_action(tool_name, raw_params)
- ├── ALLOWED_TOOLS whitelist check              (37 tools; KeyError = reject)
+ ├── ALLOWED_TOOLS whitelist check              (38 tools; KeyError = reject)
  ├── per-tool param sanitisation:
  │    • type coercion (str → int where needed)
  │    • range clamping (speed 0-60, duration 1-12s, pan -90..90, etc.)
@@ -619,11 +619,15 @@ Persona routing: checks session `persona` field, then utterance keywords.
 
 | Module | Purpose |
 |--------|---------|
-| `state.py` | Thread-safe `session.json` via `FileLock`. `ensure_session()` runs before lock acquisition. |
+| `state.py` | Thread-safe `session.json` via `FileLock`. `atomic_write()`, `rotate_log()`, `ensure_session()`. |
+| `mind.py` | Cognitive loop daemon (3,300+ lines). Three-layer architecture: awareness, reflection, expression. `bin/px-mind` is a thin launcher. |
 | `voice_loop.py` | Supervisor loop. `ALLOWED_TOOLS` whitelist, `TOOL_COMMANDS` dispatch, `validate_action()`. Watchdog (30s) in voice mode only. |
 | `api.py` | FastAPI app, port 8420. In-memory job registry for async wander. Single-worker only. |
-| `logging.py` | Structured JSON log emission to `logs/tool-<event>.log`. |
+| `logging.py` | Structured JSON log emission to `logs/tool-<event>.log`. Late-imports `rotate_log` from state.py. |
 | `time.py` | `utc_timestamp()` via `datetime.now(timezone.utc)`. |
+| `token_log.py` | LLM token usage accounting — logs prompt/response token counts per call. |
+| `utils.py` | Shared utilities (`clamp()` for numeric range clamping). |
+| `patch_login.py` | Monkey-patches `os.getlogin()` for systemd environments (no /dev/tty). |
 
 ---
 
@@ -689,10 +693,10 @@ Every tool must: emit a single JSON object to stdout, support `PX_DRY=1`, handle
 
 ```bash
 source .venv/bin/activate
-python -m pytest tests/                           # 82 dry-run tests
+python -m pytest tests/                           # 450 tests (dry-run, no hardware)
 python -m pytest tests/test_tools.py -v
 python -m pytest tests/test_api.py -v
-sudo .venv/bin/python -m pytest tests/ -m live -v  # 25 live hardware tests
+sudo .venv/bin/python -m pytest tests/ -m live -v  # live hardware tests (require Pi)
 ```
 
 ---
@@ -741,16 +745,24 @@ picar-x-hacking/
 │   ├── px-post                   # Social posting daemon (Bluesky + local feed)
 │   ├── px-statusline             # Claude Code statusbar script
 │   ├── px-{circle,drive,look,…}  # Hardware control scripts
-│   ├── tool-{voice,look,drive,…} # Voice loop tool wrappers (26 tools)
+│   ├── tool-{voice,look,drive,…} # Voice loop tool wrappers (38 tools)
 │   ├── run-voice-loop{,-claude,-ollama}  # Voice backend launchers
 │   └── claude-voice-bridge       # Claude stdin adapter
-├── src/pxh/                      # Python library
-│   ├── state.py                  # FileLock session management
+├── src/pxh/                      # Python library (10 modules)
+│   ├── state.py                  # FileLock session, atomic_write, rotate_log
+│   ├── mind.py                   # Cognitive loop daemon (3,300+ lines)
 │   ├── voice_loop.py             # Supervisor + tool dispatch
 │   ├── api.py                    # FastAPI REST API
 │   ├── logging.py                # Structured JSON logging
-│   └── time.py                   # UTC timestamp helper
-├── tests/                        # 107 tests
+│   ├── time.py                   # UTC timestamp helper
+│   ├── token_log.py              # LLM token usage accounting
+│   ├── utils.py                  # Shared utilities (clamp)
+│   └── patch_login.py            # os.getlogin() systemd fix
+├── site/                         # Static site (Cloudflare Pages)
+│   ├── css/colors.css            # Mood colour palette (CSS vars)
+│   ├── js/config.js              # API base URL config
+│   └── workers/og-rewrite.js     # Cloudflare Worker for OG images
+├── tests/                        # 450 tests
 ├── docs/prompts/
 │   ├── spark-voice-system.md     # SPARK persona (child companion)
 │   ├── claude-voice-system.md    # Default Claude voice loop

@@ -500,7 +500,7 @@
         <li>SPARK's neck chip (PCA9685) holds the last position even after the brain restarts.</li>
         <li>SPARK knows Tasmania's timezone — it adjusts for daylight saving automatically.</li>
         <li>Each social post gets a branded 1080x1080 image card with SPARK's thought and mood.</li>
-        <li>SPARK has 459 automated tests — three AI models review every code change.</li>
+        <li>SPARK has 450 automated tests — three AI models review every code change.</li>
         <li>SPARK checks four cameras for people using Hailo AI on a separate Pi 5.</li>
       </ul>
     </div>
@@ -574,7 +574,7 @@
 
     <details>
       <summary>How many tests does it have?</summary>
-      <p>459 automated tests covering the REST API, session state management, tool execution, voice loop, wake word system, social posting, and cognitive utilities. Tests run in isolated temporary directories with no hardware access required (25 live hardware tests are marked separately). Three independent AI models (Claude, Codex, Gemini) run QA reviews on every batch of changes.</p>
+      <p>450 automated tests covering the REST API, session state management, tool execution, voice loop, wake word system, social posting, and cognitive utilities. Tests run in isolated temporary directories with no hardware access required (live hardware tests are marked separately). Three independent AI models (Claude, Codex, Gemini) run QA reviews on every batch of changes.</p>
     </details>
   </div>
 </section>
@@ -590,16 +590,16 @@
     <details>
       <summary>tool-voice</summary>
       <pre><code class="language-bash"># Speak text via espeak + aplay through HifiBerry DAC
-PX_VOICE_TEXT="Hello world" bin/tool-voice
+PX_TEXT="Hello world" bin/tool-voice
 # Output: {"status": "ok", "text": "Hello world"}
 # Env: PX_VOICE_RATE, PX_VOICE_PITCH, PX_VOICE_VARIANT, PX_VOICE_DEVICE</code></pre>
     </details>
 
     <details>
-      <summary>tool-move / tool-forward / tool-backward / tool-turn</summary>
+      <summary>tool-drive / tool-circle / tool-wander</summary>
       <pre><code class="language-bash"># Motion tools — all gated by confirm_motion_allowed in session
-PX_SPEED=30 PX_DURATION=2 bin/tool-forward
-# Output: {"status": "ok", "speed": 30, "duration": 2}
+PX_SPEED=30 PX_DURATION=2 PX_DIRECTION=forward bin/tool-drive
+# Output: {"status": "ok", "speed": 30, "duration": 2, "direction": "forward"}
 # Safety: PX_DRY=1 skips all motion</code></pre>
     </details>
 
@@ -729,7 +729,7 @@ bin/tool-weather
     <details>
       <summary>tool-look</summary>
       <pre><code class="language-bash"># Pan/tilt camera toward a target
-PX_LOOK_PAN=30 PX_LOOK_TILT=10 bin/tool-look
+PX_PAN=30 PX_TILT=10 bin/tool-look
 # Output: {"status": "ok", "pan": 30, "tilt": 10}
 # Yields px-alive GPIO via SIGUSR1 before moving</code></pre>
     </details>
@@ -761,7 +761,7 @@ PX_LOOK_PAN=30 PX_LOOK_TILT=10 bin/tool-look
       <div class="roadmap-item done"><span class="check">✅</span> Thoughts carousel — real-time inner monologue on home page</div>
       <div class="roadmap-item done"><span class="check">✅</span> Semantic mood colour palette — pulse circle + favicon</div>
       <div class="roadmap-item done"><span class="check">✅</span> obi_mode inference (absent/calm/active/possibly-overloaded)</div>
-      <div class="roadmap-item done"><span class="check">✅</span> Social posting — Bluesky (sparkrobot.bsky.social) + thought feed (spark.wedd.au/feed/)</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Social posting — Bluesky (spark.wedd.au) + thought feed (spark.wedd.au/feed/)</div>
       <div class="roadmap-item done"><span class="check">✅</span> Multi-camera Frigate — 4 cameras with per-room presence detection (Hailo AI)</div>
       <div class="roadmap-item done"><span class="check">✅</span> PIN session tokens, file-based rate limiting, two-step device confirmation</div>
       <div class="roadmap-item done"><span class="check">✅</span> Battery glitch filter — time-gapped confirmations, voltage sanity check</div>
@@ -779,7 +779,7 @@ PX_LOOK_PAN=30 PX_LOOK_TILT=10 bin/tool-look
       <div class="roadmap-item done"><span class="check">✅</span> Mood-coloured status dot on all pages — real-time mood from API</div>
       <div class="roadmap-item done"><span class="check">✅</span> Home Assistant integration — presence, sleep, calendar, routines, media context</div>
       <div class="roadmap-item done"><span class="check">✅</span> Bluesky image uploads — branded thought cards attached to social posts</div>
-      <div class="roadmap-item done"><span class="check">✅</span> 459 tests — comprehensive coverage across API, state, tools, voice, mind</div>
+      <div class="roadmap-item done"><span class="check">✅</span> 450 tests — comprehensive coverage across API, state, tools, voice, mind</div>
       <div class="roadmap-item"><span class="check">⬜</span> Gesture-driven stop prototype</div>
       <div class="roadmap-item"><span class="check">⬜</span> Weekly battery/health summary reports</div>
     </div>
@@ -787,7 +787,7 @@ PX_LOOK_PAN=30 PX_LOOK_TILT=10 bin/tool-look
     <div class="roadmap-group">
       <h3>Growth (1–3 Months)</h3>
       <div class="roadmap-item done"><span class="check">✅</span> SPARK Phase 2 — transition warnings, routine support</div>
-      <div class="roadmap-item"><span class="check">⬜</span> SPARK Phase 3 — quiet mode, sensory check, dopamine menu</div>
+      <div class="roadmap-item done"><span class="check">✅</span> SPARK Phase 3 — quiet mode, sensory check, dopamine menu</div>
       <div class="roadmap-item done"><span class="check">✅</span> Calendar integration — Obi's Google Calendar drives obi_mode + expression gating</div>
       <div class="roadmap-item"><span class="check">⬜</span> Modular sensor fusion and persistent mapping</div>
       <div class="roadmap-item"><span class="check">⬜</span> Richer voice summaries, mission templates, gesture recognition</div>
