@@ -4,6 +4,7 @@ __pycache__/
 logs/*
 !logs/.gitkeep
 state/session.json
+state/spark-reflect/.*.tmp
 
 logs_test/
 .DS_Store
