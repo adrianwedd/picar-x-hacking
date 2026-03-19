@@ -345,7 +345,7 @@
     <h2>// how_it_works</h2>
 
     <p class="text-muted-dark mb-md">
-      Seven systemd services share a single <code>session.json</code> whiteboard.
+      Nine systemd services share a single <code>session.json</code> whiteboard.
       Each has one job and doesn't need to know how the others work.
     </p>
 
@@ -454,8 +454,9 @@
   GET /api/v1/public/vitals       cpu, ram, disk, temp, battery, tokens
   GET /api/v1/public/sonar        latest sonar distance + age
   GET /api/v1/public/history      ring buffer — 60 samples × 30s ≈ 30 min
-  GET /api/v1/public/services     systemd unit status for all seven services
+  GET /api/v1/public/services     systemd unit status for all nine services
   GET /api/v1/public/feed         social posting feed (JSON)
+  GET /api/v1/public/race         race telemetry, calibration, live lap data
   GET /api/v1/public/thought-image?ts=...  branded thought card PNG
   POST /api/v1/public/chat        rate-limited public chat (10/10min per IP)
   POST /api/v1/pin/verify         PIN auth → session token (4h TTL)
@@ -496,12 +497,18 @@
           <th>The pulse circle…</th>
           <th>It moves like this…</th>
         </tr>
-        <tr><td>Peaceful</td><td>Slow green pulse</td><td>Drifts gently, slow gaze</td></tr>
-        <tr><td>Content</td><td>Slow green pulse</td><td>Stays relaxed, steady</td></tr>
-        <tr><td>Contemplative</td><td>Medium indigo pulse</td><td>Still, looks into the distance</td></tr>
-        <tr><td>Curious</td><td>Medium gold pulse</td><td>Alert, head tilts, looks around</td></tr>
-        <tr><td>Active</td><td>Fast blue pulse</td><td>Busy gaze, regular movement</td></tr>
-        <tr><td>Excited</td><td>Fast coral pulse</td><td>Looks around quickly, head up</td></tr>
+        <tr><td>Peaceful</td><td>Slow teal pulse</td><td>Drifts gently, slow gaze</td></tr>
+        <tr><td>Content</td><td>Slow olive pulse</td><td>Stays relaxed, steady</td></tr>
+        <tr><td>Bored</td><td>Slow grey pulse</td><td>Still, not much happening</td></tr>
+        <tr><td>Lonely</td><td>Slow blue pulse</td><td>Quiet, looking around for company</td></tr>
+        <tr><td>Contemplative</td><td>Medium purple pulse</td><td>Still, thinking deeply</td></tr>
+        <tr><td>Curious</td><td>Medium amber pulse</td><td>Alert, head tilts, looks around</td></tr>
+        <tr><td>Mischievous</td><td>Medium chartreuse pulse</td><td>Scheming, eyes darting</td></tr>
+        <tr><td>Grumpy</td><td>Medium red pulse</td><td>Short movements, impatient</td></tr>
+        <tr><td>Anxious</td><td>Medium orange pulse</td><td>Fidgety, scanning for threats</td></tr>
+        <tr><td>Alert</td><td>Fast cyan pulse</td><td>Snaps to attention, focused</td></tr>
+        <tr><td>Playful</td><td>Fast magenta pulse</td><td>Bouncy, wants to interact</td></tr>
+        <tr><td>Excited</td><td>Fast rose pulse</td><td>Looks around quickly, head up</td></tr>
       </table>
     </div>
 
@@ -808,7 +815,12 @@ PX_PAN=30 PX_TILT=10 bin/tool-look
       <div class="roadmap-item done"><span class="check">✅</span> Mood-coloured status dot on all pages — real-time mood from API</div>
       <div class="roadmap-item done"><span class="check">✅</span> Home Assistant integration — presence, sleep, calendar, routines, media context</div>
       <div class="roadmap-item done"><span class="check">✅</span> Bluesky image uploads — branded thought cards attached to social posts</div>
-      <div class="roadmap-item done"><span class="check">✅</span> 450 tests — comprehensive coverage across API, state, tools, voice, mind</div>
+      <div class="roadmap-item done"><span class="check">✅</span> 533 tests — comprehensive coverage across API, state, tools, voice, mind, race</div>
+      <div class="roadmap-item done"><span class="check">✅</span> 12-mood colour palette — full arousal spectrum with CSS vars, terminal ANSI, pulse animations</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Autonomous racing — dual-sensor PD control, per-lap learning, track profiling</div>
+      <div class="roadmap-item done"><span class="check">✅</span> SSH login dashboard — system status, tmux, cognitive state, errors, quick actions</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Race telemetry on dashboard — calibration, profile, live lap/speed/incidents</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Network TTS — GLaDOS on Pi, Qwen3-TTS voice clone on M1</div>
       <div class="roadmap-item"><span class="check">⬜</span> Gesture-driven stop prototype</div>
       <div class="roadmap-item"><span class="check">⬜</span> Weekly battery/health summary reports</div>
     </div>
@@ -818,6 +830,7 @@ PX_PAN=30 PX_TILT=10 bin/tool-look
       <div class="roadmap-item done"><span class="check">✅</span> SPARK Phase 2 — transition warnings, routine support</div>
       <div class="roadmap-item done"><span class="check">✅</span> SPARK Phase 3 — quiet mode, sensory check, dopamine menu</div>
       <div class="roadmap-item done"><span class="check">✅</span> Calendar integration — Obi's Google Calendar drives obi_mode + expression gating</div>
+      <div class="roadmap-item"><span class="check">⬜</span> Self-evolution — SPARK introspects on its own patterns and proposes code changes via PRs</div>
       <div class="roadmap-item"><span class="check">⬜</span> Modular sensor fusion and persistent mapping</div>
       <div class="roadmap-item"><span class="check">⬜</span> Richer voice summaries, mission templates, gesture recognition</div>
       <div class="roadmap-item"><span class="check">⬜</span> Simulation CI sweeps (Gazebo or lightweight custom sim)</div>

@@ -19,7 +19,7 @@ All `bin/` scripts source `bin/px-env` automatically, which sets `PROJECT_ROOT`,
 ## Running Tests
 
 ```bash
-python -m pytest                          # full suite (511 tests)
+python -m pytest                          # full suite (533 tests)
 python -m pytest tests/test_state.py     # single file
 python -m pytest -k test_name            # single test
 python -m pytest -m "not live"           # skip hardware tests (82 tests)
@@ -135,8 +135,8 @@ bin/px-mind [--awareness-interval 30] [--dry-run]
 
 Three-layer cognitive architecture:
 - **Layer 1 — Awareness** (every 60 s, no LLM): sonar + session + temporal state + calendar + multi-camera Frigate → `state/awareness.json` + transition detection. Fetches Obi's Google Calendar every 5 min via `gws` CLI; queries all Frigate cameras (picar_x, picamera, driveway_camera, garden_camera) for per-camera person/object presence with room names.
-- **Layer 2 — Reflection** (on transition or every 5 min idle): SPARK persona uses Claude Haiku via persistent tmux session (`px-claude` — avoids 14s CLI cold start per call); other personas (GREMLIN, VIXEN) use Ollama `deepseek-r1:1.5b` on M1.local. Falls back to Ollama on Claude error. Local Pi Ollama fallback disabled by default (Pi 4 RAM too small; opt-in via `PX_MIND_LOCAL_OLLAMA=1`). Generates thought with mood/action/salience → `state/thoughts.jsonl`. Reflection failure tracking: after 3 consecutive failures, speaks a warning and writes `reflection_status` to `awareness.json`. Calendar context and `rooms_with_people` list injected into the reflection prompt.
-- **Layer 3 — Expression** (2 min cooldown): dispatches to tool-voice/tool-look/tool-remember. Valid actions (14): `wait, greet, comment, remember, look_at, weather_comment, scan, explore, play_sound, photograph, emote, look_around, time_check, calendar_check`. Charging-gated actions (require battery) are blocked when on charger. Expression gating: suppresses speech during school hours, Mum's custody time, quiet time, bedtime, and decompress periods (all calendar-driven). Injects `PX_PERSONA` + voice settings from session so speech routes through Ollama persona rephrasing.
+- **Layer 2 — Reflection** (on transition or every 5 min idle): SPARK persona uses Claude Haiku via persistent tmux session (`px-claude` on dedicated `-L px-mind` socket — isolates from user tmux sessions so `systemctl restart px-mind` won't kill interactive sessions). Other personas (GREMLIN, VIXEN) use Ollama `deepseek-r1:1.5b` on M1.local. Falls back to Ollama on Claude error. Local Pi Ollama fallback disabled by default (Pi 4 RAM too small; opt-in via `PX_MIND_LOCAL_OLLAMA=1`). Generates thought with mood/action/salience → `state/thoughts.jsonl`. Reflection failure tracking: after 3 consecutive failures, speaks a warning and writes `reflection_status` to `awareness.json`. Calendar context and `rooms_with_people` list injected into the reflection prompt. 42 reflection angles sampled 5 per call to diversify mood range across all 12 moods. Weather refreshed every 30 min (BOM updates half-hourly). `px-claude` output piped to `logs/px-claude.log` via `tmux pipe-pane` for safe monitoring.
+- **Layer 3 — Expression** (2 min cooldown): dispatches to tool-voice/tool-look/tool-remember. Valid actions (15): `wait, greet, comment, remember, look_at, weather_comment, scan, explore, play_sound, photograph, emote, look_around, time_check, calendar_check, morning_fact`. Charging-gated actions (require battery) are blocked when on charger. Expression gating: suppresses speech during school hours, Mum's custody time, quiet time, bedtime, and decompress periods (all calendar-driven). Injects `PX_PERSONA` + voice settings from session so speech routes through Ollama persona rephrasing.
 
 `compute_obi_mode()` returns calendar-authoritative states (`at-school`, `at-mums`) when calendar events match, falling back to ambient heuristics otherwise.
 
@@ -211,15 +211,17 @@ Additional: `confirm_motion_allowed` gate; `yield_alive` at startup; `exploring.
 - `state/feed.json` — served at `GET /api/v1/public/feed` and on [spark.wedd.au/feed/](https://spark.wedd.au/feed/) (thought feed page with individual permalinks at `/thought/?ts=`)
 - Bluesky (AT Protocol) — live at [spark.wedd.au on Bluesky](https://bsky.app/profile/spark.wedd.au); credentials via `PX_BSKY_HANDLE` + `PX_BSKY_APP_PASSWORD`
 
-Two-pass flush: Pass 1 batches all feed writes (no rate limit), Pass 2 does one Bluesky post per cycle (rate-limited). PID-file single-instance guard. Branded 1080×1080 thought card images generated via Pillow (cached in `state/thought-images/`, cleaned up after 30 days). Bluesky re-auths on 400/401 (expired token). Backfill mode: `bin/px-post --backfill`. Loads `.env` via systemd `EnvironmentFile`.
+Two-pass flush: Pass 1 batches all feed writes (no rate limit), Pass 2 does one Bluesky post per cycle (rate-limited). QA gate: Claude CLI answers YES/NO; "ambiguous" responses (e.g. "Maybe") default to pass — QA is a safety net for bad content, not a quality bar. PID-file single-instance guard. Branded 1080×1080 thought card images generated via Pillow (cached in `state/thought-images/`, cleaned up after 30 days). Bluesky re-auths on 400/401 (expired token). Backfill mode: `bin/px-post --backfill`. Loads `.env` via systemd `EnvironmentFile`.
 
 ### Site (spark.wedd.au)
 
 Static site hosted on **Cloudflare Pages** (auto-deploys from `master` branch, `site/` directory). Three pages: landing (`/`), thought feed (`/feed/`), thought permalink (`/thought/?ts=`).
 
 Key frontend infrastructure:
-- **`site/css/colors.css`** — Single-source mood colour palette (CSS custom properties, Scheme B). All JS/CSS reference these vars instead of hardcoded hex.
+- **`site/css/colors.css`** — Single-source mood colour palette (CSS custom properties, Scheme B). All 12 moods + legacy "active" have `--mood-*` foreground and `--mood-*-bg` tint variants. All JS/CSS reference these vars instead of hardcoded hex. JS files use `getComputedStyle().getPropertyValue('--mood-' + mood)` for dynamic resolution.
 - **`site/js/config.js`** — Single API base URL (`window.SPARK_CONFIG.API_BASE`). All JS files use this instead of hardcoded URLs.
+- **`site/js/dashboard.js`** — DOM updates for the three-band live dashboard. Race status widget (calibration, profile, live telemetry), time-of-day period badge, 12-mood pulse animations (slow/mid/fast by arousal), mood-coloured favicon.
+- **`site/js/live.js`** — Polling orchestrator. Fetches 6 endpoints every 30s (status, vitals, sonar, awareness, services, race). 12-mood arousal map for sparkline charting. Visibility-aware (pauses when tab hidden).
 - **`site/workers/og-rewrite.js`** — Cloudflare Worker that intercepts `/thought/?ts=...` requests and rewrites `og:image` meta tags server-side with per-thought card URLs. Social crawlers (Bluesky, Twitter) don't execute JS, so client-side OG updates are invisible without this. XSS-sanitized (ISO timestamp regex + HTML attribute escaping). Route: `spark.wedd.au/thought/*`.
 
 ### REST API
@@ -282,7 +284,7 @@ Requires `OLLAMA_HOST=0.0.0.0 ollama serve` on M1.
 
 ### Systemd Services
 
-Seven services run at boot:
+Nine services run at boot:
 
 | Service | Script | User | Restart |
 |---------|--------|------|---------|
@@ -293,6 +295,8 @@ Seven services run at boot:
 | `px-post` | `bin/px-post` | pi | always, 30 s |
 | `px-api-server` | `bin/px-api-server` | pi | always, 2 s |
 | `px-frigate-stream` | `bin/px-frigate-stream` | pi | always, 10 s |
+| `px-tts-glados` | GLaDOS TTS server :7861 | pi | always, 10 s |
+| `cloudflared` | Cloudflare tunnel → spark-api.wedd.au | pi | always, 10 s |
 
 ### Login Dashboard (px-motd)
 
@@ -318,7 +322,7 @@ px 9  — bin/px-motd (re-show dashboard)
 
 **tmux monitoring**: `px-claude` tmux session (owned by px-mind for Claude Haiku reflections) pipes output to `logs/px-claude.log` via `tmux pipe-pane`. **Do not attach** to `px-claude` — it interferes with px-mind's `send-keys`/`capture-pane` workflow. Monitor via `tail -f logs/px-claude.log` instead.
 
-**PAM context**: MOTD scripts run as root before privilege drop. `px-motd` explicitly targets the pi user's tmux socket at `/tmp/tmux-1000/default` (same class of fix as the PulseAudio root socket issue). Static `/etc/motd` blanked (backup at `/etc/motd.bak`).
+**PAM context**: MOTD scripts run as root before privilege drop. `px-motd` scans both tmux sockets: `/tmp/tmux-1000/default` (user sessions) and `/tmp/tmux-1000/px-mind` (px-mind's isolated socket). Static `/etc/motd` blanked (backup at `/etc/motd.bak`).
 
 **Performance**: ~620ms total. Error scanning uses `tail -n 150` (not full file reads). Mood colours use 256-colour ANSI codes aligned with `site/css/colors.css` Scheme B palette.
 
