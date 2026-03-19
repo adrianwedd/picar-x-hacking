@@ -4,7 +4,7 @@
 
 **Goal:** Give SPARK the ability to introspect on its own thought patterns and propose code changes via GitHub PRs.
 
-**Architecture:** Extract SPARK's tunable config into `src/pxh/spark_config.py`, add `tool-introspect` (read-only stats + config), add `tool-evolve` (queue a change request), add `bin/px-evolve` daemon (worktree + Claude Sonnet subprocess + test + PR creation). All changes go through PRs — SPARK never modifies live code.
+**Architecture:** Extract SPARK's tunable config into `src/pxh/spark_config.py`, add `tool-introspect` (read-only stats + config), add `tool-evolve` (queue a change request), add `bin/px-evolve` daemon (worktree + Claude Opus subprocess + test + PR creation). All changes go through PRs — SPARK never modifies live code.
 
 **Tech Stack:** Python 3.11, Claude CLI (`claude -p`), `gh` CLI, git worktrees, systemd, pytest
 
@@ -278,7 +278,7 @@ In `tests/test_mind_utils.py:621-629`, add `"introspect"` and `"evolve"` to the 
 In `mind.py`, after the `calendar_check` branch (~line 3122), add:
 ```python
 elif action == "introspect":
-    env["PX_DRY"] = "1" if dry else ""
+    env["PX_DRY"] = "1" if dry else "0"
     result = subprocess.run(
         [str(BIN_DIR / "tool-introspect")],
         capture_output=True, text=True, check=False, env=env, timeout=30)
@@ -313,20 +313,25 @@ Adds introspect+evolve to VALID_ACTIONS with expression dispatch."
 ```python
 # Add to tests/test_mind_utils.py or tests/test_mind_coverage.py
 
-def test_introspection_context_injected_when_fresh(mind_state, tmp_path):
-    """Fresh introspection.json adds self-awareness block to reflection context."""
-    import json, time
-    state_dir = tmp_path / "state"
-    state_dir.mkdir(exist_ok=True)
+def test_format_introspection_with_data():
+    """_format_introspection produces readable summary from introspection dict."""
+    from pxh.mind import _format_introspection
     intro = {
-        "ts": time.time(),
-        "mood_distribution": {"curious": 50, "contemplative": 50},
-        "config": {"SIMILARITY_THRESHOLD": 0.75},
-        "architecture": "test",
+        "mood_distribution": {"curious": 50, "contemplative": 30, "content": 20},
+        "config": {"SIMILARITY_THRESHOLD": 0.75, "EXPRESSION_COOLDOWN_S": 120},
+        "evolution_history": [{"id": "test-1", "status": "pr_created"}],
     }
-    (state_dir / "introspection.json").write_text(json.dumps(intro))
-    # Verify the context builder includes introspection data
-    # (test the formatting function, not the full reflection)
+    result = _format_introspection(intro)
+    assert "curious 50%" in result
+    assert "SIMILARITY_THRESHOLD=0.75" in result
+    assert "1 previous proposals" in result
+
+
+def test_format_introspection_empty():
+    """_format_introspection handles empty dict gracefully."""
+    from pxh.mind import _format_introspection
+    result = _format_introspection({})
+    assert "No introspection data" in result
 ```
 
 - [ ] **Step 2: Add introspection cache variables in `mind.py`**
@@ -361,45 +366,41 @@ if intro_file.exists():
         pass
 ```
 
-- [ ] **Step 4: Add `introspect` and `evolve` to prompt action lists**
+- [ ] **Step 4: Add `_format_introspection()` helper to `mind.py`**
 
-Update the `"action": "one of: ..."` string in all four prompt locations:
-- `_SPARK_REFLECTION_SUFFIX` in `spark_config.py`
-- `REFLECTION_SYSTEM` in `mind.py` (~line 542)
-- `REFLECTION_SYSTEM_GREMLIN` in `mind.py` (~line 582)
-- `REFLECTION_SYSTEM_VIXEN` in `mind.py` (~line 612)
-
-Append: `, introspect, evolve` to each action enum string.
-
-Add descriptive bullets to SPARK suffix and generic REFLECTION_SYSTEM:
-```
-- "introspect" — examine your own thought patterns, config, and architecture.
-- "evolve" — propose a code change to yourself (requires recent introspect).
-```
-
-- [ ] **Step 5: Add self-awareness note to `_SPARK_REFLECTION_PREFIX`**
-
-In `spark_config.py`, add to the character description:
-```
-SPARK can examine its own thought patterns (introspect) and propose changes \
-to its own code (evolve). Use these rarely and deliberately — self-awareness \
-is a tool, not a fixation. Most reflections should still be about the world, \
-not about yourself.
+```python
+def _format_introspection(intro: dict) -> str:
+    """Format introspection dict into concise reflection context (~300 tokens)."""
+    parts = []
+    moods = intro.get("mood_distribution", {})
+    if moods:
+        top = sorted(moods.items(), key=lambda x: -x[1])[:5]
+        parts.append("Moods: " + ", ".join(f"{m} {p:.0f}%" for m, p in top))
+    config = intro.get("config", {})
+    if config:
+        parts.append("Config: " + ", ".join(f"{k}={v}" for k, v in config.items()))
+    history = intro.get("evolution_history", [])
+    if history:
+        parts.append(f"Evolution history: {len(history)} previous proposals")
+    return "\n".join(parts) if parts else "No introspection data available."
 ```
 
-- [ ] **Step 6: Run tests**
+**Note:** Prompt action list updates (`introspect, evolve` in enum strings) are deferred to Task 4 to avoid a broken intermediate state where `evolve` appears in prompts before its expression handler exists.
+
+- [ ] **Step 5: Run tests**
 
 Run: `python -m pytest tests/test_mind_utils.py tests/test_mind_coverage.py tests/test_spark_config.py -x -q`
 Expected: All pass
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/pxh/mind.py src/pxh/spark_config.py tests/
 git commit -m "feat(evolve): inject introspection context into reflection prompts
 
 Adds self-awareness block to reflection when introspection.json is fresh.
-Updates all 4 prompt action lists with introspect+evolve actions."
+Adds _format_introspection() helper. Prompt action list updates deferred
+to Task 4 to avoid broken intermediate state."
 ```
 
 ---
@@ -519,7 +520,7 @@ In `mind.py`, after the `introspect` branch:
 ```python
 elif action == "evolve":
     env["PX_EVOLVE_INTENT"] = thought.get("thought", "")[:500]
-    env["PX_DRY"] = "1" if dry else ""
+    env["PX_DRY"] = "1" if dry else "0"
     result = subprocess.run(
         [str(BIN_DIR / "tool-evolve")],
         capture_output=True, text=True, check=False, env=env, timeout=15)
@@ -527,24 +528,50 @@ elif action == "evolve":
     log(f"expression: evolve queued — {intent}")
 ```
 
-- [ ] **Step 5: Run all tests**
+- [ ] **Step 5: Add `introspect` and `evolve` to prompt action lists**
 
-Run: `python -m pytest tests/test_evolve.py tests/test_introspect.py tests/test_mind_utils.py -x -q`
+Now that both expression handlers exist, update the `"action": "one of: ..."` string in all four prompt locations:
+- `_SPARK_REFLECTION_SUFFIX` in `spark_config.py`
+- `REFLECTION_SYSTEM` in `mind.py` (~line 542)
+- `REFLECTION_SYSTEM_GREMLIN` in `mind.py` (~line 582)
+- `REFLECTION_SYSTEM_VIXEN` in `mind.py` (~line 612)
+
+Insert `introspect, evolve,` BEFORE `morning_fact` in each action enum string. **Critical:** the `explore` action is conditionally injected at runtime via `.replace('time_check, calendar_check, morning_fact"', ...)` — new actions must NOT appear after `morning_fact` or this `.replace()` will silently fail.
+
+Add descriptive bullets to SPARK suffix and generic REFLECTION_SYSTEM:
+```
+- "introspect" — examine your own thought patterns, config, and architecture.
+- "evolve" — propose a code change to yourself (requires recent introspect).
+```
+
+Add self-awareness note to `_SPARK_REFLECTION_PREFIX` in `spark_config.py`:
+```
+SPARK can examine its own thought patterns (introspect) and propose changes \
+to its own code (evolve). Use these rarely and deliberately — self-awareness \
+is a tool, not a fixation. Most reflections should still be about the world, \
+not about yourself.
+```
+
+- [ ] **Step 6: Run all tests**
+
+Run: `python -m pytest tests/test_evolve.py tests/test_introspect.py tests/test_mind_utils.py tests/test_spark_config.py -x -q`
 Expected: All pass
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add bin/tool-evolve tests/test_evolve.py src/pxh/mind.py
-git commit -m "feat(evolve): add tool-evolve for queuing self-modification requests
+git add bin/tool-evolve tests/test_evolve.py src/pxh/mind.py src/pxh/spark_config.py
+git commit -m "feat(evolve): add tool-evolve + update all prompt action lists
 
 Validates introspection freshness, intent quality, and 24h rate limit.
-Writes pending entries to state/evolve_queue.jsonl for px-evolve daemon."
+Writes pending entries to state/evolve_queue.jsonl for px-evolve daemon.
+Updates all 4 prompt action lists with introspect+evolve (before morning_fact
+to preserve explore injection)."
 ```
 
 ---
 
-### Task 5: `px-evolve` daemon — worktree + Claude Sonnet + PR
+### Task 5: `px-evolve` daemon — worktree + Claude Opus + PR
 
 **Files:**
 - Create: `bin/px-evolve`
@@ -558,14 +585,13 @@ Writes pending entries to state/evolve_queue.jsonl for px-evolve daemon."
 """Tests for px-evolve daemon queue processing."""
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 import pytest
 
-# Import will be from the embedded module once created
-# For now, test the queue processing logic
+ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture
@@ -578,14 +604,13 @@ def evolve_state(tmp_path):
 
 
 def test_empty_queue_is_noop(evolve_state):
-    """No queue file → no processing."""
+    """No queue file → no processing (daemon sleeps)."""
     state_dir, _ = evolve_state
-    # No queue file exists — daemon should sleep
     assert not (state_dir / "evolve_queue.jsonl").exists()
 
 
-def test_pending_entry_picked_up(evolve_state):
-    """Pending entry is found and status updated on processing."""
+def test_pending_entry_found_in_queue(evolve_state):
+    """Queue file with pending entry is parseable and findable."""
     state_dir, _ = evolve_state
     entry = {
         "ts": "2026-03-20T10:00:00Z",
@@ -601,11 +626,35 @@ def test_pending_entry_picked_up(evolve_state):
     pending = [e for e in entries if e["status"] == "pending"]
     assert len(pending) == 1
     assert pending[0]["id"] == "evolve-test-001"
+    assert pending[0]["intent"] == "Add a new angle about sound perception"
+
+
+def test_completed_entry_skipped(evolve_state):
+    """Entries with non-pending status are not picked up."""
+    state_dir, _ = evolve_state
+    entries = [
+        json.dumps({"id": "done-1", "status": "pr_created", "intent": "x" * 30}),
+        json.dumps({"id": "done-2", "status": "failed:timeout", "intent": "y" * 30}),
+    ]
+    (state_dir / "evolve_queue.jsonl").write_text("\n".join(entries) + "\n")
+    all_entries = [json.loads(l) for l in
+                   (state_dir / "evolve_queue.jsonl").read_text().strip().splitlines()]
+    pending = [e for e in all_entries if e["status"] == "pending"]
+    assert len(pending) == 0
+
+
+def test_max_files_enforcement(evolve_state):
+    """Verify max files check logic (will be used by daemon)."""
+    # Simulate git diff output with 4 files (exceeds default max of 3)
+    diff_output = "src/pxh/spark_config.py\nbin/tool-new\ntests/test_new.py\nextra_file.py\n"
+    files = [f for f in diff_output.strip().splitlines() if f]
+    max_files = int(os.environ.get("PX_EVOLVE_MAX_FILES", "3"))
+    assert len(files) > max_files  # would trigger failed:too_many_files
 ```
 
 - [ ] **Step 2: Create `bin/px-evolve`**
 
-Python script (not bash heredoc — this is a daemon). Sources `.env` via `dotenv` or reads from env. Poll loop every 60s. For each pending entry:
+Bash launcher that sources `px-env`, then delegates to a Python heredoc or `python -m pxh.evolve` (following the same pattern as `bin/px-mind`, `bin/px-post`). Do NOT use `dotenv` — `px-env` handles environment setup. Poll loop every 60s. For each pending entry:
 1. Create git worktree
 2. Run `claude -p` with scoped prompt (subprocess, 5 min timeout)
 3. Log full command to `logs/px-evolve.log`
@@ -630,11 +679,17 @@ After=network.target
 [Service]
 Type=simple
 User=pi
+Group=pi
 WorkingDirectory=/home/pi/picar-x-hacking
 ExecStart=/home/pi/picar-x-hacking/bin/px-evolve
 Restart=on-failure
 RestartSec=30
 EnvironmentFile=/home/pi/picar-x-hacking/.env
+Environment=HOME=/home/pi
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=PATH=/home/pi/.local/bin:/home/pi/.nvm/versions/node/v22.14.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+KillMode=control-group
+KillSignal=SIGTERM
 
 [Install]
 WantedBy=multi-user.target
@@ -657,7 +712,7 @@ Expected: All pass
 git add bin/px-evolve tests/test_px_evolve.py systemd/px-evolve.service
 git commit -m "feat(evolve): add px-evolve daemon for autonomous PR creation
 
-Polls evolve_queue.jsonl, creates git worktrees, runs Claude Sonnet
+Polls evolve_queue.jsonl, creates git worktrees, runs Claude Opus
 via subprocess, runs tests, creates PRs via gh CLI. Systemd service
 with on-failure restart."
 ```
@@ -693,7 +748,7 @@ Expected: PASS
 Add a "Self-Evolution (px-evolve)" section documenting:
 - `tool-introspect`: what it does, gating (30 min cooldown)
 - `tool-evolve`: what it does, gating (24h rate limit, introspection prerequisite)
-- `px-evolve` daemon: worktree + Claude Sonnet + test + PR pipeline
+- `px-evolve` daemon: worktree + Claude Opus + test + PR pipeline
 - `spark_config.py`: what it contains and why it's separate
 - New env vars: `PX_EVOLVE_DRY`, `PX_EVOLVE_MODEL`, `PX_EVOLVE_TIMEOUT`, `PX_EVOLVE_MAX_FILES`
 - New state files: `introspection.json`, `evolve_queue.jsonl`, `evolve_log.jsonl`

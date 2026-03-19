@@ -82,7 +82,7 @@ tool-evolve
     ↓
 px-evolve daemon (picks up queue)
     → git worktree on fresh branch
-    → claude --dangerously-skip-permissions --model claude-sonnet-4-6
+    → claude --dangerously-skip-permissions --model claude-opus-4-6
     → scoped system prompt (whitelist + blacklist + intent)
     → gh pr create
     → writes state/evolve_log.jsonl
@@ -121,7 +121,7 @@ Reported values:
 - `SALIENCE_THRESHOLD` (currently 0.75)
 - `_FREE_WILL_WEIGHT` (currently 0.20)
 - `WEATHER_INTERVAL_S` (currently 1800)
-- `SPARK_ANGLES` count (currently 25)
+- `SPARK_ANGLES` count (currently 42)
 - `TOPIC_SEEDS` count (currently ~60)
 - Active backend (`claude` / `ollama` / `auto`)
 - Active model (e.g., `claude-haiku-4-5-20251001`)
@@ -165,6 +165,8 @@ Only do this if you have a specific, well-formed idea — not vague wishes.
 
 When introspection is stale or absent, this block is omitted entirely.
 
+The `_format_introspection(intro)` helper function (added to `mind.py`) formats the introspection dict into a concise multi-line string: mood distribution as percentages, config values, evolution history summary. Kept under ~300 tokens to avoid bloating the reflection prompt.
+
 ## Component 2: `tool-evolve`
 
 ### New action
@@ -202,7 +204,7 @@ Both `introspect` and `evolve` require explicit `elif` branches in `expression()
 **`introspect` branch in `expression()`:**
 ```python
 elif action == "introspect":
-    env["PX_DRY"] = "1" if dry else ""
+    env["PX_DRY"] = "1" if dry else "0"
     result = subprocess.run(
         [str(BIN_DIR / "tool-introspect")],
         capture_output=True, text=True, check=False, env=env, timeout=30)
@@ -213,7 +215,7 @@ elif action == "introspect":
 ```python
 elif action == "evolve":
     env["PX_EVOLVE_INTENT"] = thought.get("thought", "")[:500]
-    env["PX_DRY"] = "1" if dry else ""
+    env["PX_DRY"] = "1" if dry else "0"
     result = subprocess.run(
         [str(BIN_DIR / "tool-evolve")],
         capture_output=True, text=True, check=False, env=env, timeout=15)
@@ -230,7 +232,7 @@ The `evolve` action:
 
 ### Overview
 
-A systemd service (`px-evolve.service`) that polls `state/evolve_queue.jsonl` for pending entries. Runs as user `pi`. Restart policy: `on-failure`, `RestartSec=30`.
+A systemd service (`px-evolve.service`) that polls `state/evolve_queue.jsonl` for pending entries. Runs as user `pi`. Restart policy: `on-failure`, `RestartSec=30`. Launcher: `bin/px-evolve` (bash + `source px-env` pattern, delegates to Python heredoc or module). Queue file updates use `FileLock` + `atomic_write()` from `pxh.state` (same pattern as px-post).
 
 ### Poll loop
 
@@ -249,7 +251,7 @@ WORKDIR="/tmp/spark-evolve-${id}"
 git worktree add "$WORKDIR" -b "$BRANCH"
 ```
 
-**Step 2: Run Claude Sonnet via subprocess**
+**Step 2: Run Claude Opus via subprocess**
 
 No tmux session needed — at 1 evolution per 24 hours, the 14s Claude CLI cold start is irrelevant. Use a single-shot `claude -p` subprocess call, which is far simpler than tmux session management.
 
@@ -301,7 +303,7 @@ Log the full command to `logs/px-evolve.log` for audit trail before execution.
 
 **Step 3: Verify changes**
 
-Check if the branch has any commits beyond the base:
+Check if the branch has any commits beyond the base. Verify the number of changed files does not exceed `PX_EVOLVE_MAX_FILES` (default 3) via `git diff --name-only origin/master...HEAD | wc -l`. If exceeded, set status to `"failed:too_many_files"` and clean up.
 
 **Step 4: Run tests**
 
@@ -361,7 +363,7 @@ Append to `state/evolve_log.jsonl`:
   "intent": "...",
   "pr_url": "https://github.com/...",
   "status": "pr_created",
-  "files_changed": ["src/pxh/mind.py"],
+  "files_changed": ["src/pxh/spark_config.py"],
   "branch": "spark/evolve-20260320-103000-042"
 }
 ```
@@ -378,7 +380,7 @@ Append to `state/evolve_log.jsonl`:
 ### Environment
 
 - `PX_EVOLVE_DRY=1` — skip PR creation, just log what would happen
-- `PX_EVOLVE_MODEL` — override model (default: `claude-sonnet-4-6`)
+- `PX_EVOLVE_MODEL` — override model (default: `claude-opus-4-6`)
 - `PX_EVOLVE_TIMEOUT` — override timeout in seconds (default: 300)
 - `PX_EVOLVE_MAX_FILES` — max files changed (default: 3)
 
@@ -393,11 +395,11 @@ Add `introspect` and `evolve` to the action list string in **all four** prompt l
 3. `REFLECTION_SYSTEM_GREMLIN` (mind.py ~line 582) — add to action list but GREMLIN will rarely use them
 4. `REFLECTION_SYSTEM_VIXEN` (mind.py ~line 612) — same
 
-These are always-present in the action list (unlike `explore` which is conditionally injected via string replacement). The actions are validated by `VALID_ACTIONS` regardless of prompt.
+These are always-present in the action list. **Critical:** `explore` is conditionally injected at runtime via `.replace('time_check, calendar_check, morning_fact"', 'time_check, calendar_check, morning_fact, explore"')` — the new actions must be placed BEFORE `morning_fact` so this `.replace()` still matches the suffix.
 
-Update the `"action": "one of: ..."` enum string in each prompt to include the new actions:
+Update the `"action": "one of: ..."` enum string in each prompt to include the new actions **before `morning_fact`**:
 ```
-"action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check, morning_fact, introspect, evolve",
+"action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check, introspect, evolve, morning_fact",
 ```
 
 And add descriptive bullets alongside the existing action descriptions:
@@ -434,11 +436,17 @@ After=network.target
 [Service]
 Type=simple
 User=pi
+Group=pi
 WorkingDirectory=/home/pi/picar-x-hacking
 ExecStart=/home/pi/picar-x-hacking/bin/px-evolve
 Restart=on-failure
 RestartSec=30
 EnvironmentFile=/home/pi/picar-x-hacking/.env
+Environment=HOME=/home/pi
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=PATH=/home/pi/.local/bin:/home/pi/.nvm/versions/node/v22.14.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+KillMode=control-group
+KillSignal=SIGTERM
 
 [Install]
 WantedBy=multi-user.target
@@ -457,7 +465,7 @@ WantedBy=multi-user.target
 | SPARK breaks its own reflection | Changes are on a branch; live code is untouched until merge |
 | SPARK fixates on self-modification | Prompt guidance: "use these rarely"; introspect cooldown 30 min |
 | Evolution daemon crashes | systemd restart; queue persists; no data loss |
-| Claude Sonnet produces bad code | PR review; tests required for new tools |
+| Claude Opus produces bad code | PR review; tests required for new tools |
 | Worktree accumulates on disk | Cleanup on completion/failure; `/tmp/` cleared on reboot |
 | SPARK modifies px-evolve itself | Explicit blacklist |
 
