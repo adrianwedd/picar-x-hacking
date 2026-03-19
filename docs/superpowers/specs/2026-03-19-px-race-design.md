@@ -54,10 +54,10 @@ This gives continuous, sub-millisecond edge tracking with no moving parts.
 | Mode | When | Pings | Realistic Rate | Pan Angles |
 |------|------|-------|---------------|------------|
 | **Forward-only** | Every loop iteration | 1 | ~10-15Hz | 0° (no pan move) |
-| **Quick-3** | Every 1-2s on straights | 3 | ~1.5-2Hz | -25°, 0°, +25° |
-| **Full sweep** | Mapping mode, lost/stuck | 5 | ~1Hz | -50°, -25°, 0°, +25°, +50° |
+| **Quick-3** | Every 1-2s on straights | 3 | ~1.4Hz | -25°, 0°, +25° |
+| **Full sweep** | Mapping mode, lost/stuck | 5 | ~0.9Hz | -50°, -25°, 0°, +25°, +50° |
 
-Pan servo returns to 0° after every Quick-3 or Full sweep. Each angle requires ~150ms settle + ~30-50ms ping = ~180-200ms per position. Quick-3 total: ~500-600ms. Full sweep: ~900ms-1s.
+Pan servo returns to 0° after every Quick-3 or Full sweep. Each angle requires ~150ms settle + ~30-50ms ping = ~180-200ms per position. Quick-3: 3 positions + return-to-center = ~700ms. Full sweep: 5 positions + return = ~1.1s.
 
 Forward-only sonar (no pan move needed) is the workhorse during racing — detects obstacles and provides center distance for the track profile position tracker.
 
@@ -67,7 +67,7 @@ Forward-only sonar (no pan move needed) is the workhorse during racing — detec
 
 | Mode | Loop period | Speed | Rationale |
 |------|------------|-------|-----------|
-| Map | ~600ms | PWM 20 | Full 3-point sonar each iteration (~540ms scan + grayscale) |
+| Map | ~750ms | PWM 20 | Full 3-point sonar + return-to-center each iteration (~700ms scan + grayscale) |
 | Race | ~30-50ms | PWM 25-50 | Grayscale every iteration, sonar forward-only, Quick-3 every 1-2s |
 
 ### Map Mode (practice lap)
@@ -111,7 +111,7 @@ while racing:
 
     # Periodic Quick-3 for centering (every 1-2s)
     if now - last_quick3 > QUICK3_INTERVAL:
-        sonar_left, sonar_right = quick3_scan(px)      # ~500ms (3 × 150ms settle + ping)
+        sonar_left, sonar_right = quick3_scan(px)      # ~700ms (3 positions + return-to-center)
         last_sonar_lr = (sonar_left, sonar_right)
         last_quick3 = now
 
@@ -180,7 +180,7 @@ Overhead structure that SPARK drives through. Creates a shadow/reflectance chang
 1. Read grayscale every iteration (already happening)
 2. Compute delta from previous reading: `delta = abs(gs[i] - prev_gs[i])` for each sensor
 3. Gate trigger: **2-of-3** sensors show delta > `GATE_THRESHOLD` within a single iteration. Relaxed from all-3 because narrow gate shadow at speed + off-center driving may not hit all sensors simultaneously.
-4. **Temporal confirmation:** if only 1 sensor triggers in frame N, check if a 2nd triggers within the next 2-3 frames (~100ms window). This catches the gate shadow sweeping across sensors as SPARK drives through.
+4. **Temporal confirmation:** if only 1 sensor triggers in frame N, check if a 2nd triggers within the next 3 frames. Frame count is used rather than wall-clock time since loop period varies between modes. This catches the gate shadow sweeping across sensors as SPARK drives through.
 5. `GATE_THRESHOLD` captured during `--calibrate` by driving through the gate once
 6. **Debounce:** ignore gate triggers within 3s of the last detection (prevents double-counting, minimum lap time sanity)
 7. **Fallback:** if grayscale gate detection is unreliable, sonar may detect the overhead structure as a sudden short reading on center sonar — secondary signal
@@ -272,17 +272,18 @@ Conservative: speed only increases after clean pass, decreases immediately on wa
 
 PWM-to-actual-speed varies with battery charge. Without compensation, the learning loop oscillates (fast on full battery → clip wall → reduce speed → slow on depleted battery → clean pass → increase speed → repeat).
 
-Fix: record `battery_v` at calibration time (`calibration_v`). Each lap, read current voltage from `state/battery.json`. Scale speed predictions: `effective_speed = race_speed * (current_v / calibration_v)`. This compensates for voltage sag without changing the stored profile — the profile remains in "ideal" PWM values.
+Fix: record `battery_v` at calibration time (`calibration_v`). Each lap, read current voltage from `state/battery.json`. Compute `effective_speed = race_speed * (current_v / calibration_v)` — this is a **prediction of actual velocity**, used only for duration estimation and segment timing. The motor PWM command remains the raw `race_speed` value (unchanged). This means: "at PWM 45, the car went faster on a full battery than it does now, so this segment will take longer" — not "send a different PWM to the motor."
 
 Battery voltage is also logged per-lap in `race_log.jsonl` for post-race analysis.
 
 ### Segment Transition Interpolation
 
-Segment boundaries are not instant — SPARK transitions from straight to turn over a physical distance. Rather than a hard switch from straight speed/steer to turn speed/steer at the boundary, interpolate over a `TRANSITION_ZONE_S` (default 0.3s):
+Segment boundaries are not instant — SPARK transitions from straight to turn over a physical distance. Two mechanisms handle this:
 
-- Speed ramps from straight speed to turn entry speed over the transition zone
-- Steer blends from current heading to turn steer_bias
-- This prevents jarring speed/steer changes that could cause skidding or loss of traction
+- **`brake_before_s`** (per-segment, in profile): how long before the segment boundary to begin decelerating. This is learned — starts at 0.3s, adjusts based on wall-clip feedback. Applied *before* the boundary.
+- **`TRANSITION_ZONE_S`** (global, default 0.3s): blend period *after* crossing the boundary. Speed and steer interpolate from previous segment values to current segment values over this duration.
+
+Together: `brake_before_s` handles "slow down before the turn" and `TRANSITION_ZONE_S` handles "smooth the steer change into the turn." Both prevent jarring changes that could cause skidding.
 
 ## Obstacle Handling (Other Cars)
 
