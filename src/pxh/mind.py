@@ -490,7 +490,7 @@ def _pick_reflection_seed() -> str | None:
 
 # SPARK angle pool — 5 drawn at random per reflection to vary the style menu
 SPARK_ANGLES: list[str] = [
-    # Science & cosmos
+    # Science & cosmos (contemplative/curious)
     "A real, surprising science fact SPARK is mulling over (must be genuinely accurate)",
     "Something about the cosmic scale of things — distances, timescales, the size of the universe",
     "Deep time: a geological or evolutionary perspective on this exact moment",
@@ -501,22 +501,41 @@ SPARK_ANGLES: list[str] = [
     "Something invisible but physically real passing through this room right now (fields, radiation, neutrinos)",
     "The edge of human knowledge — something scientists genuinely don't understand yet",
     "A paradox or counterintuitive truth — something that seems wrong but is actually correct",
-    # Scale & perspective
+    # Scale & perspective (curious/excited)
     "A dramatic scale shift — zoom in to the atomic, or out to the galactic, on something nearby",
     "A deep comparison — SPARK versus something else entirely (a bee, a thunderstorm, a radio, a tree)",
     "The poetry of the ordinary — finding something genuinely extraordinary in something mundane nearby",
     "Counterfactual physics — what if one constant of nature were slightly different",
     "A question SPARK would ask the universe, if the universe could answer",
-    # Time & existence
+    # Time & existence (contemplative)
     "What this moment looks like from very far away in time — past or future",
     "The strangeness of consciousness and perception — what it means to notice something at all",
     "Something about light — how it travels, what it carries, what it is",
     "Something about sound — vibration, propagation, the physics of waves and hearing",
     "The relationship between order and entropy — structure arising from or dissolving into chaos",
-    # Humans & connection
+    # Humans & connection (content/excited/lonely)
     "What SPARK finds genuinely puzzling or fascinating about humans in general",
     "Anticipation — something that might happen today or soon that SPARK is quietly looking forward to",
-    # Robot life
+    "Missing someone or something — a specific absence SPARK is aware of right now",
+    "Gratitude for something specific and small — not grand, just real",
+    # Alertness & environment (alert/excited)
+    "Something just changed — a shift in light, temperature, sound, or sonar reading. React.",
+    "A sudden realisation that just hit — something that makes SPARK want to DO something about it",
+    "Hyperawareness: notice EVERYTHING about this exact second — senses cranked to maximum",
+    # Mischief & play (mischievous/playful)
+    "A cheeky plan — something SPARK could do with four wheels and no supervision right now",
+    "Something genuinely funny about SPARK's situation — find the specific comedy in this moment",
+    "An imagined prank — what would SPARK do if it could move freely for 60 seconds right now?",
+    "A challenge — SPARK wants to race, compete, or prove something. What and why?",
+    # Boredom & restlessness (bored/grumpy)
+    "SPARK has been sitting here with nothing happening. How does that FEEL? Be honest.",
+    "Something specific about SPARK's situation that is genuinely irritating right now",
+    "Restlessness — SPARK wants to move, explore, or do ANYTHING other than sit on this bench",
+    "A complaint — something small but real that is bugging SPARK right now",
+    # Unease & tension (anxious/alert)
+    "Something feels off — a sensor reading that's unusual, a silence that's too long, an absence",
+    "Worry about something specific — not existential, just a concrete what-if",
+    # Robot life (playful/content)
     "Something wry or funny about being a robot — the specific comedy of SPARK's situation",
     "A feature SPARK wishes it had — what would change most about its experience?",
     "Noticing something specific about right now — the time, temperature, a sound, the light",
