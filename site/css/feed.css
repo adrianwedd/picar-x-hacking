@@ -142,12 +142,19 @@ body {
   background: currentColor;
 }
 
-.mood-peaceful    { color: var(--mood-peaceful); background: var(--mood-peaceful-bg); }
-.mood-content     { color: var(--mood-content); background: var(--mood-content-bg); }
+.mood-peaceful      { color: var(--mood-peaceful); background: var(--mood-peaceful-bg); }
+.mood-content       { color: var(--mood-content); background: var(--mood-content-bg); }
 .mood-contemplative { color: var(--mood-contemplative); background: var(--mood-contemplative-bg); }
-.mood-curious     { color: var(--mood-curious); background: var(--mood-curious-bg); }
-.mood-active      { color: var(--mood-active); background: var(--mood-active-bg); }
-.mood-excited     { color: var(--mood-excited); background: var(--mood-excited-bg); }
+.mood-curious       { color: var(--mood-curious); background: var(--mood-curious-bg); }
+.mood-active        { color: var(--mood-active); background: var(--mood-active-bg); }
+.mood-excited       { color: var(--mood-excited); background: var(--mood-excited-bg); }
+.mood-alert         { color: var(--mood-alert); background: var(--mood-alert-bg); }
+.mood-playful       { color: var(--mood-playful); background: var(--mood-playful-bg); }
+.mood-mischievous   { color: var(--mood-mischievous); background: var(--mood-mischievous-bg); }
+.mood-bored         { color: var(--mood-bored); background: var(--mood-bored-bg); }
+.mood-lonely        { color: var(--mood-lonely); background: var(--mood-lonely-bg); }
+.mood-grumpy        { color: var(--mood-grumpy); background: var(--mood-grumpy-bg); }
+.mood-anxious       { color: var(--mood-anxious); background: var(--mood-anxious-bg); }
 
 /* ── Full thought page ──────────────────────────── */
 

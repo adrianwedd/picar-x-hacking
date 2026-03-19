@@ -35,13 +35,21 @@ BLUE    = "\033[34m"
 GREY    = "\033[90m"
 BG_GREY = "\033[48;5;236m"
 
-# Extended 256-colour palette (closer to site's mood palette in colors.css)
-AMBER   = "\033[38;5;179m"  # warm gold — curious (#c48a3f)
-OLIVE   = "\033[38;5;107m"  # soft green — content (#6b8e5e)
-PURPLE  = "\033[38;5;140m"  # muted purple — contemplative (#7b6fa0)
-TEAL    = "\033[38;5;73m"   # calm blue-green — peaceful (#4a9d8f)
-ROSE    = "\033[38;5;168m"  # warm pink — excited (#d44a6b)
-TERRA   = "\033[38;5;167m"  # earthy red — active (#d46b4a)
+# Extended 256-colour palette — matched to site/css/colors.css Scheme B.
+# Each maps to the closest xterm-256 index for the CSS hex value.
+# Collisions (curious/anxious, grumpy/excited) nudged to adjacent indices.
+C_PEACEFUL      = "\033[38;5;72m"   # teal         #4a9d8f
+C_CONTENT       = "\033[38;5;65m"   # olive        #6b8e5e
+C_CONTEMPLATIVE = "\033[38;5;97m"   # muted purple #7b6fa0
+C_BORED         = "\033[38;5;102m"  # grey         #8a8a8a
+C_LONELY        = "\033[38;5;67m"   # subdued blue #5b7ba5
+C_CURIOUS       = "\033[38;5;173m"  # amber        #c48a3f
+C_MISCHIEVOUS   = "\033[38;5;149m"  # chartreuse   #b5c431
+C_GRUMPY        = "\033[38;5;131m"  # dark red     #c44040
+C_ANXIOUS       = "\033[38;5;172m"  # orange       #d4883a
+C_ALERT         = "\033[38;5;38m"   # electric cyan #00b8d4
+C_PLAYFUL       = "\033[38;5;169m"  # bright mag   #c74dbd
+C_EXCITED       = "\033[38;5;168m"  # rose         #d44a6b
 
 
 def _link(url: str, label: str) -> str:
@@ -50,18 +58,18 @@ def _link(url: str, label: str) -> str:
 
 # Mood → colour map (aligned with site/css/colors.css Scheme B palette)
 MOOD_COLOURS = {
-    "curious": AMBER,         # warm amber — inquisitive energy
-    "content": OLIVE,         # soft olive — settled, not urgent
-    "contemplative": PURPLE,  # muted purple — introspective
-    "peaceful": TEAL,         # calm teal — serene
-    "playful": MAGENTA,       # bright — bouncy energy
-    "excited": ROSE,          # warm pink — high arousal, positive
-    "bored": GREY,            # muted — low energy
-    "mischievous": YELLOW,    # cheeky attention-grab
-    "lonely": BLUE,           # subdued cool — withdrawn
-    "grumpy": RED,            # hot — irritated
-    "alert": WHITE,           # high contrast — demands attention
-    "anxious": TERRA,         # uneasy warmth — not as alarming as red
+    "peaceful":      C_PEACEFUL,       # calm teal
+    "content":       C_CONTENT,        # warm olive
+    "contemplative": C_CONTEMPLATIVE,  # inward purple
+    "bored":         C_BORED,          # flat grey
+    "lonely":        C_LONELY,         # withdrawn blue
+    "curious":       C_CURIOUS,        # warm amber
+    "mischievous":   C_MISCHIEVOUS,    # acid chartreuse
+    "grumpy":        C_GRUMPY,         # dark red
+    "anxious":       C_ANXIOUS,        # nervous orange
+    "alert":         C_ALERT,          # electric cyan
+    "playful":       C_PLAYFUL,        # bright magenta
+    "excited":       C_EXCITED,        # rose pink
 }
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

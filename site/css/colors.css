@@ -1,19 +1,47 @@
 /* colors.css — canonical mood colour palette (Scheme B: warmer, earthier tones).
    All mood colours are defined here as CSS custom properties and referenced
-   everywhere via var(--mood-*). Do not hardcode mood colours in other files. */
+   everywhere via var(--mood-*). Do not hardcode mood colours in other files.
+
+   12 moods from px-mind reflection + "active" (legacy).
+   JS files resolve via getPropertyValue('--mood-' + mood) — fallback #888.
+   feed.css and warm.css define .mood-{name} classes referencing these vars. */
 
 :root {
-  --mood-peaceful: #4a9d8f;
-  --mood-content: #6b8e5e;
-  --mood-contemplative: #7b6fa0;
-  --mood-curious: #c48a3f;
-  --mood-active: #d46b4a;
-  --mood-excited: #d44a6b;
+  /* ── Low arousal, positive valence ────────────────────────────────────── */
+  --mood-peaceful:       #4a9d8f;  /* teal — calm, still water */
+  --mood-content:        #6b8e5e;  /* olive — warm satisfaction */
 
-  --mood-peaceful-bg: #e8f5f0;
-  --mood-content-bg: #eef5e8;
-  --mood-contemplative-bg: #f0ecf5;
-  --mood-curious-bg: #faf0e0;
-  --mood-active-bg: #fae8e0;
-  --mood-excited-bg: #fae0ea;
+  /* ── Low arousal, neutral/negative valence ────────────────────────────── */
+  --mood-contemplative:  #7b6fa0;  /* muted purple — inward, reflective */
+  --mood-bored:          #8a8a8a;  /* grey — flat, disengaged */
+  --mood-lonely:         #5b7ba5;  /* subdued blue — withdrawn */
+
+  /* ── Mid arousal ──────────────────────────────────────────────────────── */
+  --mood-curious:        #c48a3f;  /* amber — warm interest */
+  --mood-mischievous:    #b5c431;  /* acid chartreuse — cheeky, impish */
+  --mood-grumpy:         #c44040;  /* red — hot, irritable */
+  --mood-anxious:        #d4883a;  /* nervous orange — warm tension */
+
+  /* ── High arousal ─────────────────────────────────────────────────────── */
+  --mood-alert:          #00b8d4;  /* electric cyan — sharp, vigilant */
+  --mood-playful:        #c74dbd;  /* bright magenta — bouncy energy */
+  --mood-excited:        #d44a6b;  /* rose — peak positive energy */
+
+  /* ── Legacy / compound ────────────────────────────────────────────────── */
+  --mood-active:         #d46b4a;  /* terra cotta — general activity */
+
+  /* ── Background tints (for feed cards, badges) ────────────────────────── */
+  --mood-peaceful-bg:       #e8f5f0;
+  --mood-content-bg:        #eef5e8;
+  --mood-contemplative-bg:  #f0ecf5;
+  --mood-curious-bg:        #faf0e0;
+  --mood-excited-bg:        #fae0ea;
+  --mood-active-bg:         #fae8e0;
+  --mood-bored-bg:          #f0f0f0;
+  --mood-lonely-bg:         #e8eef5;
+  --mood-mischievous-bg:    #f5f5e0;
+  --mood-grumpy-bg:         #f5e0e0;
+  --mood-anxious-bg:        #faf0e0;
+  --mood-alert-bg:          #e0f5fa;
+  --mood-playful-bg:        #f5e0f3;
 }

@@ -750,12 +750,19 @@ details > *:not(summary) { margin-top: 0.75rem; }
   color: #fff;
   background: var(--warm-accent);  /* fallback */
 }
-.carousel-mood-badge[data-mood="peaceful"],
-.carousel-mood-badge[data-mood="content"]      { background: var(--mood-content); }
+.carousel-mood-badge[data-mood="peaceful"]      { background: var(--mood-peaceful); }
+.carousel-mood-badge[data-mood="content"]       { background: var(--mood-content); }
 .carousel-mood-badge[data-mood="contemplative"] { background: var(--mood-contemplative); }
 .carousel-mood-badge[data-mood="curious"]       { background: var(--mood-curious); }
 .carousel-mood-badge[data-mood="active"]        { background: var(--mood-active); }
 .carousel-mood-badge[data-mood="excited"]       { background: var(--mood-excited); }
+.carousel-mood-badge[data-mood="alert"]         { background: var(--mood-alert); }
+.carousel-mood-badge[data-mood="playful"]       { background: var(--mood-playful); }
+.carousel-mood-badge[data-mood="mischievous"]   { background: var(--mood-mischievous); }
+.carousel-mood-badge[data-mood="bored"]         { background: var(--mood-bored); }
+.carousel-mood-badge[data-mood="lonely"]        { background: var(--mood-lonely); }
+.carousel-mood-badge[data-mood="grumpy"]        { background: var(--mood-grumpy); }
+.carousel-mood-badge[data-mood="anxious"]       { background: var(--mood-anxious); }
 
 .carousel-quote {
   font-family: 'Courier Prime', 'Courier New', monospace;
