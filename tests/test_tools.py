@@ -102,6 +102,96 @@ def test_tool_voice_lock_timeout(isolated_project):
     assert "voice lock timeout" in payload["error"]
 
 
+# ---------------------------------------------------------------------------
+# Network TTS routing tests (GREMLIN / VIXEN personas)
+# ---------------------------------------------------------------------------
+
+
+def test_voice_gremlin_dry_skips_network_tts(isolated_project):
+    """Dry mode with GREMLIN persona skips network TTS, outputs single JSON."""
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_TEXT"] = "Humanity. What a concept."
+    env["PX_PERSONA"] = "gremlin"
+    env["_PX_VOICE_PERSONA_DONE"] = "1"  # skip Ollama rephrase
+    stdout = run_tool(["bin/tool-voice"], env)
+    lines = stdout.strip().splitlines()
+    assert len(lines) == 1, f"Expected single JSON line, got {len(lines)}: {lines}"
+    payload = json.loads(lines[0])
+    assert payload["status"] == "ok"
+    assert payload["dry"] is True
+
+
+def test_voice_vixen_dry_skips_network_tts(isolated_project):
+    """Dry mode with VIXEN persona skips network TTS, outputs single JSON."""
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_TEXT"] = "Oh darling, the universe is vast."
+    env["PX_PERSONA"] = "vixen"
+    env["_PX_VOICE_PERSONA_DONE"] = "1"
+    stdout = run_tool(["bin/tool-voice"], env)
+    lines = stdout.strip().splitlines()
+    assert len(lines) == 1
+    payload = json.loads(lines[0])
+    assert payload["status"] == "ok"
+    assert payload["dry"] is True
+
+
+def test_voice_spark_no_network_tts(isolated_project):
+    """SPARK persona (or no persona) never triggers network TTS."""
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "1"
+    env["PX_TEXT"] = "I notice the morning light."
+    env["PX_PERSONA"] = "spark"
+    env["_PX_VOICE_PERSONA_DONE"] = "1"
+    stdout = run_tool(["bin/tool-voice"], env)
+    payload = parse_json(stdout)
+    assert payload["status"] == "ok"
+    assert payload["dry"] is True
+    # No network-tts player should appear
+    assert "network-tts" not in payload.get("player", "")
+
+
+def test_voice_network_tts_fallback_on_dead_server(isolated_project):
+    """When TTS server is unreachable, falls back to espeak (dry-mode safe)."""
+    env = isolated_project["env"].copy()
+    env["PX_DRY"] = "0"  # non-dry to exercise network path
+    env["PX_TEXT"] = "Fallback test"
+    env["PX_PERSONA"] = "gremlin"
+    env["_PX_VOICE_PERSONA_DONE"] = "1"
+    # Point to a port nothing is listening on
+    env["PX_TTS_GREMLIN"] = "http://127.0.0.1:19999"
+    result = subprocess.run(
+        ["bin/tool-voice"],
+        cwd=PROJECT_ROOT, text=True, capture_output=True, check=False, env=env,
+    )
+    lines = result.stdout.strip().splitlines()
+    assert len(lines) == 1, f"Single JSON contract violated: {lines}"
+    payload = json.loads(lines[0])
+    # Should have fallen through to espeak (which may fail on macOS CI, but
+    # the tool should still produce a valid JSON payload)
+    assert payload["status"] in ("ok", "error")
+    assert "network-tts" not in payload.get("player", "")
+
+
+def test_voice_single_json_contract(isolated_project):
+    """tool-voice must always emit exactly one JSON line, regardless of persona."""
+    for persona in ("gremlin", "vixen", "spark", ""):
+        env = isolated_project["env"].copy()
+        env["PX_DRY"] = "1"
+        env["PX_TEXT"] = "Contract test"
+        if persona:
+            env["PX_PERSONA"] = persona
+        env["_PX_VOICE_PERSONA_DONE"] = "1"
+        stdout = run_tool(["bin/tool-voice"], env)
+        lines = stdout.strip().splitlines()
+        assert len(lines) == 1, (
+            f"Persona '{persona}' emitted {len(lines)} lines: {lines}"
+        )
+        payload = json.loads(lines[0])
+        assert "status" in payload
+
+
 def test_tool_weather_dry_run(isolated_project):
     env = isolated_project["env"].copy()
     env["PX_DRY"] = "1"
