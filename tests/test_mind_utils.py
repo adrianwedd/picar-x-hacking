@@ -1129,7 +1129,7 @@ def test_format_introspection_with_data():
     intro = {
         "mood_distribution": {"curious": 50, "contemplative": 30, "content": 20},
         "config": {"SIMILARITY_THRESHOLD": 0.75, "EXPRESSION_COOLDOWN_S": 120},
-        "evolution_history": [{"id": "test-1", "status": "pr_created"}],
+        "evolve_history": [{"id": "test-1", "status": "pr_created"}],
     }
     result = _format_introspection(intro)
     assert "curious 50%" in result

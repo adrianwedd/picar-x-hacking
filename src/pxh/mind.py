@@ -1023,7 +1023,7 @@ def _format_introspection(intro: dict) -> str:
     config = intro.get("config", {})
     if config:
         parts.append("Config: " + ", ".join(f"{k}={v}" for k, v in config.items()))
-    history = intro.get("evolution_history", [])
+    history = intro.get("evolve_history", [])
     if history:
         parts.append(f"Evolution history: {len(history)} previous proposals")
     return "\n".join(parts) if parts else "No introspection data available."
