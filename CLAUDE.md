@@ -174,7 +174,7 @@ Two-phase autonomous racing system: Phase 1 (map) builds a track segment profile
 - **Sonar** (ultrasonic on camera pan servo, ~30ms per ping): obstacle detection, centering, turn anticipation. Three scan modes: Forward-only (every loop, no pan move, ~10–15 Hz), Quick-3 (~700ms: −25°, 0°, +25° + return-to-center, ~1.4 Hz), Full sweep (~1.1s: 5 angles, mapping/lost recovery).
 
 **Two PD controllers**:
-- `pd_edge(gs, calibration)` — grayscale edge avoidance. Input: 3 normalized readings (0.0 = track, 1.0 = barrier). Error: `right_normalized − left_normalized`. Gains: `Kp_edge = −20.0`, `Kd_edge = 5.0` (negative Kp so positive error → negative steer = left correction — see sign convention note below).
+- `pd_edge(gs, calibration)` — grayscale edge avoidance. Input: 3 normalized readings (0.0 = track, 1.0 = barrier). Error: `right_normalized − left_normalized`. Gains: `Kp_edge = −20.0`, `Kd_edge = −5.0` (negative Kp so positive error → negative steer = left correction — see sign convention note below).
 - `pd_center(sonar_left, sonar_right)` — sonar centering. Error: `right_cm − left_cm`. Gains: `Kp_sonar = 0.5`, `Kd_sonar = 0.2`. Age-weighted blend with grayscale (sonar weight decays to 0 over 2 s between Quick-3 scans).
 
 **Key constants**: `DIR_MAX = 30` (steering ±30°), `MAP_SPEED = 20` (PWM), servo settle 150ms (matches `px-wander`), Quick-3 ~700ms total, derivative uses measured `dt` (not hardcoded).
@@ -203,7 +203,7 @@ Additional: `confirm_motion_allowed` gate; `yield_alive` at startup; `exploring.
 - `state/race_log.jsonl` — per-lap telemetry (speed, incidents, battery_v, lap time)
 - `state/race_live.json` — live telemetry written every ~0.5 s during racing (lap, segment, speed, steer, sonar, gs, incidents, best_lap_s) — readable by API/dashboard
 
-**Integration**: No LLM, no network calls, no audio in the race loop. Post-race narration via `tool-voice` is possible but separate. `race_live.json` is the integration point for the dashboard. The `bin/px-race` script does not yet exist — only `src/pxh/race.py` and `tests/test_race.py` are implemented (47 tests).
+**Integration**: No LLM, no network calls, no audio in the race loop. Post-race narration via `tool-voice` is possible but separate. `race_live.json` is the integration point for the dashboard. `bin/px-race` is the bash launcher (sources `px-env`, calls `yield_alive`, delegates to `python -m pxh.race`). Dashboard integration via `GET /api/v1/public/race` (live telemetry + calibration/profile status) and `POST /api/v1/race/{action}` (authenticated: map/race/stop/status, runs as async job). 69 tests.
 
 ### Social Posting (px-post)
 
@@ -241,6 +241,7 @@ bin/px-api-server --dry-run    # FORCE_DRY — remote callers cannot override
 - `GET /api/v1/public/thoughts` — recent SPARK thoughts
 - `GET /api/v1/public/services` — service status
 - `GET /api/v1/public/feed` — social posting feed
+- `GET /api/v1/public/race` — race telemetry (calibration status, profile summary, live telemetry with 10s staleness filter)
 - `POST /api/v1/public/chat` — rate-limited public chat (10 msg/10min per IP)
 - `POST /api/v1/pin/verify` — PIN auth, returns session token (4h TTL)
 
@@ -255,6 +256,7 @@ bin/px-api-server --dry-run    # FORCE_DRY — remote callers cannot override
 - `GET /api/v1/logs/{service}` — tail logs (capped at 100 lines, paths sanitized)
 - `GET /api/v1/services` — full service list with status
 - `POST /api/v1/services/{name}/{action}` — systemd control (stop/restart require confirm:true)
+- `POST /api/v1/race/{action}` — race control (map/race/stop/status; runs as async job)
 - `POST /api/v1/device/{action}` — reboot/shutdown (requires confirm:true)
 
 **Async**: `tool_wander` returns 202 with `job_id`; poll via `/jobs/{id}`

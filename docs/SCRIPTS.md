@@ -27,7 +27,9 @@ Comprehensive documentation for every script in `bin/` and every module in `src/
 5. [Line Following](#line-following)
    - [bin/px-line-follow](#binpx-line-follow)
    - [bin/run-line-follow](#binrun-line-follow)
-6. [Speech and Audio](#speech-and-audio)
+6. [Autonomous Racing](#autonomous-racing)
+   - [bin/px-race](#binpx-race)
+7. [Speech and Audio](#speech-and-audio)
    - [bin/tool-voice](#bintool-voice)
    - [bin/transcribe-whisper](#bintranscribe-whisper)
 7. [External Data Tools](#external-data-tools)
@@ -532,6 +534,44 @@ exec sudo -n \
 ```
 
 Pass `PX_DRY=1 bin/run-line-follow --snapshot` to test HSV thresholds without wheel motion.
+
+---
+
+## Autonomous Racing
+
+### bin/px-race
+
+**Purpose:** Two-phase autonomous track racing system: calibrate sensors, map the track at safe speed, then race with per-lap learning. Uses dual PD controllers (grayscale edge avoidance + sonar centering) and 8-layer safety.
+
+**Usage:**
+```bash
+bin/px-race --calibrate       # on-site sensor calibration (surfaces + gate + battery voltage)
+bin/px-race --map             # practice lap (slow mapping run, builds track profile)
+bin/px-race --race --laps 5   # timed race for N laps with per-lap learning
+bin/px-race --status          # print current profile summary
+bin/px-race --dry-run --map   # full loop, no motors
+bin/px-race --max-speed 40    # cap top speed (PWM duty cycle, default 50, hard cap 60)
+```
+
+**Architecture:** `src/pxh/race.py` provides `RaceController`, `TrackProfile`, `PDController`, `GateDetector`, `StuckDetector`, and helper functions. `bin/px-race` is the bash launcher (sources `px-env`, calls `yield_alive`, delegates to `python -m pxh.race`).
+
+**Dual-sensor model:**
+- **Grayscale** (3-channel underside array, <1ms): primary edge avoidance and gate detection via `GateDetector` (2-of-3 delta with temporal confirmation window + debounce).
+- **Sonar** (ultrasonic on camera pan servo, ~30ms per ping): centering via Quick-3 scans (−25°, 0°, +25° with 150ms servo settle per angle). Age-weighted blending decays sonar influence to 0 over 2s between scans.
+
+**PD controllers:**
+- `pd_edge`: `Kp = −20.0`, `Kd = −5.0` — grayscale edge avoidance (negative gains: positive error → steer left, away from right wall).
+- `pd_sonar`: `Kp = 0.5`, `Kd = 0.2` — sonar centering (error = `right_cm − left_cm`).
+
+**Safety layers** (priority order): E-stop (sonar < speed-scaled threshold → reverse 0.3s), edge guard, obstacle dodge, I2C failure (3 consecutive → brake), stuck detect (2s no change → reverse + sweep), lap timeout (60s), battery (< 7V → finish current lap then stop), SIGTERM handler.
+
+**Per-lap learning:** `apply_lap_learning()` adjusts segment `race_speed` (−5 on wall clip, +3 on clean pass, capped ±5 per lap) and `duration_s` (scaled by battery voltage ratio: `current_v / calibration_v`).
+
+**State files** (gitignored): `state/race_calibration.json`, `state/race_track.json`, `state/race_log.jsonl`, `state/race_live.json`.
+
+**Dashboard integration:** `GET /api/v1/public/race` (live telemetry, calibration/profile status). `POST /api/v1/race/{action}` (authenticated: map/race/stop/status, runs as async job via existing job registry).
+
+**Tests:** 69 tests in `tests/test_race.py` covering PD math, grayscale normalization, gate detection (including temporal confirmation and pending reset), sonar centering sign convention, stuck detector reset, e-stop recovery bounds, battery finish-lap semantics, and full RaceController smoke tests.
 
 ---
 

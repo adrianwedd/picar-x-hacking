@@ -127,8 +127,106 @@ class TestGateDetector:
         gd.update([400, 410, 405], [460, 410, 405], t=0.0)
         for i in range(4):
             gd.update([460, 410, 405], [460, 410, 405], t=0.05 * (i + 1))
+        # After expiry, a single trigger starts a new pending window (no immediate fire)
         result = gd.update([460, 410, 405], [460, 470, 405], t=0.3)
+        assert result is False
+        # A second trigger on the next frame confirms the gate detection
+        result = gd.update([460, 470, 405], [520, 540, 405], t=0.35)
         assert result is True
+
+    def test_pending_count_resets_on_expiry(self):
+        """A single-sensor trigger (pending_count=1) followed by confirm_frames+1
+        frames of no triggers should fully reset the pending state.
+        A subsequent single-sensor trigger alone must NOT fire; only a
+        legitimate 2-of-3 trigger after that should fire.
+        """
+        from pxh.race import GateDetector
+        gd = GateDetector(threshold=50, debounce_s=3.0, confirm_frames=3)
+
+        # Prime: one sensor triggers → pending_count becomes 1
+        t = 10.0  # use t>0 to avoid debounce_s=-999 edge
+        result = gd.update([400, 410, 405], [460, 410, 405], t=t)
+        assert result is False  # only 1 sensor — no fire yet
+
+        # 4 frames of no triggers → should expire the pending window
+        for i in range(4):
+            t += 0.05
+            result = gd.update([460, 410, 405], [460, 410, 405], t=t)
+            assert result is False
+
+        # Now a single-sensor trigger again — pending should have been reset to 0,
+        # so this starts a NEW pending window (pending_count=1), does NOT fire.
+        t += 0.05
+        result = gd.update([400, 410, 405], [460, 410, 405], t=t)
+        assert result is False, (
+            "After expiry+reset, a single-sensor trigger must not fire"
+        )
+
+        # A 2-of-3 trigger now (which satisfies the freshly-started pending)
+        # should fire.
+        t += 0.05
+        result = gd.update([460, 410, 405], [460, 470, 405], t=t)
+        assert result is True, (
+            "A 2-sensor confirmation after pending_count=1 should fire"
+        )
+
+    def test_no_false_trigger_first_iteration(self):
+        """run_map has an 'iteration > 3' guard: gate detections on the very
+        first few iterations (startup sensor noise / robot not yet moving)
+        must not count as a completed lap and break the loop early.
+
+        Simulate what run_map does: gate_detector.update() may return True
+        for an early reading, but the guard ensures the loop does not break
+        until iteration > 3. After iteration 4, a real gate trigger should
+        break the loop (when max_iterations is 0).
+        """
+        from pxh.race import RaceController, TrackProfile
+        from unittest.mock import MagicMock
+
+        def _make_rc(tmp_path):
+            mock_px = MagicMock()
+            profile = TrackProfile()
+            profile.add_segment("straight", 2.0, 44, 43, 120, [450, 460, 455])
+            profile.track_width_cm = 88
+            profile.save(tmp_path / "race_track.json")
+            mock_px.get_grayscale_data.return_value = [400, 410, 405]
+            mock_px.get_distance.return_value = 90.0
+            rc = RaceController(px=mock_px, state_dir=tmp_path, dry=True)
+            rc.calibration = {
+                "track_ref": [400, 410, 405],
+                "barrier_ref": [700, 710, 705],
+                "gate_threshold": 40,
+                "track_width_cm": 88,
+            }
+            return rc, mock_px
+
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            rc, mock_px = _make_rc(tmp_path)
+
+            # Simulate: first 3 iterations have a 2-of-3 gate trigger each.
+            # Sequence: big GS jump on iter 1, 2, 3 (all within guard zone).
+            # Then stable for the remaining iterations.
+            # The guard (iteration > 3) must suppress the first 3 triggers.
+            gs_sequence = (
+                [[400, 410, 405]]   # iter 1 prev_gs is track_ref; gs_raw = track_ref (no trigger)
+                + [[460, 480, 405]] # iter 1 gs_raw — 2-sensor delta > 40 → would trigger
+                + [[460, 480, 405]] # iter 2 gs_raw — no delta from prev
+                + [[400, 410, 405]] # iter 3 — reset
+                + [[400, 410, 405]] * 10  # remaining
+            )
+            mock_px.get_grayscale_data.side_effect = gs_sequence
+
+            # Use max_iterations=5 to cap the run
+            rc.run_map(max_iterations=5)
+
+            # The profile must still have been built (loop ran all 5 iterations)
+            assert rc.profile is not None
+            # With max_iterations=5 and the gate guard suppressing early triggers,
+            # the loop ran to completion rather than stopping at iteration 1.
+            assert mock_px.get_grayscale_data.call_count == 5
 
 
 class TestTrackProfile:
@@ -297,6 +395,75 @@ class TestSafety:
         sd.update(50.0, 1.0)
         sd.update(50.0, 2.5)
         assert sd.is_stuck(2.5) is True
+
+    def test_stuck_detector_reset_clears_state(self):
+        """After reset(), is_stuck() must return False even if the detector
+        was previously triggered (sonar frozen for > timeout_s).
+        """
+        from pxh.race import StuckDetector
+        sd = StuckDetector(timeout_s=2.0)
+        sd.update(50.0, t=0.0)
+        sd.update(50.0, t=1.0)
+        sd.update(50.0, t=2.5)
+        assert sd.is_stuck(2.5) is True  # confirm it's stuck before reset
+        sd.reset()
+        # After reset, should NOT be stuck (state cleared)
+        assert sd.is_stuck(2.5) is False, (
+            "reset() must clear stuck state so is_stuck() returns False"
+        )
+
+    def test_estop_recovery_time_bounded(self):
+        """E-stop recovery sleep must not exceed 0.5 s regardless of segment
+        duration.  Current bug: recovery_t = seg_duration * 3 (can be seconds).
+        Fixed behavior: recovery_t should be capped at 0.3 s.
+
+        We test this via the race loop in dry mode with a long-duration segment
+        (duration_s=10.0). The dry-mode sleep is min(recovery_t, 1.0), but the
+        post-fix behavior caps recovery_t at 0.3 before the min() call, so the
+        actual sleep is 0.3 s.  We verify the constant is 0.3 by importing it
+        from the module (or checking the documented value).
+        """
+        from pxh.race import RaceController, TrackProfile
+        from unittest.mock import MagicMock, patch
+        import tempfile, time
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            mock_px = MagicMock()
+            # Long segment duration (10s) — buggy code would sleep 30s
+            profile = TrackProfile()
+            profile.add_segment("straight", 10.0, 44, 43, 120, [450, 460, 455])
+            profile.track_width_cm = 88
+            profile.save(tmp_path / "race_track.json")
+            # Sonar returns 5cm — triggers e-stop on iteration 1
+            mock_px.get_distance.return_value = 5.0
+            mock_px.get_grayscale_data.return_value = [400, 410, 405]
+            rc = RaceController(px=mock_px, state_dir=tmp_path, dry=True)
+            rc.calibration = {
+                "track_ref": [400, 410, 405],
+                "barrier_ref": [700, 710, 705],
+                "gate_threshold": 50,
+                "track_width_cm": 88,
+            }
+
+            sleep_calls = []
+            original_sleep = time.sleep
+
+            def tracking_sleep(duration):
+                sleep_calls.append(duration)
+
+            with patch("pxh.race.time.sleep", side_effect=tracking_sleep):
+                rc.run_race(max_laps=0, max_iterations=2)
+
+            # The e-stop recovery sleep must be <= 0.5 s (post-fix: 0.3 s)
+            estop_sleeps = [d for d in sleep_calls if d > 0]
+            assert estop_sleeps, "Expected at least one sleep call from e-stop recovery"
+            max_sleep = max(estop_sleeps)
+            assert max_sleep <= 0.5, (
+                f"E-stop recovery sleep ({max_sleep:.2f}s) exceeds 0.5s cap. "
+                f"Bug: recovery_t = seg_duration * 3 = {10.0 * 3}s"
+            )
 
     def test_edge_guard_triggers(self):
         from pxh.race import check_edge_guard
@@ -468,6 +635,102 @@ class TestRaceControllerRace:
         rc.run_race(max_laps=0, max_iterations=100)
         # Should exit immediately on first iteration check
         assert mock_px.get_grayscale_data.call_count == 0
+
+    def test_battery_low_finishes_lap(self, tmp_path):
+        """When battery drops below 7.0V, the race should log 'battery_low'
+        AND then log 'battery_stop' after the current lap gate fires.
+        Current bug: the code logs 'battery_low' and breaks immediately.
+
+        Post-fix behavior: 'battery_low' sets finish_after_lap=True; the
+        loop continues until the next gate trigger, then logs 'battery_stop'
+        and breaks.
+
+        To make the gate fire in dry mode we feed a GS sequence with a
+        2-of-3 sensor delta > gate_threshold on iteration 5.
+        """
+        import json
+        from pxh.race import RaceController, TrackProfile
+
+        # Write a battery.json that reports low voltage
+        battery_data = {"volts": 6.5, "pct": 15, "charging": False}
+        (tmp_path / "battery.json").write_text(json.dumps(battery_data))
+
+        mock_px = MagicMock()
+        profile = TrackProfile()
+        profile.add_segment("straight", 2.0, 44, 43, 120, [450, 460, 455])
+        profile.track_width_cm = 88
+        profile.save(tmp_path / "race_track.json")
+        mock_px.get_distance.return_value = 90.0
+
+        # 4 stable readings, then a 2-of-3 gate trigger (delta > 50 on sensors 0+1)
+        stable = [400, 410, 405]
+        gate_trigger = [460, 475, 405]  # sensors 0 and 1 jump > 50
+        mock_px.get_grayscale_data.side_effect = (
+            [stable] * 4     # iterations 1-4 (battery_low starts setting flag here)
+            + [gate_trigger]  # iteration 5: gate fires → lap complete → battery_stop
+            + [stable] * 20   # safety buffer
+        )
+
+        rc = RaceController(px=mock_px, state_dir=tmp_path, dry=True)
+        rc.calibration = {
+            "track_ref": [400, 410, 405],
+            "barrier_ref": [700, 710, 705],
+            "gate_threshold": 50,
+            "track_width_cm": 88,
+        }
+
+        rc.run_race(max_laps=0, max_iterations=20)
+
+        # Read the race log and check for required events
+        log_path = tmp_path / "race_log.jsonl"
+        assert log_path.exists(), "race_log.jsonl should have been written"
+        events = [json.loads(line)["event"] for line in log_path.read_text().splitlines() if line.strip()]
+
+        assert "battery_low" in events, (
+            f"Expected 'battery_low' event in race log. Events: {events}"
+        )
+        assert "battery_stop" in events, (
+            f"Expected 'battery_stop' event after finishing lap. "
+            f"Current bug: loop breaks immediately on battery_low without completing lap. "
+            f"Events: {events}"
+        )
+
+
+class TestSonarCentering:
+
+    def test_center_error_sign(self):
+        """When left wall is close (20 cm) and right is far (70 cm),
+        the centering error should be positive (right - left = 50),
+        producing a positive (rightward) steering correction so the car
+        moves away from the left wall.
+        """
+        from pxh.race import PDController
+        # pd_sonar uses kp=0.5 as in RaceController
+        pd_sonar = PDController(kp=0.5, kd=0.0, output_min=-30, output_max=30)
+        # Correct convention: error = right_cm - left_cm
+        # left=20 (close to left wall), right=70 (open)
+        left_cm = 20.0
+        right_cm = 70.0
+        center_error = right_cm - left_cm  # +50 → steer right (away from left wall)
+        result = pd_sonar.update(center_error, dt=0.1)
+        assert result > 0, (
+            f"Expected positive (rightward) correction when hugging left wall, got {result}"
+        )
+
+    def test_center_error_right_wall(self):
+        """When right wall is close (20 cm) and left is far (70 cm),
+        the centering error should be negative (right - left = -50),
+        producing a negative (leftward) steering correction.
+        """
+        from pxh.race import PDController
+        pd_sonar = PDController(kp=0.5, kd=0.0, output_min=-30, output_max=30)
+        left_cm = 70.0
+        right_cm = 20.0
+        center_error = right_cm - left_cm  # -50 → steer left (away from right wall)
+        result = pd_sonar.update(center_error, dt=0.1)
+        assert result < 0, (
+            f"Expected negative (leftward) correction when hugging right wall, got {result}"
+        )
 
 
 class TestPxRaceCLI:

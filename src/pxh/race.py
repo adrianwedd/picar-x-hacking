@@ -11,9 +11,8 @@ import signal
 import time
 from pathlib import Path
 
-
-def clamp(v: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, v))
+from pxh.utils import clamp
+from pxh.time import utc_timestamp
 
 
 class PDController:
@@ -99,6 +98,7 @@ class GateDetector:
 
             if self._pending_frames > self.confirm_frames:
                 self._pending_frames = 0
+                self._pending_count = 0
 
         if triggered_this_frame >= 2:
             self._last_trigger_t = t
@@ -145,7 +145,7 @@ class TrackProfile:
 
     def save(self, path: Path) -> None:
         data = {
-            "mapped_at": "",
+            "mapped_at": utc_timestamp(),
             "map_speed": self.map_speed,
             "calibration_v": self.calibration_v,
             "lap_duration_s": self.lap_duration_s,
@@ -283,6 +283,10 @@ class StuckDetector:
     def is_stuck(self, t: float) -> bool:
         return (t - self._last_change_t) > self.timeout_s
 
+    def reset(self) -> None:
+        self._last_cm = None
+        self._last_change_t = time.time()
+
 
 def _avg(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
@@ -344,7 +348,7 @@ class RaceController:
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
 
-        # Mark as exploring so px-alive stays away
+        # Mark as exploring so px-alive stays away (will be cleared in _handle_signal / run cleanup)
         self._set_exploring(True)
 
     # ─── Signal handling ──────────────────────────────────────────────────────
@@ -422,6 +426,17 @@ class RaceController:
         if not self.calibration:
             raise RuntimeError("Calibration required before mapping. Run --calibrate first.")
 
+        if not self.dry:
+            try:
+                from pxh.state import load_session
+                sess = load_session()
+                if not sess.get("confirm_motion_allowed", False):
+                    raise RuntimeError("Motion not allowed — enable confirm_motion_allowed in session")
+            except ImportError:
+                pass
+
+        self._set_exploring(True)
+
         track_ref = self.calibration.get("track_ref", [400, 410, 405])
         barrier_ref = self.calibration.get("barrier_ref", [700, 710, 705])
         track_width_cm = float(self.calibration.get("track_width_cm", 88))
@@ -450,7 +465,7 @@ class RaceController:
                     self.px.set_cam_pan_angle(angle)
                 self.px.set_cam_pan_angle(0)
             else:
-                left_cm, right_cm = quick3_scan(self.px, settle_s=0.0)
+                left_cm, right_cm = quick3_scan(self.px)
                 center_cm = safe_ping(self.px) or 90.0
                 left_cm = left_cm or 90.0
                 right_cm = right_cm or 90.0
@@ -546,6 +561,17 @@ class RaceController:
         if not self.calibration:
             raise RuntimeError("Calibration required. Run --calibrate first.")
 
+        if not self.dry:
+            try:
+                from pxh.state import load_session
+                sess = load_session()
+                if not sess.get("confirm_motion_allowed", False):
+                    raise RuntimeError("Motion not allowed — enable confirm_motion_allowed in session")
+            except ImportError:
+                pass
+
+        self._set_exploring(True)
+
         track_ref = self.calibration.get("track_ref", [400, 410, 405])
         barrier_ref = self.calibration.get("barrier_ref", [700, 710, 705])
 
@@ -586,6 +612,7 @@ class RaceController:
             "obstacle": False,
         }
         seg_enter_t_actual = time.time()
+        finish_after_lap = False
 
         while not self._stop_flag:
             iteration += 1
@@ -605,13 +632,18 @@ class RaceController:
             gs_norm = normalize_grayscale(gs_raw, track_ref, barrier_ref)
 
             # ── Gate detection ────────────────────────────────────────────────
-            if gate_detector.update(prev_gs, gs_raw, now):
+            if gate_detector.update(prev_gs, gs_raw, now) and iteration > 3:
                 laps_completed += 1
                 lap_dur = now - lap_start_t
                 lap_start_t = now
 
                 # Apply learning to all segments from this lap
-                speed_ratio = (self.profile.map_speed / MAP_SPEED) if MAP_SPEED else 1.0
+                cal_v = self.calibration.get("calibration_v", 0.0)
+                current_v = self._read_battery_voltage()
+                if cal_v > 0 and current_v and current_v > 0:
+                    speed_ratio = current_v / cal_v
+                else:
+                    speed_ratio = 1.0
                 new_segments = []
                 for i, (seg, actual) in enumerate(zip(segments, lap_seg_actuals)):
                     updated = apply_lap_learning(seg, actual, speed_ratio)
@@ -641,6 +673,9 @@ class RaceController:
                 pd_sonar.reset()
 
                 if max_laps and laps_completed >= max_laps:
+                    break
+
+                if finish_after_lap:
                     break
 
             prev_gs = gs_raw[:]
@@ -688,11 +723,11 @@ class RaceController:
                     self.px.set_cam_pan_angle(25)
                     self.px.set_cam_pan_angle(0)
                 else:
-                    left_cm, right_cm = quick3_scan(self.px, settle_s=0.0)
+                    left_cm, right_cm = quick3_scan(self.px)
                     left_cm = left_cm or 90.0
                     right_cm = right_cm or 90.0
                     sonar_blend_age = 0.0
-                    center_error = left_cm - right_cm  # positive = closer on left = drift right
+                    center_error = right_cm - left_cm  # positive = closer on right = drift left
                     sonar_correction = pd_sonar.update(center_error, dt)
                 last_quick3_t = now
             else:
@@ -711,9 +746,12 @@ class RaceController:
                 current_seg_actual["obstacle"] = True
                 self._append_race_log({"event": "estop", "sonar_cm": last_sonar_cm,
                                        "speed": target_speed, "iter": iteration})
-                # Lost recovery: wait scaled duration then fall to OBSTACLE_SPEED
-                recovery_t = seg_duration * 3
-                time.sleep(min(recovery_t, 1.0) if self.dry else recovery_t)
+                # Reverse 0.3s then continue at OBSTACLE_SPEED
+                if not self.dry and self.px is not None:
+                    self.px.backward(OBSTACLE_SPEED)
+                time.sleep(0.3 if not self.dry else 0.01)
+                if not self.dry and self.px is not None:
+                    self.px.stop()
                 target_speed = OBSTACLE_SPEED
                 if not self.dry and self.px is not None:
                     self.px.forward(int(target_speed))
@@ -724,7 +762,7 @@ class RaceController:
                     self.px.backward(OBSTACLE_SPEED)
                     time.sleep(0.5)
                     self.px.stop()
-                stuck_detector.update(None, now)  # reset reference
+                stuck_detector.reset()  # reset reference
                 self._append_race_log({"event": "stuck", "iter": iteration})
 
             # Edge guard
@@ -736,7 +774,7 @@ class RaceController:
             volts = self._read_battery_voltage()
             if volts is not None and volts < 7.0:
                 self._append_race_log({"event": "battery_low", "volts": volts})
-                break
+                finish_after_lap = True
 
             # Lap timeout
             if (now - lap_start_t) > LAP_TIMEOUT_S:
@@ -782,7 +820,8 @@ class RaceController:
             if (now - last_telemetry_t) >= TELEMETRY_INTERVAL_S:
                 last_telemetry_t = now
                 self._write_live_telemetry({
-                    "ts": now,
+                    "ts": time.time(),
+                    "ts_iso": utc_timestamp(),
                     "lap": laps_completed,
                     "seg_idx": seg_idx % n_segs,
                     "seg_type": seg.get("type"),
@@ -795,6 +834,8 @@ class RaceController:
                 })
 
         # ── Cleanup ───────────────────────────────────────────────────────────
+        if finish_after_lap:
+            self._append_race_log({"event": "battery_stop", "laps": laps_completed})
         if not self.dry and self.px is not None:
             self.px.stop()
             self.px.set_dir_servo_angle(0)
@@ -900,6 +941,17 @@ def main(argv=None) -> int:
                 rc.calibration["track_width_cm"] = float(width_str) if width_str else 88.0
             except ValueError:
                 rc.calibration["track_width_cm"] = 88.0
+
+            # Capture battery voltage for compensation
+            volts = None
+            battery_path = state_dir / "battery.json"
+            try:
+                bdata = json.loads(battery_path.read_text())
+                volts = float(bdata.get("volts", 0.0))
+            except Exception:
+                pass
+            if volts and volts > 0:
+                rc.calibration["calibration_v"] = round(volts, 2)
 
             rc.save_calibration()
             print(f"Calibration saved to {state_dir / 'race_calibration.json'}")
