@@ -1,8 +1,11 @@
-/* Individual thought permalink page — fetches by ?ts= parameter */
+/* Individual thought permalink page — fetches by ?ts= parameter.
+   Fallback chain: live API → same-origin snapshot → GitHub raw */
 (function () {
   'use strict';
 
   var API = window.SPARK_CONFIG.API_BASE;
+  var FALLBACK_LOCAL = window.SPARK_CONFIG.FALLBACK_LOCAL;
+  var FALLBACK_GITHUB = window.SPARK_CONFIG.FALLBACK_GITHUB;
   var TIMEOUT_MS = 8000;
 
   var MOOD_CLASSES = {
@@ -94,6 +97,46 @@
     el.textContent = "Could not reach SPARK. The Pi might be offline.";
   }
 
+  // ── Offline banner ─────────────────────────────────────────────────────────
+
+  function showOfflineBanner() {
+    var existing = document.getElementById('thought-offline-banner');
+    if (existing) return;
+    var banner = document.createElement('div');
+    banner.id = 'thought-offline-banner';
+    banner.style.cssText = 'background:#1e293b;color:#94a3b8;text-align:center;padding:8px 16px;font-size:0.85rem;border-radius:8px;margin-bottom:16px;';
+    banner.textContent = 'Showing snapshot data — SPARK\'s Pi is currently offline.';
+    var card = document.getElementById('thought-card');
+    card.parentNode.insertBefore(banner, card);
+  }
+
+  // ── Fallback chain ─────────────────────────────────────────────────────────
+
+  function searchFeedData(data, ts) {
+    return findByTs(data.posts || [], ts);
+  }
+
+  function loadFromFallback(ts) {
+    // 1. Same-origin static snapshot
+    fetchJSON(FALLBACK_LOCAL + '/feed.json')
+      .then(function (data) {
+        var post = searchFeedData(data, ts);
+        if (post) { showThought(post); showOfflineBanner(); }
+        else { return tryGithub(ts); }
+      })
+      .catch(function () { tryGithub(ts); });
+  }
+
+  function tryGithub(ts) {
+    fetchJSON(FALLBACK_GITHUB + '/feed.json')
+      .then(function (data) {
+        var post = searchFeedData(data, ts);
+        if (post) { showThought(post); showOfflineBanner(); }
+        else showNotFound();
+      })
+      .catch(showOffline);
+  }
+
   function init() {
     var params = new URLSearchParams(window.location.search);
     var ts = params.get('ts');
@@ -122,14 +165,14 @@
         }
       })
       .catch(function () {
-        // API offline fallback
+        // API offline — try /thoughts then static fallbacks
         fetchJSON(API + '/thoughts?limit=50')
           .then(function (thoughts) {
             var found = findByTs(thoughts, ts);
             if (found) showThought(found);
-            else showNotFound();
+            else loadFromFallback(ts);
           })
-          .catch(showOffline);
+          .catch(function () { loadFromFallback(ts); });
       });
   }
 

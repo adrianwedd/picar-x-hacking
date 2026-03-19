@@ -43,6 +43,14 @@ export default {
     // Build the per-thought image URL (HTML-escaped for safe attribute injection)
     const imageUrl = escapeHtmlAttr(`${API_BASE}/thought-image?ts=${encodeURIComponent(ts)}`);
 
+    // Probe the image URL — if API is down, serve original HTML with default og:image
+    try {
+      const probe = await fetch(imageUrl, { method: 'HEAD', cf: { cacheTtl: 300 } });
+      if (!probe.ok) return response;
+    } catch (_) {
+      return response;
+    }
+
     // Rewrite og:image and dimensions (thought cards are 1080x1080)
     let html = await response.text();
     html = html.replace(

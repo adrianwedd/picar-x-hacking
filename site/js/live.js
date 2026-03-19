@@ -212,7 +212,21 @@
   async function fetchThoughts() {
     try {
       const thoughts = await fetchWithTimeout(API + '/thoughts?limit=20');
-      if (Array.isArray(thoughts) && thoughts.length) _buildCarousel(thoughts);
+      if (Array.isArray(thoughts) && thoughts.length) { _buildCarousel(thoughts); return; }
+    } catch (_) {}
+    // Fallback: try same-origin static snapshot, then GitHub raw
+    try {
+      const data = await fetchWithTimeout(window.SPARK_CONFIG.FALLBACK_LOCAL + '/feed.json');
+      if (data && data.posts && data.posts.length) {
+        _buildCarousel(data.posts.slice(-20).reverse());
+        return;
+      }
+    } catch (_) {}
+    try {
+      const data = await fetchWithTimeout(window.SPARK_CONFIG.FALLBACK_GITHUB + '/feed.json');
+      if (data && data.posts && data.posts.length) {
+        _buildCarousel(data.posts.slice(-20).reverse());
+      }
     } catch (_) {}
   }
 

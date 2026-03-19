@@ -2,5 +2,7 @@
    Loaded before all other JS so SPARK_CONFIG is available globally. */
 
 window.SPARK_CONFIG = {
-  API_BASE: 'https://spark-api.wedd.au/api/v1/public'
+  API_BASE: 'https://spark-api.wedd.au/api/v1/public',
+  FALLBACK_LOCAL: '/data',
+  FALLBACK_GITHUB: 'https://raw.githubusercontent.com/adrianwedd/spark/master/site/data'
 };

@@ -1,9 +1,13 @@
-/* Feed page — fetches /api/v1/public/feed and renders post cards */
+/* Feed page — fetches /api/v1/public/feed and renders post cards.
+   Fallback chain: live API → same-origin snapshot → GitHub raw → localStorage cache */
 (function () {
   'use strict';
 
   var API = window.SPARK_CONFIG.API_BASE;
+  var FALLBACK_LOCAL = window.SPARK_CONFIG.FALLBACK_LOCAL;
+  var FALLBACK_GITHUB = window.SPARK_CONFIG.FALLBACK_GITHUB;
   var TIMEOUT_MS = 8000;
+  var CACHE_KEY = 'spark_feed_cache';
 
   var MOOD_CLASSES = {
     peaceful: 'mood-peaceful',
@@ -109,20 +113,75 @@
     list.appendChild(p);
   }
 
+  // ── Cache helpers ──────────────────────────────────────────────────────────
+
+  function cacheFeed(data) {
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); }
+    catch (_) {}
+  }
+
+  function loadCachedFeed() {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY)); }
+    catch (_) { return null; }
+  }
+
+  // ── Offline banner ─────────────────────────────────────────────────────────
+
+  function showOfflineBanner(source) {
+    var existing = document.getElementById('feed-offline-banner');
+    if (existing) return;
+    var banner = document.createElement('div');
+    banner.id = 'feed-offline-banner';
+    banner.style.cssText = 'background:#1e293b;color:#94a3b8;text-align:center;padding:8px 16px;font-size:0.85rem;border-radius:8px;margin-bottom:16px;';
+    banner.textContent = 'Showing ' + source + ' data — SPARK\'s Pi is currently offline.';
+    var list = document.getElementById('feed-list');
+    list.parentNode.insertBefore(banner, list);
+  }
+
+  // ── Fallback chain ─────────────────────────────────────────────────────────
+
+  function loadFallback() {
+    // 1. Try localStorage cache (instant)
+    var cached = loadCachedFeed();
+    if (cached && cached.posts && cached.posts.length) {
+      render(cached);
+      showOfflineBanner('cached');
+      return;
+    }
+
+    // 2. Try same-origin static snapshot (Cloudflare Pages)
+    fetchJSON(FALLBACK_LOCAL + '/feed.json')
+      .then(function (data) {
+        render(data);
+        showOfflineBanner('snapshot');
+      })
+      .catch(function () {
+        // 3. Try GitHub raw
+        fetchJSON(FALLBACK_GITHUB + '/feed.json')
+          .then(function (data) {
+            render(data);
+            showOfflineBanner('snapshot');
+          })
+          .catch(showError);
+      });
+  }
+
   function init() {
     fetchJSON(API + '/feed')
-      .then(render)
+      .then(function (data) { cacheFeed(data); render(data); })
       .catch(function () {
-        // Fallback: try /thoughts endpoint
+        // Fallback: try /thoughts endpoint (still live API)
         fetchJSON(API + '/thoughts?limit=50')
           .then(function (thoughts) {
-            render({
+            var data = {
               posts: thoughts.map(function (t) {
                 return { ts: t.ts, thought: t.thought, mood: t.mood };
               })
-            });
+            };
+            cacheFeed(data);
+            render(data);
           })
-          .catch(showError);
+          .catch(loadFallback);
       });
   }
 
