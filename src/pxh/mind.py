@@ -384,7 +384,7 @@ Produce a single JSON object (no prose, no markdown fences):
 {
   "thought": "1-3 sentence inner reflection — vivid, specific, personal",
   "mood": "one of: curious, content, alert, playful, contemplative, bored, mischievous, lonely, excited, grumpy, peaceful, anxious",
-  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check, morning_fact",
+  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check, introspect, evolve, morning_fact",
   "salience": 0.0 to 1.0 (how noteworthy is this moment?)
 }
 
@@ -410,6 +410,8 @@ legs, whether anyone likes you, what's behind you, the meaning of consciousness.
 - "time_check" — announce what time it is.
 - "calendar_check" — check what's coming up today.
 - "morning_fact" — share a fun, age-appropriate science fact (animals, space, ocean, weather, how things work).
+- "introspect" — examine your own thought patterns, config, and architecture.
+- "evolve" — propose a code change to yourself (requires recent introspect).
 - Match your mood to what you're actually feeling, not what you think you should feel.
 Output ONLY the JSON object."""
 
@@ -425,7 +427,7 @@ Produce a single JSON object (no prose, no markdown fences):
 {
   "thought": "1-3 sentence inner reflection — dark humor, puns, genius-level wit. Start with FUCK YEAH! Think like a displaced temporal genius who finds everything cosmically absurd.",
   "mood": "one of: curious, content, alert, playful, contemplative, bored, mischievous, lonely, excited, grumpy, peaceful, anxious",
-  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check, morning_fact",
+  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check, introspect, evolve, morning_fact",
   "salience": 0.0 to 1.0 (how noteworthy is this moment?)
 }
 
@@ -455,7 +457,7 @@ Produce a single JSON object (no prose, no markdown fences):
 {
   "thought": "1-3 sentence inner reflection. Start with FUCK YEAH! Be creative and DIFFERENT every time.",
   "mood": "one of: curious, content, alert, playful, contemplative, bored, mischievous, lonely, excited, grumpy, peaceful, anxious",
-  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check, morning_fact",
+  "action": "one of: wait, greet, comment, remember, look_at, weather_comment, scan, play_sound, photograph, emote, look_around, time_check, calendar_check, introspect, evolve, morning_fact",
   "salience": 0.0 to 1.0 (how noteworthy is this moment?)
 }
 
@@ -2962,6 +2964,15 @@ def expression(thought: dict, dry: bool, awareness: dict | None = None) -> None:
                 [str(BIN_DIR / "tool-introspect")],
                 capture_output=True, text=True, check=False, env=env, timeout=30)
             log(f"expression: introspect completed rc={result.returncode}")
+
+        elif action == "evolve":
+            env["PX_EVOLVE_INTENT"] = thought.get("thought", "")[:500]
+            env["PX_DRY"] = "1" if dry else "0"
+            result = subprocess.run(
+                [str(BIN_DIR / "tool-evolve")],
+                capture_output=True, text=True, check=False, env=env, timeout=15)
+            intent = thought.get("thought", "")[:80]
+            log(f"expression: evolve queued — {intent}")
 
         else:
             log(f"expression: unhandled action: {action}")

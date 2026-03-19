@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/px-env"
+
+python - "$@" <<'PY'
+from __future__ import annotations
+
+import json
+import os
+import random
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+from pxh.state import atomic_write
+
+# ── Paths ──────────────────────────────────────────────────────────
+PROJECT_ROOT = Path(os.environ["PROJECT_ROOT"])
+STATE_DIR    = Path(os.environ.get("PX_STATE_DIR", PROJECT_ROOT / "state"))
+
+INTROSPECT_FILE  = STATE_DIR / "introspection.json"
+EVOLVE_QUEUE     = STATE_DIR / "evolve_queue.jsonl"
+EVOLVE_LOG       = STATE_DIR / "evolve_log.jsonl"
+
+MAX_INTROSPECT_AGE_S = 3600   # introspection must be < 1 hour old
+MIN_INTENT_LEN       = 20     # intent must be at least 20 chars
+RATE_LIMIT_S         = 86400  # max 1 evolution per 24 hours
+
+
+def error(msg: str) -> int:
+    print(json.dumps({"status": "error", "error": msg}))
+    return 0
+
+
+def main() -> int:
+    intent = os.environ.get("PX_EVOLVE_INTENT", "").strip()
+
+    # ── Validate introspection exists and is fresh ─────────────────
+    if not INTROSPECT_FILE.exists():
+        return error("introspect first")
+
+    age_s = time.time() - INTROSPECT_FILE.stat().st_mtime
+    if age_s > MAX_INTROSPECT_AGE_S:
+        return error("introspect first")
+
+    # ── Validate intent length ─────────────────────────────────────
+    if len(intent) < MIN_INTENT_LEN:
+        return error("intent too vague")
+
+    # ── 24h rate limit ─────────────────────────────────────────────
+    if EVOLVE_LOG.exists():
+        now = time.time()
+        for line in EVOLVE_LOG.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+                ts = entry.get("ts", 0)
+                if now - ts < RATE_LIMIT_S:
+                    return error("rate limit: max 1 evolution per 24 hours")
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+    # ── Load introspection ─────────────────────────────────────────
+    try:
+        introspection = json.loads(INTROSPECT_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return error("introspect first")
+
+    # ── Generate ID ────────────────────────────────────────────────
+    now_dt = datetime.now(timezone.utc)
+    nnn = random.randint(0, 999)
+    evolve_id = f"evolve-{now_dt.strftime('%Y%m%d-%H%M%S')}-{nnn:03d}"
+
+    # ── Build queue entry ──────────────────────────────────────────
+    queue_entry = {
+        "ts": now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "id": evolve_id,
+        "intent": intent,
+        "introspection": introspection,
+        "status": "pending",
+    }
+
+    # ── Append to queue ────────────────────────────────────────────
+    existing = ""
+    if EVOLVE_QUEUE.exists():
+        existing = EVOLVE_QUEUE.read_text(encoding="utf-8")
+        if existing and not existing.endswith("\n"):
+            existing += "\n"
+
+    atomic_write(EVOLVE_QUEUE, existing + json.dumps(queue_entry) + "\n")
+
+    print(json.dumps({"status": "queued", "id": evolve_id}))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
