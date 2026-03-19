@@ -2278,6 +2278,10 @@ def call_claude_haiku(prompt: str, system: str) -> dict:
                     del call_claude_haiku._stable_ticks
                 return {"response": resp}
     finally:
+        # Clean up quiescence state on timeout too
+        if hasattr(call_claude_haiku, '_last_pane'):
+            del call_claude_haiku._last_pane
+            del call_claude_haiku._stable_ticks
         try:
             prompt_file.unlink(missing_ok=True)
         except Exception as exc:
@@ -2540,7 +2544,7 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
                     + "\n\nYou can use action='evolve' to propose a change to yourself.\n"
                     "Only do this if you have a specific, well-formed idea — not vague wishes."
                 )
-        except (json.JSONDecodeError, OSError, ValueError, TypeError):
+        except (json.JSONDecodeError, OSError, ValueError, TypeError, OverflowError):
             pass
 
     # Inject topic seed, or free-will prompt if no seed was drawn

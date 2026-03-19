@@ -72,7 +72,7 @@ def main() -> int:
                     continue  # unparseable — skip this entry
                 if now - ts < RATE_LIMIT_S:
                     return error("rate limit: max 1 evolution per 24 hours")
-            except (json.JSONDecodeError, TypeError, ValueError):
+            except (json.JSONDecodeError, TypeError, ValueError, OverflowError):
                 continue
 
     # ── Load introspection ─────────────────────────────────────────

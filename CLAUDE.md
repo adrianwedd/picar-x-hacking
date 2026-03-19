@@ -227,7 +227,7 @@ SPARK can introspect on its own thought patterns and propose targeted code chang
 1. Creates a git worktree in `/tmp/px-evolve-<id>/`
 2. Runs `claude -p` with a scoped prompt (intent + introspection + file whitelist), `--allowedTools Read,Write,Edit,Bash,Glob,Grep`, and `--dangerously-skip-permissions`
 3. Runs `pytest` — marks entry `failed` and aborts on test failure
-4. Creates a PR via `gh pr create` — marks entry `applied` on success
+4. Creates a PR via `gh pr create` — marks entry `pr_created` on success
 5. Cleans up worktree
 
 Single-instance PID guard. Restart policy: on-failure, 30 s.
