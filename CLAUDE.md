@@ -221,11 +221,11 @@ SPARK can introspect on its own thought patterns and propose targeted code chang
 
 **`bin/tool-introspect`** — Computes thought statistics (mood distribution, action distribution, top keywords, average salience, thoughts/day), snapshots `spark_config.py` constants, and records architecture awareness. 30-min cooldown enforced via `introspection.json` timestamp. Writes `state/introspection.json`. Dry-run supported (`PX_DRY=1` sets `dry: true` in output but still writes the file).
 
-**`bin/tool-evolve`** — Validates introspection freshness (must be <2h old), intent quality (≥20 chars), and 24h rate limit (max 3 queued/applied entries per day). Writes a `pending` entry to `state/evolve_queue.jsonl` including the full introspection snapshot. Returns `{"status": "queued", "id": "..."}`.
+**`bin/tool-evolve`** — Validates introspection freshness (must be <1h old), intent quality (≥20 chars), and 24h rate limit (max 1 evolution per day). Respects `PX_DRY=1` (skips queue write). Writes a `pending` entry to `state/evolve_queue.jsonl` including the full introspection snapshot. Returns `{"status": "queued", "id": "..."}`.
 
 **`bin/px-evolve` daemon** — Polls `evolve_queue.jsonl` for `pending` entries. For each:
 1. Creates a git worktree in `/tmp/px-evolve-<id>/`
-2. Runs `claude -p` with a scoped prompt (intent + introspection + file whitelist) and `--allowedTools` whitelist
+2. Runs `claude -p` with a scoped prompt (intent + introspection + file whitelist), `--allowedTools Read,Write,Edit,Bash,Glob,Grep`, and `--dangerously-skip-permissions`
 3. Runs `pytest` — marks entry `failed` and aborts on test failure
 4. Creates a PR via `gh pr create` — marks entry `applied` on success
 5. Cleans up worktree

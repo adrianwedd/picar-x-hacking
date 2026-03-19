@@ -189,11 +189,12 @@ def _run_in_worktree(
     """Run Claude, validate, test, and PR inside the worktree."""
     prompt = build_prompt(intent, introspection)
 
-    # 2. Run Claude Opus
+    # 2. Run Claude Opus with restricted tool access
     cmd = [
         "claude", "-p", prompt,
         "--dangerously-skip-permissions",
         "--model", EVOLVE_MODEL,
+        "--allowedTools", "Read,Write,Edit,Bash,Glob,Grep",
     ]
     log(f"[{entry_id}] running: {' '.join(cmd[:4])}... (timeout={EVOLVE_TIMEOUT}s)")
 
@@ -282,7 +283,7 @@ def _run_in_worktree(
         log(f"[{entry_id}] PR creation failed: {exc}")
         return "failed:pr_create"
 
-    return "pr_created"
+    return f"pr_created|{pr_url}|{','.join(changed_files)}"
 
 
 def _cleanup_worktree(workdir: str, entry_id: str) -> None:
@@ -311,24 +312,45 @@ def run_once(*, dry: bool) -> int:
     for entry in entries:
         if entry.get("status") != "pending":
             continue
+        if entry.get("dry"):
+            entry["status"] = "skipped:dry"
+            save_queue(entries)
+            continue
 
-        status = process_entry(entry, dry=dry)
+        raw_status = process_entry(entry, dry=dry)
+        ts_now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Parse enriched status: "pr_created|url|files" or plain "failed:reason"
+        pr_url = None
+        files_changed = []
+        if raw_status.startswith("pr_created|"):
+            parts = raw_status.split("|", 2)
+            status = "pr_created"
+            pr_url = parts[1] if len(parts) > 1 else None
+            files_changed = parts[2].split(",") if len(parts) > 2 and parts[2] else []
+        else:
+            status = raw_status
+
         entry["status"] = status
-        entry["ts_completed"] = dt.datetime.now(dt.timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
+        entry["ts_completed"] = ts_now
         processed += 1
 
         # Update queue atomically
         save_queue(entries)
 
-        # Append to evolve log
-        append_evolve_log({
+        # Append to evolve log with numeric ts for rate limiting
+        log_entry = {
+            "ts": time.time(),
             "id": entry["id"],
             "intent": entry.get("intent", ""),
             "status": status,
-            "ts_completed": entry["ts_completed"],
-        })
+            "ts_completed": ts_now,
+        }
+        if pr_url:
+            log_entry["pr_url"] = pr_url
+        if files_changed:
+            log_entry["files_changed"] = files_changed
+        append_evolve_log(log_entry)
 
         log(f"[{entry['id']}] completed: {status}")
 

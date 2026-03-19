@@ -37,6 +37,7 @@ def error(msg: str) -> int:
 
 def main() -> int:
     intent = os.environ.get("PX_EVOLVE_INTENT", "").strip()
+    dry = os.environ.get("PX_DRY", "0") == "1"
 
     # ── Validate introspection exists and is fresh ─────────────────
     if not INTROSPECT_FILE.exists():
@@ -59,10 +60,15 @@ def main() -> int:
                 continue
             try:
                 entry = json.loads(line)
-                ts = entry.get("ts", 0)
+                # ts_completed is ISO string; ts may be epoch or ISO
+                ts_raw = entry.get("ts_completed") or entry.get("ts", 0)
+                if isinstance(ts_raw, str):
+                    ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).timestamp()
+                else:
+                    ts = float(ts_raw)
                 if now - ts < RATE_LIMIT_S:
                     return error("rate limit: max 1 evolution per 24 hours")
-            except (json.JSONDecodeError, TypeError):
+            except (json.JSONDecodeError, TypeError, ValueError):
                 continue
 
     # ── Load introspection ─────────────────────────────────────────
@@ -86,6 +92,9 @@ def main() -> int:
     }
 
     # ── Append to queue ────────────────────────────────────────────
+    if dry:
+        queue_entry["dry"] = True
+
     existing = ""
     if EVOLVE_QUEUE.exists():
         existing = EVOLVE_QUEUE.read_text(encoding="utf-8")
