@@ -1011,6 +1011,22 @@ def _format_calendar_context(events: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _format_introspection(intro: dict) -> str:
+    """Format introspection dict into concise reflection context (~300 tokens)."""
+    parts = []
+    moods = intro.get("mood_distribution", {})
+    if moods:
+        top = sorted(moods.items(), key=lambda x: -x[1])[:5]
+        parts.append("Moods: " + ", ".join(f"{m} {p:.0f}%" for m, p in top))
+    config = intro.get("config", {})
+    if config:
+        parts.append("Config: " + ", ".join(f"{k}={v}" for k, v in config.items()))
+    history = intro.get("evolution_history", [])
+    if history:
+        parts.append(f"Evolution history: {len(history)} previous proposals")
+    return "\n".join(parts) if parts else "No introspection data available."
+
+
 def read_battery() -> dict | None:
     """Read battery state from px-battery-poll's shared file. Returns None if stale/missing."""
     try:
@@ -1474,6 +1490,9 @@ _last_ha_routines_fetch: float = 0.0
 HA_ROUTINES_INTERVAL_S = 300  # 5 min
 _cached_ha_context: dict | None = None
 _last_ha_context_fetch: float = 0.0
+_cached_introspection: dict | None = None
+_last_introspection_fetch: float = 0.0
+INTROSPECTION_STALE_S = 3600  # 1 hour
 _cached_calendar: list[dict] | None = None
 _last_calendar_fetch: float = 0.0
 _last_spoken_text: str = ""
@@ -1950,6 +1969,7 @@ def _reset_state():
     global _cached_ha_sleep, _last_ha_sleep_fetch
     global _cached_ha_routines, _last_ha_routines_fetch
     global _cached_ha_context, _last_ha_context_fetch
+    global _cached_introspection, _last_introspection_fetch
     global _cached_calendar, _last_calendar_fetch
     global _last_spoken_text, _last_morning_fact_date
     global _mood_history, _last_reactive_phrases
@@ -1973,6 +1993,8 @@ def _reset_state():
     _last_ha_routines_fetch = 0.0
     _cached_ha_context = None
     _last_ha_context_fetch = 0.0
+    _cached_introspection = None
+    _last_introspection_fetch = 0.0
     _cached_calendar = None
     _last_calendar_fetch = 0.0
     _last_spoken_text = ""
@@ -2438,6 +2460,22 @@ def reflection(awareness: dict, dry: bool) -> dict | None:
     ha_ctx_text = _format_ha_context(awareness.get("ha_context"))
     if ha_ctx_text:
         context_parts.append(ha_ctx_text)
+
+    # Self-awareness (from recent introspection)
+    intro_file = STATE_DIR / "introspection.json"
+    if intro_file.exists():
+        try:
+            intro = json.loads(intro_file.read_text(encoding="utf-8"))
+            age = time.time() - intro.get("ts", 0)
+            if age < INTROSPECTION_STALE_S:
+                context_parts.append(
+                    "Self-awareness (from recent introspection):\n"
+                    + _format_introspection(intro)
+                    + "\n\nYou can use action='evolve' to propose a change to yourself.\n"
+                    "Only do this if you have a specific, well-formed idea — not vague wishes."
+                )
+        except (json.JSONDecodeError, OSError):
+            pass
 
     # Inject topic seed, or free-will prompt if no seed was drawn
     if topic_seed is None:

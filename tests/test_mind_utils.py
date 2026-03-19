@@ -22,6 +22,7 @@ from pxh.mind import (
     _fetch_ha_sleep,
     _format_calendar_context,
     _format_ha_context,
+    _format_introspection,
     _format_routine_context,
     _parse_calendar_events,
     _reset_state,
@@ -1121,3 +1122,22 @@ def test_format_context_mic_active_not_on_call():
     result = _format_ha_context({"adrian_on_call": False, "adrian_mic_active": True})
     assert "microphone is active" in result
     assert "video call" not in result
+
+
+def test_format_introspection_with_data():
+    """_format_introspection produces readable summary from introspection dict."""
+    intro = {
+        "mood_distribution": {"curious": 50, "contemplative": 30, "content": 20},
+        "config": {"SIMILARITY_THRESHOLD": 0.75, "EXPRESSION_COOLDOWN_S": 120},
+        "evolution_history": [{"id": "test-1", "status": "pr_created"}],
+    }
+    result = _format_introspection(intro)
+    assert "curious 50%" in result
+    assert "SIMILARITY_THRESHOLD=0.75" in result
+    assert "1 previous proposals" in result
+
+
+def test_format_introspection_empty():
+    """_format_introspection handles empty dict gracefully."""
+    result = _format_introspection({})
+    assert "No introspection data" in result
