@@ -19,7 +19,7 @@ All `bin/` scripts source `bin/px-env` automatically, which sets `PROJECT_ROOT`,
 ## Running Tests
 
 ```bash
-python -m pytest                          # full suite (533 tests)
+python -m pytest                          # full suite (562 tests)
 python -m pytest tests/test_state.py     # single file
 python -m pytest -k test_name            # single test
 python -m pytest -m "not live"           # skip hardware tests (82 tests)
@@ -336,7 +336,7 @@ Ten services run at boot:
 
 `bin/px-motd` generates a rich login banner on every SSH connection. Hooked into PAM via `/etc/update-motd.d/90-spark` (one-line shim: `/home/pi/picar-x-hacking/bin/px-motd 2>/dev/null || true`).
 
-**Sections displayed**: system vitals (uptime, CPU, RAM/disk bars, battery, WiFi, throttle), all 9 systemd service states with uptimes, tmux sessions with attach/monitor commands, cognitive state (mood, persona, sonar, Obi mode, last thought, weather), social posting (daemon status, Bluesky, latest feed post), recent errors (tail-scanned from 5 log files), numbered quick actions, and clickable API endpoint links.
+**Sections displayed**: system vitals (uptime, CPU, RAM/disk bars, battery, WiFi, throttle), all 10 systemd service states with uptimes, tmux sessions with attach/monitor commands, cognitive state (mood, persona, sonar, Obi mode, last thought, weather), social posting (daemon status, Bluesky, latest feed post), recent errors (tail-scanned from 5 log files), numbered quick actions, and clickable API endpoint links.
 
 **Quick actions**: `px N` shell function (defined in `~/.bashrc`) maps numbers 1–9 to common commands. `px` with no args re-displays the MOTD.
 

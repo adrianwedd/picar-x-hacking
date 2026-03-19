@@ -345,7 +345,7 @@
     <h2>// how_it_works</h2>
 
     <p class="text-muted-dark mb-md">
-      Nine systemd services share a single <code>session.json</code> whiteboard.
+      Ten systemd services share a single <code>session.json</code> whiteboard.
       Each has one job and doesn't need to know how the others work.
     </p>
 
@@ -454,7 +454,7 @@
   GET /api/v1/public/vitals       cpu, ram, disk, temp, battery, tokens
   GET /api/v1/public/sonar        latest sonar distance + age
   GET /api/v1/public/history      ring buffer — 60 samples × 30s ≈ 30 min
-  GET /api/v1/public/services     systemd unit status for all nine services
+  GET /api/v1/public/services     systemd unit status for all ten services
   GET /api/v1/public/feed         social posting feed (JSON)
   GET /api/v1/public/race         race telemetry, calibration, live lap data
   GET /api/v1/public/thought-image?ts=...  branded thought card PNG
@@ -815,7 +815,7 @@ PX_PAN=30 PX_TILT=10 bin/tool-look
       <div class="roadmap-item done"><span class="check">✅</span> Mood-coloured status dot on all pages — real-time mood from API</div>
       <div class="roadmap-item done"><span class="check">✅</span> Home Assistant integration — presence, sleep, calendar, routines, media context</div>
       <div class="roadmap-item done"><span class="check">✅</span> Bluesky image uploads — branded thought cards attached to social posts</div>
-      <div class="roadmap-item done"><span class="check">✅</span> 533 tests — comprehensive coverage across API, state, tools, voice, mind, race</div>
+      <div class="roadmap-item done"><span class="check">✅</span> 562 tests — comprehensive coverage across API, state, tools, voice, mind, race, evolve</div>
       <div class="roadmap-item done"><span class="check">✅</span> 12-mood colour palette — full arousal spectrum with CSS vars, terminal ANSI, pulse animations</div>
       <div class="roadmap-item done"><span class="check">✅</span> Autonomous racing — dual-sensor PD control, per-lap learning, track profiling</div>
       <div class="roadmap-item done"><span class="check">✅</span> SSH login dashboard — system status, tmux, cognitive state, errors, quick actions</div>
@@ -830,7 +830,7 @@ PX_PAN=30 PX_TILT=10 bin/tool-look
       <div class="roadmap-item done"><span class="check">✅</span> SPARK Phase 2 — transition warnings, routine support</div>
       <div class="roadmap-item done"><span class="check">✅</span> SPARK Phase 3 — quiet mode, sensory check, dopamine menu</div>
       <div class="roadmap-item done"><span class="check">✅</span> Calendar integration — Obi's Google Calendar drives obi_mode + expression gating</div>
-      <div class="roadmap-item"><span class="check">⬜</span> Self-evolution — SPARK introspects on its own patterns and proposes code changes via PRs</div>
+      <div class="roadmap-item done"><span class="check">✅</span> Self-evolution — SPARK introspects on its own patterns and proposes code changes via PRs</div>
       <div class="roadmap-item"><span class="check">⬜</span> Modular sensor fusion and persistent mapping</div>
       <div class="roadmap-item"><span class="check">⬜</span> Richer voice summaries, mission templates, gesture recognition</div>
       <div class="roadmap-item"><span class="check">⬜</span> Simulation CI sweeps (Gazebo or lightweight custom sim)</div>
