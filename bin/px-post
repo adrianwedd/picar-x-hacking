@@ -750,11 +750,14 @@ def flush_queue(bluesky: 'BlueskyClient', dry: bool) -> dict:
                 continue  # timeout — skip, try next cycle
             entry["qa_result"] = qa
 
-        if entry["qa_result"] in ("rejected", "ambiguous"):
+        if entry["qa_result"] == "rejected":
             entry["posted"] = {k: v or "skipped" for k, v in posted.items()}
             processed += 1
             was_rejected = True
             continue
+        # "ambiguous" (e.g. "Maybe") defaults to pass — QA is a safety net, not a quality bar
+        if entry["qa_result"] == "ambiguous":
+            entry["qa_result"] = "pass"
 
         # Write to feed
         if write_feed(entry):

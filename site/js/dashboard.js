@@ -8,9 +8,9 @@ window.SparkDashboard = (function () {
   // ── Presence band ────────────────────────────────────────────────────────
 
   const PULSE_CLASSES = {
-    peaceful: 'pulse-slow', content: 'pulse-slow',
-    curious: 'pulse-mid', contemplative: 'pulse-mid',
-    excited: 'pulse-fast', active: 'pulse-fast',
+    peaceful: 'pulse-slow', content: 'pulse-slow', bored: 'pulse-slow', lonely: 'pulse-slow',
+    curious: 'pulse-mid', contemplative: 'pulse-mid', mischievous: 'pulse-mid', grumpy: 'pulse-mid', anxious: 'pulse-mid',
+    excited: 'pulse-fast', active: 'pulse-fast', alert: 'pulse-fast', playful: 'pulse-fast',
   };
 
   const OBI_MODE_BADGE = {
