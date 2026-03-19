@@ -1,7 +1,7 @@
 # px-race: Autonomous Track Racing with Learning
 
 **Date:** 2026-03-19
-**Status:** Draft (rev 2 — post spec review)
+**Status:** Draft (rev 3 — post multi-model QA)
 
 ## Overview
 
@@ -18,7 +18,7 @@ A two-phase autonomous racing system for the PiCar-X. Phase 1 (practice) maps th
 ### Hardware Constraints
 
 - **Steering:** ±30° max (`DIR_MAX = 30`)
-- **Sonar:** single ultrasonic on camera pan servo, ~30ms per ping typical, up to 200ms worst case (10 retries × 20ms timeout). Pan servo needs ~80ms settle time per angle change.
+- **Sonar:** single ultrasonic on camera pan servo, ~30ms per ping typical, up to 200ms worst case (10 retries × 20ms timeout). Pan servo needs ~150ms settle time per angle change (matching px-wander).
 - **Grayscale:** 3-channel underside sensor array, analog read — effectively instantaneous (<1ms)
 - **Motors:** differential speed on turns (built into `px.forward()`). Speed parameter is PWM duty cycle (0-100), not cm/s. Relationship to actual velocity is nonlinear and battery-dependent.
 - **Pi 4:** no real-time vision processing; no LLM in the control loop
@@ -54,10 +54,10 @@ This gives continuous, sub-millisecond edge tracking with no moving parts.
 | Mode | When | Pings | Realistic Rate | Pan Angles |
 |------|------|-------|---------------|------------|
 | **Forward-only** | Every loop iteration | 1 | ~10-15Hz | 0° (no pan move) |
-| **Quick-3** | Every 1-2s on straights | 3 | ~2-3Hz | -25°, 0°, +25° |
-| **Full sweep** | Mapping mode, lost/stuck | 5 | ~1.5Hz | -50°, -25°, 0°, +25°, +50° |
+| **Quick-3** | Every 1-2s on straights | 3 | ~1.5-2Hz | -25°, 0°, +25° |
+| **Full sweep** | Mapping mode, lost/stuck | 5 | ~1Hz | -50°, -25°, 0°, +25°, +50° |
 
-Pan servo returns to 0° after every Quick-3 or Full sweep. During mapping, pan stays at each angle only for minimum settle+ping duration (~100ms per angle).
+Pan servo returns to 0° after every Quick-3 or Full sweep. Each angle requires ~150ms settle + ~30-50ms ping = ~180-200ms per position. Quick-3 total: ~500-600ms. Full sweep: ~900ms-1s.
 
 Forward-only sonar (no pan move needed) is the workhorse during racing — detects obstacles and provides center distance for the track profile position tracker.
 
@@ -67,7 +67,7 @@ Forward-only sonar (no pan move needed) is the workhorse during racing — detec
 
 | Mode | Loop period | Speed | Rationale |
 |------|------------|-------|-----------|
-| Map | ~150ms | PWM 20 | Full 3-point sonar each iteration |
+| Map | ~600ms | PWM 20 | Full 3-point sonar each iteration (~540ms scan + grayscale) |
 | Race | ~30-50ms | PWM 25-50 | Grayscale every iteration, sonar forward-only, Quick-3 every 1-2s |
 
 ### Map Mode (practice lap)
@@ -77,9 +77,9 @@ warmup_pings(3)  # discard noisy first readings
 
 while not lap_complete:
     gs = px.get_grayscale_data()          # <1ms
-    sonar_left   = ping_at(-25°)          # ~100ms (settle + ping)
-    sonar_center = ping_at(0°)            # ~100ms
-    sonar_right  = ping_at(+25°)          # ~100ms
+    sonar_left   = ping_at(-25°)          # ~180ms (150ms settle + 30ms ping)
+    sonar_center = ping_at(0°)            # ~180ms
+    sonar_right  = ping_at(+25°)          # ~180ms
     px.set_cam_pan_angle(0)               # return to center
 
     steer = pd_center(sonar_left, sonar_right)
@@ -111,13 +111,15 @@ while racing:
 
     # Periodic Quick-3 for centering (every 1-2s)
     if now - last_quick3 > QUICK3_INTERVAL:
-        sonar_left, sonar_right = quick3_scan(px)      # ~300ms
+        sonar_left, sonar_right = quick3_scan(px)      # ~500ms (3 × 150ms settle + ping)
         last_sonar_lr = (sonar_left, sonar_right)
         last_quick3 = now
 
-    # Blend grayscale edge avoidance with sonar centering
+    # Blend grayscale edge avoidance with sonar centering (age-weighted)
+    sonar_age = now - last_quick3
+    sonar_weight = max(0.0, 0.3 * (1.0 - sonar_age / 2.0))  # decays to 0 over 2s
     sonar_steer = pd_center(last_sonar_lr) if last_sonar_lr[0] else 0
-    steer = 0.7 * gs_steer + 0.3 * sonar_steer        # grayscale-dominant blend
+    steer = (1.0 - sonar_weight) * gs_steer + sonar_weight * sonar_steer
 
     # Profile-based speed control
     if segment.type == "straight":
@@ -177,10 +179,11 @@ Overhead structure that SPARK drives through. Creates a shadow/reflectance chang
 ### Detection Algorithm
 1. Read grayscale every iteration (already happening)
 2. Compute delta from previous reading: `delta = abs(gs[i] - prev_gs[i])` for each sensor
-3. Gate trigger: all 3 sensors show delta > `GATE_THRESHOLD` within a single iteration
-4. `GATE_THRESHOLD` captured during `--calibrate` by driving through the gate once
-5. **Debounce:** ignore gate triggers within 3s of the last detection (prevents double-counting, minimum lap time sanity)
-6. **Fallback:** if grayscale gate detection is unreliable, sonar may detect the overhead structure as a sudden short reading on center sonar — secondary signal
+3. Gate trigger: **2-of-3** sensors show delta > `GATE_THRESHOLD` within a single iteration. Relaxed from all-3 because narrow gate shadow at speed + off-center driving may not hit all sensors simultaneously.
+4. **Temporal confirmation:** if only 1 sensor triggers in frame N, check if a 2nd triggers within the next 2-3 frames (~100ms window). This catches the gate shadow sweeping across sensors as SPARK drives through.
+5. `GATE_THRESHOLD` captured during `--calibrate` by driving through the gate once
+6. **Debounce:** ignore gate triggers within 3s of the last detection (prevents double-counting, minimum lap time sanity)
+7. **Fallback:** if grayscale gate detection is unreliable, sonar may detect the overhead structure as a sudden short reading on center sonar — secondary signal
 
 ### Calibration Capture
 During `--calibrate`, after surface calibration:
@@ -196,6 +199,7 @@ During `--calibrate`, after surface calibration:
 {
   "mapped_at": "2026-03-19T...",
   "map_speed": 20,
+  "calibration_v": 8.2,
   "lap_duration_s": 28.5,
   "track_width_cm": 88,
   "segments": [
@@ -264,6 +268,22 @@ After each lap, compare actual vs predicted:
 
 Conservative: speed only increases after clean pass, decreases immediately on wall contact. Changes capped at ±5 PWM per lap.
 
+### Battery Voltage Compensation
+
+PWM-to-actual-speed varies with battery charge. Without compensation, the learning loop oscillates (fast on full battery → clip wall → reduce speed → slow on depleted battery → clean pass → increase speed → repeat).
+
+Fix: record `battery_v` at calibration time (`calibration_v`). Each lap, read current voltage from `state/battery.json`. Scale speed predictions: `effective_speed = race_speed * (current_v / calibration_v)`. This compensates for voltage sag without changing the stored profile — the profile remains in "ideal" PWM values.
+
+Battery voltage is also logged per-lap in `race_log.jsonl` for post-race analysis.
+
+### Segment Transition Interpolation
+
+Segment boundaries are not instant — SPARK transitions from straight to turn over a physical distance. Rather than a hard switch from straight speed/steer to turn speed/steer at the boundary, interpolate over a `TRANSITION_ZONE_S` (default 0.3s):
+
+- Speed ramps from straight speed to turn entry speed over the transition zone
+- Steer blends from current heading to turn steer_bias
+- This prevents jarring speed/steer changes that could cause skidding or loss of traction
+
 ## Obstacle Handling (Other Cars)
 
 Detection: center sonar reads closer than expected from track profile for current segment.
@@ -292,7 +312,7 @@ All I2C reads wrapped in try/except OSError.
 
 | Priority | Layer | Trigger | Action |
 |----------|-------|---------|--------|
-| 1 | E-stop | Center sonar < 8cm | `px.stop()`, reverse 0.3s |
+| 1 | E-stop | Center sonar < `max(8, speed * 0.3)` cm | `px.stop()`, reverse 0.3s. Threshold scales with speed: 8cm at PWM 20, 15cm at PWM 50. Accounts for worst-case 200ms sonar latency. |
 | 2 | Edge guard | Grayscale detects barrier | Hard steer away, reduce speed to OBSTACLE_SPEED |
 | 3 | Obstacle dodge | Unexpected close sonar | Slow + edge-hug |
 | 4 | I2C failure | 3 consecutive sensor errors | Emergency brake |
@@ -345,6 +365,7 @@ Written every ~0.5s during racing, read by px-api-server for dashboard display:
   "sonar_center_cm": 85,
   "gs": [455, 462, 448],
   "incidents": 1,
+  "battery_v": 8.1,
   "lap_time_s": 14.2,
   "best_lap_s": 13.8
 }
