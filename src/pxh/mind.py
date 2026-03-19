@@ -2186,7 +2186,7 @@ def call_claude_haiku(prompt: str, system: str) -> dict:
     _tmux_run(["tmux", "send-keys", "-t", TMUX_SESSION, instruction, "Enter"])
 
     try:
-        for tick in range(150):
+        for tick in range(180):
             time.sleep(1)
             # Skip first 4s — Read tool + API call can't complete faster
             if tick < 4:
@@ -2261,7 +2261,7 @@ def call_claude_haiku(prompt: str, system: str) -> dict:
         log("tmux: 2 consecutive timeouts — resetting session")
         _tmux_ready = False
         _tmux_timeout_count = 0
-    return {"error": "tmux claude response timeout (150s)"}
+    return {"error": "tmux claude response timeout (180s)"}
 
 
 def call_llm(prompt: str, system: str, persona: str = "") -> dict:
