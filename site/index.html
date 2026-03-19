@@ -142,6 +142,10 @@
           <span id="state-ambient" class="state-stat-val"></span>
         </div>
         <div class="state-stat-row">
+          <span class="state-label">Period</span>
+          <span id="time-period-badge" class="time-period-badge">—</span>
+        </div>
+        <div class="state-stat-row">
           <span class="state-label">Distance</span>
           <span id="proximity-cm" class="state-stat-val">—</span>
           <span class="state-stat-unit">cm</span>
@@ -313,6 +317,15 @@
         </div>
 
       </div><!-- /metric-grid -->
+
+      <!-- Race status -->
+      <div class="race-strip hidden" id="race-status">
+        <span class="race-label">🏎️ Race</span>
+        <span id="race-calibrated" class="race-val">—</span>
+        <span id="race-profile" class="race-val">—</span>
+        <span id="race-live" class="race-val">idle</span>
+      </div>
+
     </div><!-- /band-machine -->
 
     <!-- Offline banner (below all bands) -->

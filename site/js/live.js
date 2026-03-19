@@ -13,7 +13,12 @@
   const THOUGHTS_POLL_MS = 5 * 60_000;  // refresh carousel every 5 min
 
   // mood → numeric value for sparkline charting
-  const MOOD_VAL = { peaceful: 1, content: 2, contemplative: 2, curious: 3, active: 4, excited: 5 };
+  // Mood → numeric arousal value for sparkline charting (0=low, 5=high)
+  const MOOD_VAL = {
+    peaceful: 1, content: 1, bored: 0, lonely: 1,
+    contemplative: 2, mischievous: 3, grumpy: 3, anxious: 3,
+    curious: 3, alert: 4, playful: 4, excited: 5, active: 4,
+  };
 
   let state = {};
   let lastSuccessMs = null;
@@ -56,12 +61,13 @@
   // ── Poll cycle ────────────────────────────────────────────────────────────
 
   async function poll() {
-    const [statusR, vitalsR, sonarR, awarenessR, servicesR] = await Promise.allSettled([
+    const [statusR, vitalsR, sonarR, awarenessR, servicesR, raceR] = await Promise.allSettled([
       fetchWithTimeout(API + '/status'),
       fetchWithTimeout(API + '/vitals'),
       fetchWithTimeout(API + '/sonar'),
       fetchWithTimeout(API + '/awareness'),
       fetchWithTimeout(API + '/services'),
+      fetchWithTimeout(API + '/race'),
     ]);
 
     let anySuccess = false;
@@ -95,6 +101,9 @@
     if (servicesR.status === 'fulfilled') {
       state.services = servicesR.value;
       anySuccess = true;
+    }
+    if (raceR.status === 'fulfilled') {
+      state.race = raceR.value;
     }
 
     if (anySuccess) {
@@ -151,6 +160,7 @@
     SparkDashboard.renderPresence(state);
     SparkDashboard.renderWorld(state);
     SparkDashboard.renderMachine(state);
+    SparkDashboard.renderRace(state);
     SparkDashboard.renderSparklines(loadHistory());
   }
 

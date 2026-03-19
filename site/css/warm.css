@@ -682,6 +682,46 @@ details > *:not(summary) { margin-top: 0.75rem; }
 .sparkline-canvas { display: block; margin-top: 0.5rem; width: 100%; max-width: 100%; }
 .sparkline-label  { font-size: 0.7rem; color: var(--warm-muted); margin-top: 0.2rem; }
 
+/* Time period badge */
+.time-period-badge {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.05);
+  color: var(--warm-muted);
+}
+.period-morning   { background: #fef3c7; color: #92400e; }
+.period-afternoon { background: #fed7aa; color: #9a3412; }
+.period-evening   { background: #e0e7ff; color: #3730a3; }
+.period-night     { background: #1e1b4b; color: #a5b4fc; }
+
+/* Race strip */
+.race-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(0,0,0,0.03);
+  border-radius: var(--radius);
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+.race-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--warm-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.race-val {
+  font-size: 0.78rem;
+  color: var(--warm-muted);
+}
+.race-ok   { color: #16a34a; }
+.race-warn { color: #d97706; }
+.race-active { color: #dc2626; font-weight: 600; }
+
 /* ── Thoughts Carousel — thought bubble ──────────────────────────── */
 
 .thought-carousel {

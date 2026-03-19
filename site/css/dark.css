@@ -102,9 +102,12 @@
   border-color: var(--dark-text);
 }
 
-[data-theme="dark"] .services-strip {
+[data-theme="dark"] .services-strip,
+[data-theme="dark"] .race-strip {
   background: rgba(255,255,255,0.04);
 }
+[data-theme="dark"] .time-period-badge { background: rgba(255,255,255,0.08); }
+[data-theme="dark"] .period-night { background: #1e1b4b; color: #a5b4fc; }
 [data-theme="dark"] .section-eyebrow,
 [data-theme="dark"] .services-strip-label,
 [data-theme="dark"] .wx-metric-label,

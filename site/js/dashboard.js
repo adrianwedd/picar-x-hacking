@@ -169,6 +169,14 @@ window.SparkDashboard = (function () {
       }
     }
 
+    // Time period badge
+    const periodEl = $('time-period-badge');
+    if (periodEl) {
+      const period = state.time_period || '';
+      periodEl.textContent = period || '—';
+      periodEl.className = 'time-period-badge' + (period ? ' period-' + period : '');
+    }
+
     // Expose for chat.js bubble colour sync
     SparkDashboard.currentMoodWord = mood;
     document.dispatchEvent(new CustomEvent('spark-state-updated'));
@@ -404,8 +412,50 @@ window.SparkDashboard = (function () {
     });
   }
 
+  // ── Race status ──────────────────────────────────────────────────────────
+
+  function renderRace(state) {
+    const container = $('race-status');
+    if (!container) return;
+    const race = state.race;
+    if (!race) return;
+
+    container.classList.remove('hidden');
+    const calibrated = $('race-calibrated');
+    if (calibrated) {
+      calibrated.textContent = race.calibrated ? '✓ calibrated' : '✗ not calibrated';
+      calibrated.className = race.calibrated ? 'race-val race-ok' : 'race-val race-warn';
+    }
+
+    const profile = $('race-profile');
+    if (profile) {
+      if (race.profile) {
+        const p = race.profile;
+        const segs = p.segments_count || '?';
+        const laps = p.laps_completed || 0;
+        const best = p.best_lap_s ? p.best_lap_s.toFixed(1) + 's' : '—';
+        profile.textContent = segs + ' seg · ' + laps + ' laps · best ' + best;
+      } else {
+        profile.textContent = 'no profile — run px-race --map';
+      }
+    }
+
+    const live = $('race-live');
+    if (live) {
+      if (race.live && race.live.age_s != null && race.live.age_s < 10) {
+        const l = race.live;
+        live.textContent = 'lap ' + (l.lap || '?') + ' · ' +
+          (l.speed || 0) + ' PWM · ' + (l.incidents || 0) + ' incidents';
+        live.className = 'race-val race-active';
+      } else {
+        live.textContent = 'idle';
+        live.className = 'race-val';
+      }
+    }
+  }
+
   // Draw initial connecting state
   _drawFavicon('#d1c4b8');
 
-  return { renderPresence, renderWorld, renderMachine, renderSparklines, setOnline, setLastUpdated, moodColor: _moodColor };
+  return { renderPresence, renderWorld, renderMachine, renderRace, renderSparklines, setOnline, setLastUpdated, moodColor: _moodColor };
 })();
