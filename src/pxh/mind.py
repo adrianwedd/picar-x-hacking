@@ -2260,8 +2260,8 @@ def call_claude_haiku(prompt: str, system: str) -> dict:
 
     # Timeout — reset session after 2 consecutive timeouts
     _tmux_timeout_count += 1
-    if _tmux_timeout_count >= 2:
-        log("tmux: 2 consecutive timeouts — resetting session")
+    if _tmux_timeout_count >= 5:
+        log("tmux: 5 consecutive timeouts — resetting session")
         _tmux_ready = False
         _tmux_timeout_count = 0
     return {"error": "tmux claude response timeout (180s)"}
@@ -3019,7 +3019,8 @@ def expression(thought: dict, dry: bool, awareness: dict | None = None) -> None:
     except subprocess.TimeoutExpired:
         log(f"expression timed out: {action} (possible voice contention — another process may hold voice.lock)")
     except Exception as exc:
-        log(f"expression error: {exc}")
+        import traceback
+        log(f"expression error: {exc}\n{traceback.format_exc()}")
 
     # Record in session history
     update_session(
