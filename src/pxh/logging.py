@@ -6,7 +6,10 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
-from filelock import FileLock
+try:
+    from filelock import FileLock
+except ImportError:
+    FileLock = None
 
 from .time import utc_timestamp
 
@@ -40,7 +43,9 @@ def log_event(name: str, payload: Mapping[str, Any]) -> None:
         "ts": utc_timestamp(),
         **payload,
     }
-    with FileLock(lock_path):
+    import contextlib
+    lock = FileLock(lock_path) if FileLock is not None else contextlib.nullcontext()
+    with lock:
         with log_path.open("a", encoding="utf-8") as handle:
             json.dump(record, handle)
             handle.write("\n")

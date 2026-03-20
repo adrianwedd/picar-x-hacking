@@ -7,7 +7,10 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from filelock import FileLock
+try:
+    from filelock import FileLock
+except ImportError:
+    FileLock = None  # deferred — only needed by session lock functions
 
 from .logging import log_event
 from .time import utc_timestamp
@@ -109,7 +112,17 @@ def session_path() -> Path:
     return DEFAULT_SESSION_PATH
 
 
+def _require_filelock():
+    """Raise a clear error if filelock is not installed."""
+    if FileLock is None:
+        raise ImportError(
+            "filelock is required for session management. "
+            "Install it: pip install filelock"
+        )
+
+
 def ensure_session() -> Path:
+    _require_filelock()
     path = session_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = str(path) + ".lock"
