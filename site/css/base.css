@@ -177,6 +177,11 @@ section:first-of-type { padding-top: calc(var(--nav-height) + 5rem); }
 .align-center    { align-items: center; }
 .justify-between { justify-content: space-between; }
 
+/* Voice samples */
+.voice-samples { display: flex; flex-wrap: wrap; gap: 1.25rem; margin: 1rem 0 1.5rem; }
+.voice-sample  { flex: 1 1 200px; min-width: 200px; }
+.voice-sample audio { width: 100%; margin-top: 0.35rem; }
+
 /* Live card inner layout */
 .live-meta { display: flex; gap: 1rem; margin-top: 0.75rem; font-size: 0.8rem; opacity: 0.5; }
 .live-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.5; margin-bottom: 0.5rem; }
