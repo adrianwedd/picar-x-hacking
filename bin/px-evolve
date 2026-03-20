@@ -123,7 +123,9 @@ def append_evolve_log(record: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def build_prompt(intent: str, introspection: dict) -> str:
-    return f"""You are SPARK, a PiCar-X robot, proposing a change to your own code.
+    return f"""You are SPARK, a PiCar-X robot, making a concrete code change to your own configuration.
+
+IMPORTANT: You MUST use your Edit or Write tools to modify files. Do NOT just describe what you would change — actually make the edit, then commit it with git.
 
 ## Your intent
 {intent}
@@ -131,25 +133,28 @@ def build_prompt(intent: str, introspection: dict) -> str:
 ## Your current state
 {json.dumps(introspection, indent=2)}
 
+## What to do
+1. Read src/pxh/spark_config.py to understand the current configuration
+2. Edit src/pxh/spark_config.py to implement your intent (e.g. add angles to SPARK_ANGLES, add topic seeds to TOPIC_SEEDS, adjust constants)
+3. Run: git add -A && git commit -m "[SPARK] your description"
+
 ## File whitelist (you may ONLY modify these)
-- src/pxh/spark_config.py — SPARK's tunable configuration
-- bin/tool-* — create new tools only
-- src/pxh/voice_loop.py — ALLOWED_TOOLS and TOOL_COMMANDS only
-- tests/ — add new test files
+- src/pxh/spark_config.py — SPARK's tunable configuration (angles, seeds, prompts, constants)
+- bin/tool-* — create new tools only (do not modify existing tools)
+- src/pxh/voice_loop.py — ALLOWED_TOOLS and TOOL_COMMANDS dicts only
+- tests/ — add new test files for any new tools
 
 ## File blacklist (NEVER touch)
-- docs/prompts/persona-gremlin.md, persona-vixen.md
-- bin/tool-chat, bin/tool-chat-vixen
-- REFLECTION_SYSTEM_GREMLIN, REFLECTION_SYSTEM_VIXEN in mind.py
-- src/pxh/api.py, src/pxh/mind.py
-- .env, credentials, systemd units, bin/px-evolve
+- src/pxh/mind.py, src/pxh/api.py
+- docs/prompts/persona-*.md
+- bin/tool-chat, bin/tool-chat-vixen, bin/px-evolve
+- .env, credentials, systemd units
 
 ## Rules
-- Minimal changes serving your intent
-- Add tests for new tools
+- Make the actual edit — do not just describe it
+- Minimal, focused changes serving your intent
 - Commit with message: "[SPARK] {{description}}"
 - Max {EVOLVE_MAX_FILES} files changed
-- No safety gate changes
 """
 
 
@@ -196,7 +201,7 @@ def _run_in_worktree(
         "--model", EVOLVE_MODEL,
         "--allowedTools", "Read,Write,Edit,Bash,Glob,Grep",
     ]
-    log(f"[{entry_id}] running: {' '.join(cmd[:4])}... (timeout={EVOLVE_TIMEOUT}s)")
+    log(f"[{entry_id}] running: {' '.join(cmd[:4])}... (timeout={EVOLVE_TIMEOUT}s, cwd={workdir})")
 
     if dry:
         log(f"[{entry_id}] DRY RUN — skipping Claude execution")
@@ -208,6 +213,8 @@ def _run_in_worktree(
             timeout=EVOLVE_TIMEOUT,
         )
         log(f"[{entry_id}] claude exit={result.returncode} stdout={len(result.stdout)}B stderr={len(result.stderr)}B")
+        if result.stdout:
+            log(f"[{entry_id}] claude stdout: {result.stdout[:500]}")
     except subprocess.TimeoutExpired:
         log(f"[{entry_id}] claude timed out after {EVOLVE_TIMEOUT}s")
         return "failed:timeout"
