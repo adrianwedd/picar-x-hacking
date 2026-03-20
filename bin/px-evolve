@@ -203,7 +203,6 @@ def _run_in_worktree(
         "--model", EVOLVE_MODEL,
         "--allowedTools", "Read,Write,Edit,Bash,Glob,Grep",
         "--no-session-persistence",
-        "--output-format", "text",
     ]
     log(f"[{entry_id}] running claude interactive (timeout={EVOLVE_TIMEOUT}s, cwd={workdir})")
 
