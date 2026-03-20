@@ -194,26 +194,28 @@ def _run_in_worktree(
     """Run Claude, validate, test, and PR inside the worktree."""
     prompt = build_prompt(intent, introspection)
 
-    # 2. Run Claude Opus in interactive mode via stdin
-    # Note: `claude -p` is single-shot text-only — it can't use tools.
-    # We pipe the prompt via stdin to interactive mode instead.
+    # 2. Run Claude Opus with prompt via -p but using --dangerously-skip-permissions
+    # which enables tool use even in single-prompt mode
     cmd = [
-        "claude",
+        "claude", "-p", prompt,
         "--dangerously-skip-permissions",
         "--model", EVOLVE_MODEL,
-        "--allowedTools", "Read,Write,Edit,Bash,Glob,Grep",
-        "--no-session-persistence",
     ]
-    log(f"[{entry_id}] running claude interactive (timeout={EVOLVE_TIMEOUT}s, cwd={workdir})")
+    log(f"[{entry_id}] running claude -p with permissions bypass (timeout={EVOLVE_TIMEOUT}s, cwd={workdir})")
 
     if dry:
         log(f"[{entry_id}] DRY RUN — skipping Claude execution")
         return "failed:no_changes"
 
+    # Strip Claude Code env vars for clean nested invocation
+    run_env = {k: v for k, v in os.environ.items()
+               if not k.startswith("CLAUDE_CODE")
+               and k not in ("CLAUDECODE", "DISABLE_CLAUDE_CODE_PROTECTIONS")}
+
     try:
         result = subprocess.run(
             cmd, cwd=workdir, capture_output=True, text=True,
-            input=prompt, timeout=EVOLVE_TIMEOUT,
+            timeout=EVOLVE_TIMEOUT, env=run_env,
         )
         log(f"[{entry_id}] claude exit={result.returncode} stdout={len(result.stdout)}B stderr={len(result.stderr)}B")
         if result.stdout:
