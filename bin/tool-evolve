@@ -70,7 +70,10 @@ def main() -> int:
                     ts = float(ts_raw)
                 else:
                     continue  # unparseable — skip this entry
-                if now - ts < RATE_LIMIT_S:
+                # Only count successful evolutions (pr_created) against rate limit
+                # Failed attempts shouldn't block the next try
+                status = entry.get("status", "")
+                if status == "pr_created" and now - ts < RATE_LIMIT_S:
                     return error("rate limit: max 1 evolution per 24 hours")
             except (json.JSONDecodeError, TypeError, ValueError, OverflowError):
                 continue
