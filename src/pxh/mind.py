@@ -1976,14 +1976,6 @@ def call_ollama(prompt: str, system: str,
         return {"error": str(exc)}
 
 
-TMUX_SESSION = "px-claude"
-TMUX_SOCKET  = "px-mind"  # separate socket so systemd restart doesn't kill user tmux sessions
-TMUX_MAX_TURNS = 20  # reset session after N turns to prevent context buildup / refusal
-_tmux_ready = False
-_tmux_timeout_count = 0
-_tmux_turn_count = 0
-
-
 def _reset_state():
     """Reset all mutable module globals to defaults. Called by test fixtures."""
     global _battery_history, _battery_glitch_count, _battery_glitch_first_mono
@@ -2000,7 +1992,6 @@ def _reset_state():
     global _consecutive_reflection_failures, _reflection_offline_spoken
     global _mood_v, _mood_a
     global _time_period_start_mono, _last_image_cleanup
-    global _tmux_ready, _tmux_timeout_count, _tmux_turn_count
 
     _battery_history = []
     _battery_glitch_count = 0
@@ -2031,124 +2022,7 @@ def _reset_state():
     _mood_a = 0.0
     _time_period_start_mono = 0.0
     _last_image_cleanup = 0.0
-    _tmux_ready = False
-    _tmux_timeout_count = 0
-    _tmux_turn_count = 0
 
-
-def _tmux_run(args: list, **kwargs) -> subprocess.CompletedProcess:
-    """Run a tmux command on the px-mind socket, catching FileNotFoundError."""
-    try:
-        # Inject -L px-mind after 'tmux' to use a dedicated socket
-        if args and args[0] == "tmux" and "-L" not in args and "-S" not in args:
-            args = [args[0], "-L", TMUX_SOCKET] + args[1:]
-        return subprocess.run(args, capture_output=True, **kwargs)
-    except FileNotFoundError:
-        empty = "" if kwargs.get("text") else b""
-        err = "tmux not found" if kwargs.get("text") else b"tmux not found"
-        return subprocess.CompletedProcess(args, returncode=127,
-                                           stdout=empty, stderr=err)
-
-
-def _tmux_ensure_session() -> bool:
-    """Ensure a persistent Claude session is running in tmux. Returns True if ready."""
-    global _tmux_ready, _tmux_timeout_count, _tmux_turn_count
-    import shutil
-
-    if _tmux_ready:
-        # Rotate session after N turns to prevent context buildup / Claude refusal
-        if _tmux_turn_count >= TMUX_MAX_TURNS:
-            log(f"tmux: rotating session after {_tmux_turn_count} turns")
-            _tmux_ready = False
-        else:
-            r = _tmux_run(["tmux", "has-session", "-t", TMUX_SESSION])
-            if r.returncode == 0:
-                return True
-            _tmux_ready = False
-
-    claude_bin = shutil.which("claude")
-    if not claude_bin:
-        import glob
-        candidates = glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/claude"))
-        claude_bin = candidates[0] if candidates else None
-    if not claude_bin:
-        log("tmux: claude binary not found in PATH or ~/.nvm")
-        return False
-
-    _tmux_run(["tmux", "kill-session", "-t", TMUX_SESSION])
-
-    env_str = " ".join(f"unset {k};" for k in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"))
-    # cd to spark-reflect dir so Claude CLI reads the minimal reflection CLAUDE.md
-    # instead of the full project CLAUDE.md (which causes refusal drift)
-    reflect_dir = STATE_DIR / "spark-reflect"
-    reflect_dir.mkdir(parents=True, exist_ok=True)
-    cmd = f"cd {reflect_dir} && {env_str} {claude_bin} --model {CLAUDE_MODEL}"
-
-    r = _tmux_run(["tmux", "new-session", "-d", "-s", TMUX_SESSION, "-x", "200", "-y", "50"])
-    if r.returncode != 0:
-        log(f"tmux: new-session failed (rc={r.returncode})")
-        return False
-    _tmux_run(["tmux", "send-keys", "-t", TMUX_SESSION, cmd, "Enter"])
-
-    # Pipe all pane output to a log file for monitoring without attaching
-    log_dir = Path(os.environ.get("LOG_DIR", PROJECT_ROOT / "logs"))
-    log_dir.mkdir(parents=True, exist_ok=True)
-    claude_log = log_dir / "px-claude.log"
-    _tmux_run(["tmux", "pipe-pane", "-t", TMUX_SESSION, "-o",
-               f"cat >> '{claude_log}'"])
-
-    for _ in range(30):
-        time.sleep(1)
-        pane = _tmux_run(["tmux", "capture-pane", "-t", TMUX_SESSION, "-p"],
-                         text=True).stdout or ""
-        if "\u276f" in pane:  # ❯
-            _tmux_ready = True
-            _tmux_timeout_count = 0
-            _tmux_turn_count = 0
-            log(f"tmux claude session ready")
-            return True
-
-    log("tmux claude session failed to start in 30s")
-    return False
-
-
-def _tmux_capture() -> str:
-    """Capture current tmux pane content."""
-    return (_tmux_run(["tmux", "capture-pane", "-t", TMUX_SESSION,
-                       "-p", "-S", "-200"], text=True).stdout or "")
-
-
-def _extract_json_from_pane(text: str) -> str | None:
-    """Extract the LAST JSON object with a 'thought' key from pane text.
-
-    Claude CLI wraps long lines in the tmux pane, inserting literal newlines
-    and leading whitespace inside JSON string values. We rejoin wrapped lines
-    before parsing: any newline followed by whitespace that is NOT a JSON
-    structural indent (not starting with ") is treated as a line wrap.
-    """
-    # Rejoin pane-wrapped lines: \n followed by 1-3 spaces then a non-structural
-    # character is a continuation of the previous line (pane line wrap, not JSON indent)
-    import re
-    text = re.sub(r'\n {1,3}(?=[^"{}\[\]])', ' ', text)
-
-    decoder = json.JSONDecoder()
-    last_match = None
-    _logged_non_thought = False
-    idx = text.find("{")
-    while idx != -1 and idx < len(text):
-        try:
-            obj, end = decoder.raw_decode(text, idx)
-            if isinstance(obj, dict):
-                if "thought" in obj:
-                    last_match = json.dumps(obj)
-                elif not _logged_non_thought:
-                    log(f"tmux: found JSON without 'thought' key: {list(obj.keys())}")
-                    _logged_non_thought = True
-            idx = end  # skip past parsed object (avoids nested-JSON dupes)
-        except (json.JSONDecodeError, ValueError):
-            idx += 1
-        idx = text.find("{", idx)
-    return last_match
 
 
 def call_claude_haiku(prompt: str, system: str) -> dict:
