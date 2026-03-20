@@ -194,14 +194,36 @@ def _run_in_worktree(
     """Run Claude, validate, test, and PR inside the worktree."""
     prompt = build_prompt(intent, introspection)
 
-    # 2. Run Claude Opus with prompt via -p but using --dangerously-skip-permissions
-    # which enables tool use even in single-prompt mode
+    # 2. Run Claude Opus via -p and ask for a unified diff patch.
+    # claude -p cannot use Edit/Write tools, so we ask Claude to output
+    # a git-apply-compatible patch, then apply it ourselves.
+    patch_prompt = prompt + """
+
+CRITICAL: You CANNOT edit files directly. Instead, output a unified diff patch
+that I can apply with `git apply`. Format:
+
+```diff
+--- a/src/pxh/spark_config.py
++++ b/src/pxh/spark_config.py
+@@ -line,count +line,count @@
+ context line
+-old line
++new line
+ context line
+```
+
+Output ONLY the diff block. No explanation before or after. Start with ```diff and end with ```.
+Then on a new line, output the commit message as: COMMIT_MSG: [SPARK] your description
+"""
+
     cmd = [
-        "claude", "-p", prompt,
-        "--dangerously-skip-permissions",
+        "claude", "-p", patch_prompt,
         "--model", EVOLVE_MODEL,
+        "--no-session-persistence",
+        "--output-format", "text",
+        "--allowedTools", "",
     ]
-    log(f"[{entry_id}] running claude -p with permissions bypass (timeout={EVOLVE_TIMEOUT}s, cwd={workdir})")
+    log(f"[{entry_id}] running claude -p for patch output (timeout={EVOLVE_TIMEOUT}s, cwd={workdir})")
 
     if dry:
         log(f"[{entry_id}] DRY RUN — skipping Claude execution")
@@ -223,6 +245,43 @@ def _run_in_worktree(
     except subprocess.TimeoutExpired:
         log(f"[{entry_id}] claude timed out after {EVOLVE_TIMEOUT}s")
         return "failed:timeout"
+
+    # 3b. Extract and apply patch from Claude's output
+    import re as _re
+    patch_match = _re.search(r'```diff\n(.*?)```', result.stdout, _re.DOTALL)
+    if patch_match:
+        patch_text = patch_match.group(1)
+        log(f"[{entry_id}] extracted patch ({len(patch_text)}B)")
+        try:
+            apply_result = subprocess.run(
+                ["git", "apply", "--check", "-"],
+                input=patch_text, cwd=workdir,
+                capture_output=True, text=True, timeout=10,
+            )
+            if apply_result.returncode == 0:
+                subprocess.run(
+                    ["git", "apply", "-"],
+                    input=patch_text, cwd=workdir,
+                    capture_output=True, text=True, timeout=10,
+                )
+                # Extract commit message
+                commit_match = _re.search(r'COMMIT_MSG:\s*(.+)', result.stdout)
+                commit_msg = commit_match.group(1).strip() if commit_match else f"[SPARK] {intent[:60]}"
+                subprocess.run(
+                    ["git", "add", "-A"],
+                    cwd=workdir, capture_output=True, text=True, timeout=10,
+                )
+                subprocess.run(
+                    ["git", "commit", "-m", commit_msg],
+                    cwd=workdir, capture_output=True, text=True, timeout=10,
+                )
+                log(f"[{entry_id}] patch applied and committed: {commit_msg}")
+            else:
+                log(f"[{entry_id}] patch failed --check: {apply_result.stderr[:200]}")
+        except Exception as exc:
+            log(f"[{entry_id}] patch apply error: {exc}")
+    else:
+        log(f"[{entry_id}] no ```diff block found in claude output")
 
     # 4. Check for changes
     diff_result = subprocess.run(
