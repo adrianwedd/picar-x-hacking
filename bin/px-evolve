@@ -254,6 +254,7 @@ Then on a new line, output the commit message as: COMMIT_MSG: [SPARK] your descr
         log(f"[{entry_id}] extracted patch ({len(patch_text)}B)")
         try:
             # Try git apply first (strict), fall back to patch -p1 (lenient)
+            applied = False
             apply_result = subprocess.run(
                 ["git", "apply", "--check", "-"],
                 input=patch_text, cwd=workdir,
@@ -265,6 +266,7 @@ Then on a new line, output the commit message as: COMMIT_MSG: [SPARK] your descr
                     input=patch_text, cwd=workdir,
                     capture_output=True, text=True, timeout=10,
                 )
+                applied = True
             else:
                 # Lenient fallback: patch -p1 with fuzz
                 log(f"[{entry_id}] git apply --check failed, trying patch -p1")
@@ -273,10 +275,12 @@ Then on a new line, output the commit message as: COMMIT_MSG: [SPARK] your descr
                     input=patch_text, cwd=workdir,
                     capture_output=True, text=True, timeout=10,
                 )
-                if fallback.returncode != 0:
+                if fallback.returncode == 0:
+                    applied = True
+                else:
                     log(f"[{entry_id}] patch -p1 also failed: {fallback.stderr[:200]}")
-                    return "failed:patch"
-                # Extract commit message
+
+            if applied:
                 commit_match = _re.search(r'COMMIT_MSG:\s*(.+)', result.stdout)
                 commit_msg = commit_match.group(1).strip() if commit_match else f"[SPARK] {intent[:60]}"
                 subprocess.run(
@@ -288,8 +292,6 @@ Then on a new line, output the commit message as: COMMIT_MSG: [SPARK] your descr
                     cwd=workdir, capture_output=True, text=True, timeout=10,
                 )
                 log(f"[{entry_id}] patch applied and committed: {commit_msg}")
-            else:
-                log(f"[{entry_id}] patch failed --check: {apply_result.stderr[:200]}")
         except Exception as exc:
             log(f"[{entry_id}] patch apply error: {exc}")
     else:
