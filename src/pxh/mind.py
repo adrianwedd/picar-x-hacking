@@ -2152,148 +2152,71 @@ def _extract_json_from_pane(text: str) -> str | None:
 
 
 def call_claude_haiku(prompt: str, system: str) -> dict:
-    """Call Claude via persistent tmux session. ~10-25s vs ~55s for CLI cold start."""
-    global _tmux_ready, _tmux_timeout_count, _tmux_turn_count
+    """Call Claude via subprocess (`claude -p`). Simple, reliable, no tmux overhead."""
+    import shutil
 
-    if not _tmux_ensure_session():
-        return {"error": "tmux claude session not available"}
+    claude_bin = os.environ.get("PX_CLAUDE_BIN") or shutil.which("claude")
+    if not claude_bin:
+        import glob
+        candidates = glob.glob(os.path.expanduser("~/.nvm/versions/node/*/bin/claude"))
+        claude_bin = candidates[0] if candidates else None
+    if not claude_bin:
+        return {"error": "claude binary not found"}
 
-    full_prompt = f"[System: {system}]\n\n{prompt}"
+    full_prompt = f"[System: {system}]\n\n{prompt}\n\nOutput ONLY the JSON object."
 
-    # Write prompt into spark-reflect dir so it's within Claude's working directory
-    # (Claude CLI in don't-ask mode only reads files in its cwd tree)
-    reflect_dir = STATE_DIR / "spark-reflect"
-    reflect_dir.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=str(reflect_dir), prefix=".claude_prompt_",
-                                     suffix=".tmp")
-    prompt_file = Path(tmp_path)
+    # Strip Claude Code env vars to allow nested invocation
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("CLAUDE_CODE")
+           and k not in ("CLAUDECODE", "DISABLE_CLAUDE_CODE_PROTECTIONS")}
+
     try:
-        f = os.fdopen(fd, "w", encoding="utf-8")
+        result = subprocess.run(
+            [claude_bin, "-p", full_prompt,
+             "--model", CLAUDE_MODEL,
+             "--no-session-persistence",
+             "--output-format", "text",
+             "--allowedTools", ""],
+            capture_output=True, text=True, timeout=120,
+            env=env, cwd=str(STATE_DIR / "spark-reflect"),
+        )
+    except subprocess.TimeoutExpired:
+        return {"error": "claude subprocess timeout (120s)"}
     except Exception as exc:
-        os.close(fd)
-        prompt_file.unlink(missing_ok=True)
-        return {"error": f"prompt fdopen failed: {exc}"}
+        return {"error": f"claude subprocess failed: {exc}"}
+
+    if result.returncode != 0:
+        stderr = (result.stderr or "")[-200:]
+        return {"error": f"claude exit {result.returncode}: {stderr}"}
+
+    # Extract JSON from stdout (may contain preamble text before the JSON)
+    stdout = result.stdout.strip()
+    if not stdout:
+        return {"error": "claude returned empty output"}
+
+    # Try direct parse first
     try:
-        f.write(full_prompt)
-        f.close()
-    except Exception as exc:
+        obj = json.loads(stdout)
+        if isinstance(obj, dict) and "thought" in obj:
+            return {"response": json.dumps(obj)}
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Scan for JSON object with 'thought' key
+    decoder = json.JSONDecoder()
+    idx = stdout.find("{")
+    while idx != -1 and idx < len(stdout):
         try:
-            f.close()
-        except Exception:
-            pass
-        prompt_file.unlink(missing_ok=True)
-        return {"error": f"prompt write failed: {exc}"}
+            obj, end = decoder.raw_decode(stdout, idx)
+            if isinstance(obj, dict) and "thought" in obj:
+                log(f"claude subprocess response captured ({len(stdout)}B)")
+                return {"response": json.dumps(obj)}
+            idx = end
+        except (json.JSONDecodeError, ValueError):
+            idx += 1
+        idx = stdout.find("{", idx)
 
-    marker = f"PXM-{int(time.time())}-{os.getpid()}"
-    instruction = f"[{marker}] Read {prompt_file} and follow the instructions inside it. Output ONLY the JSON."
-    _tmux_run(["tmux", "send-keys", "-t", TMUX_SESSION, instruction, "Enter"])
-
-    try:
-        for tick in range(180):
-            time.sleep(1)
-            # Skip first 4s — Read tool + API call can't complete faster
-            if tick < 4:
-                continue
-            pane = _tmux_capture()
-            lines = pane.strip().splitlines()
-
-            marker_idx = None
-            for i, line in enumerate(lines):
-                if marker in line:
-                    marker_idx = i
-                    break
-            if marker_idx is None:
-                continue
-
-            # Check for completion: need ● (response content) THEN ❯ (next prompt)
-            after_marker = "\n".join(lines[marker_idx + 1:])
-            has_response = "\u25cf" in after_marker  # ● = response line
-            has_prompt = False
-            # ❯ must appear AFTER a ● line to be a completion signal
-            if has_response:
-                after_first_bullet = after_marker[after_marker.index("\u25cf"):]
-                has_prompt = "\u276f" in after_first_bullet
-
-            # Normal path: require both ● and ❯
-            # Fallback: in the last 30s before timeout, accept ● alone
-            # (the response is complete but ❯ hasn't rendered yet)
-            if not has_response:
-                continue
-            if not has_prompt and tick < 150:
-                continue  # wait for ❯ during first 150s
-
-            # Try JSON extraction from raw pane text (robust, ignores ● formatting)
-            json_str = _extract_json_from_pane(after_marker)
-            if json_str:
-                _tmux_timeout_count = 0
-                _tmux_turn_count += 1
-                log(f"tmux response captured ({tick+1}s, turn {_tmux_turn_count}/{TMUX_MAX_TURNS})")
-                return {"response": json_str}
-
-            # Fallback: collect ● lines and continuation lines
-            response_lines = []
-            found_final_prompt = False
-            for line in lines[marker_idx + 1:]:
-                stripped = line.strip()
-                if stripped.startswith("\u23bf") or stripped.startswith("\u2500"):
-                    continue  # ⎿ and ─
-                if stripped.startswith("\u25cf"):  # ●
-                    text = stripped.lstrip("\u25cf").strip()
-                    if "(" in text and text.endswith(")"):
-                        continue
-                    if "\u2026" in text:
-                        continue  # …
-                    if text:
-                        response_lines.append(text)
-                    continue
-                if response_lines and stripped and not stripped.startswith("\u276f") and not stripped.startswith("\u26a1"):
-                    response_lines.append(stripped)
-                if stripped.startswith("\u276f") and response_lines:
-                    found_final_prompt = True
-                    break
-
-            if response_lines and (found_final_prompt or tick >= 150):
-                # Without ❯, require quiescence: pane text must be stable for 3 ticks
-                # to avoid capturing truncated streaming responses
-                if not found_final_prompt:
-                    _pane_text = after_marker
-                    if not hasattr(call_claude_haiku, '_last_pane'):
-                        call_claude_haiku._last_pane = ""
-                        call_claude_haiku._stable_ticks = 0
-                    if _pane_text == call_claude_haiku._last_pane:
-                        call_claude_haiku._stable_ticks += 1
-                    else:
-                        call_claude_haiku._stable_ticks = 0
-                    call_claude_haiku._last_pane = _pane_text
-                    if call_claude_haiku._stable_ticks < 3:
-                        continue  # wait for quiescence
-
-                _tmux_timeout_count = 0
-                _tmux_turn_count += 1
-                resp = "\n".join(response_lines)
-                log(f"tmux response captured ({tick+1}s, {len(response_lines)} lines, prompt={'yes' if found_final_prompt else 'quiescent'})")
-                # Clean up quiescence state
-                if hasattr(call_claude_haiku, '_last_pane'):
-                    del call_claude_haiku._last_pane
-                    del call_claude_haiku._stable_ticks
-                return {"response": resp}
-    finally:
-        # Clean up quiescence state on timeout too
-        if hasattr(call_claude_haiku, '_last_pane'):
-            del call_claude_haiku._last_pane
-            del call_claude_haiku._stable_ticks
-        try:
-            prompt_file.unlink(missing_ok=True)
-        except Exception as exc:
-            log(f"tmux: prompt file cleanup failed: {exc}")
-
-    # Timeout — reset session after 5 consecutive timeouts
-    _tmux_timeout_count += 1
-    if _tmux_timeout_count >= 5:
-        log("tmux: 5 consecutive timeouts — resetting session")
-        _tmux_ready = False
-        _tmux_timeout_count = 0
-    return {"error": "tmux claude response timeout (180s)"}
+    return {"error": f"no thought JSON in claude output ({len(stdout)}B)"}
 
 
 def call_llm(prompt: str, system: str, persona: str = "") -> dict:
