@@ -2837,7 +2837,14 @@ def expression(thought: dict, dry: bool, awareness: dict | None = None) -> None:
                 [str(BIN_DIR / "tool-evolve")],
                 capture_output=True, text=True, check=False, env=env, timeout=15)
             intent = thought.get("thought", "")[:80]
-            log(f"expression: evolve queued — {intent}")
+            try:
+                evolve_out = json.loads(result.stdout.strip().splitlines()[-1])
+                status = evolve_out.get("status", "?")
+                log(f"expression: evolve {status} — {intent}")
+                if status == "error":
+                    log(f"expression: evolve blocked: {evolve_out.get('error', '?')}")
+            except (json.JSONDecodeError, IndexError, TypeError):
+                log(f"expression: evolve rc={result.returncode} — {intent}")
 
         else:
             log(f"expression: unhandled action: {action}")
