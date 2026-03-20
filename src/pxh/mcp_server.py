@@ -61,7 +61,7 @@ def _read_jsonl_tail(path: Path, n: int = 10) -> list[dict]:
 
 @mcp.tool()
 def spark_status() -> str:
-    """Get SPARK's current session state — persona, mood, listening, motion allowed, Obi mode."""
+    """Get SPARK's current session state — persona, listening, motion allowed, last action, robot name."""
     data = _read_json(STATE_DIR / "session.json")
     if data is None:
         return json.dumps({"error": "session.json not found"})

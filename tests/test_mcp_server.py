@@ -103,8 +103,8 @@ class TestSparkVitals:
         # psutil should be available in test env
         assert "ram_mb" in result or "error" in result
 
-    def test_no_data_returns_error(self, state_dir):
-        with patch.dict(os.environ, {}, clear=False), \
-             patch("pxh.mcp_server._read_json", return_value=None):
-            # With no battery and no psutil, should get error
-            pass  # hard to fully isolate, just ensure no crash
+    def test_no_battery_still_returns_ram(self, state_dir):
+        # No battery.json, but psutil available → should return ram data
+        result = json.loads(spark_vitals())
+        assert "battery" not in result
+        assert "ram_mb" in result

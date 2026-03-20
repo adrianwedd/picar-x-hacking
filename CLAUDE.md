@@ -246,6 +246,14 @@ Single-instance PID guard. Restart policy: on-failure, 30 s.
 
 **New env vars**: `PX_EVOLVE_DRY` (1 = skip worktree/PR), `PX_EVOLVE_MODEL` (default: `claude-opus-4-6`), `PX_EVOLVE_TIMEOUT` (default: 300 s), `PX_EVOLVE_MAX_FILES` (default: 3).
 
+### MCP Server (Claude Code integration)
+
+`bin/mcp-server` exposes 5 read-only MCP tools for Claude Code dev sessions. Registered in `.mcp.json` (auto-discovered by Claude Code). Uses `FastMCP` (stdio transport).
+
+**Tools**: `spark_status` (session state), `spark_thoughts` (recent thoughts), `spark_awareness` (Layer 1 state), `spark_sonar` (latest reading), `spark_vitals` (CPU/RAM/battery).
+
+All read-only — no motion, no audio, no state mutation. Phase 1 of #36.
+
 ### Site (spark.wedd.au)
 
 Static site hosted on **Cloudflare Pages** (auto-deploys from `master` branch, `site/` directory). Three pages: landing (`/`), thought feed (`/feed/`), thought permalink (`/thought/?ts=`).

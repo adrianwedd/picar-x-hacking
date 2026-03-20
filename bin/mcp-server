@@ -3,10 +3,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/px-env"
-# Use VIRTUAL_ENV python if available (handles Pi venv + dev Mac venv),
-# fall back to whatever python3 is on PATH.
-if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python3" ]; then
-    exec "$VIRTUAL_ENV/bin/python3" -m pxh.mcp_server "$@"
+# Use project venv python, falling back to PATH python3.
+# The project venv may contain a cross-arch binary (Pi ARM venv checked out
+# on Mac), so verify it can actually execute before using it.
+PY="$PROJECT_ROOT/.venv/bin/python3"
+if [ -x "$PY" ] && "$PY" -c "pass" 2>/dev/null; then
+    exec "$PY" -m pxh.mcp_server "$@"
 else
     exec python3 -m pxh.mcp_server "$@"
 fi
