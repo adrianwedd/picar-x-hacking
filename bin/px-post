@@ -364,6 +364,8 @@ def _save_cursor(offset: int, inode: int) -> None:
         fd, tmp = tempfile.mkstemp(dir=str(STATE_DIR), suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, str(CURSOR_FILE))
     except Exception as exc:
         log(f"cursor write failed: {exc}")
@@ -452,6 +454,8 @@ def write_feed(thought: dict) -> bool:
         fd, tmp = tempfile.mkstemp(dir=str(STATE_DIR), suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, str(FEED_FILE))
         return True
     except Exception as exc:
@@ -688,6 +692,8 @@ def _save_queue(entries: list[dict]) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             for e in entries:
                 f.write(json.dumps(e) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, str(QUEUE_FILE))
     except Exception as exc:
         log(f"queue save failed: {exc}")
@@ -741,6 +747,7 @@ def flush_queue(bluesky: 'BlueskyClient', dry: bool) -> dict:
         if _is_in_feed(entry.get("thought", ""), feed_posts):
             entry["qa_result"] = entry.get("qa_result") or "pass"
             entry["posted"]["feed"] = "ok"
+            processed += 1
             continue
 
         # QA gate (if enabled and not already done)
@@ -839,6 +846,8 @@ def write_health_status(queue_depth: int, total_posted: int, total_rejected: int
         fd, tmp = tempfile.mkstemp(dir=str(STATE_DIR), suffix=".tmp")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, str(STATUS_FILE))
     except Exception as exc:
         log(f"health status write failed: {exc}")

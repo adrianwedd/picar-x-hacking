@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -88,10 +89,12 @@ class TestEvolveRateLimitFormats:
         """Old-format log entry with only ts_completed (ISO) should rate-limit."""
         env, state_dir = evolve_env
         _write_fresh_introspection(state_dir)
+        # Use a recent timestamp (1 hour ago) so it's always within the 24h window
+        recent_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         log_entry = {
             "id": "old-1",
             "status": "pr_created",
-            "ts_completed": "2026-03-20T10:00:00Z",
+            "ts_completed": recent_ts,
         }
         (state_dir / "evolve_log.jsonl").write_text(
             json.dumps(log_entry) + "\n")
@@ -101,7 +104,7 @@ class TestEvolveRateLimitFormats:
             ["bin/tool-evolve"], cwd=str(ROOT), env=env,
             capture_output=True, text=True, timeout=15)
         output = json.loads(result.stdout.strip().splitlines()[-1])
-        # ISO ts_completed in the future → should rate-limit
+        # Recent ts_completed → should rate-limit
         assert output["status"] == "error"
         assert "rate" in output["error"].lower()
 

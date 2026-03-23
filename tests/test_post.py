@@ -643,7 +643,7 @@ def test_repost_guard_after_corruption(_cursor_env):
     bsky.post.return_value = "ok"
 
     result = flush_queue(bsky, dry=True)
-    assert result["processed"] == 1
+    assert result["processed"] == 2  # 1 feed repost-guard + 1 bluesky post
 
     # Social client SHOULD be called (thought is in feed, needs social posting)
     bsky.post.assert_called_once()

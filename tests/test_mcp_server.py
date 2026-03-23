@@ -6,14 +6,12 @@ from unittest.mock import patch
 
 import pytest
 
-from pxh.mcp_server import (
-    spark_awareness,
-    spark_sonar,
-    spark_status,
-    spark_thoughts,
-    spark_vitals,
-)
-import pxh.mcp_server as mcp_mod
+mcp_mod = pytest.importorskip("pxh.mcp_server", reason="mcp module not installed")
+spark_awareness = mcp_mod.spark_awareness
+spark_sonar = mcp_mod.spark_sonar
+spark_status = mcp_mod.spark_status
+spark_thoughts = mcp_mod.spark_thoughts
+spark_vitals = mcp_mod.spark_vitals
 
 
 @pytest.fixture

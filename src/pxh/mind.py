@@ -363,7 +363,7 @@ VALID_ACTIONS = {"wait", "greet", "comment", "remember", "look_at",
 CHARGING_GATED_ACTIONS = {"scan", "look_at", "explore", "emote", "look_around", "calendar_check"}
 ABSENT_GATED_ACTIONS = {"greet", "comment", "weather_comment", "scan",
                         "play_sound", "time_check", "calendar_check", "photograph",
-                        "look_around", "morning_fact"}
+                        "look_around", "morning_fact", "explore"}
 
 # ── Mood momentum: valence (-1..1) × arousal (-1..1) ───────────────
 MOOD_COORDS: dict[str, tuple[float, float]] = {
