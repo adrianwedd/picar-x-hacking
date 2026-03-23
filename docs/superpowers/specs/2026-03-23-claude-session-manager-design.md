@@ -54,7 +54,7 @@ try:
         session_type="evolve",
         prompt="...",
         timeout=1800,
-        allowed_tools="Read,Write,Edit,Bash,Glob,Grep",
+        allowed_tools="Read,Write,Edit,Glob,Grep",
         skip_permissions=True,   # required for non-interactive tool use
         cwd="/tmp/spark-evolve-xxx",
     )
@@ -74,15 +74,30 @@ The session manager maps each type to its priority rank.
 
 #### Rate Limiting
 
+**Global limits:**
+
 | Constraint          | Value     | Scope                |
 |---------------------|-----------|----------------------|
-| Global cooldown     | 30 min    | Between any sessions |
+| Global cooldown     | 30 min    | Between sessions (except `self_debug`) |
 | Daily session cap   | 8/day     | All types combined   |
-| Evolve              | 1/day     | Per-type             |
-| Self-debug          | 6 hours   | Per-type             |
-| Research            | 2 hours   | Per-type             |
-| Compose             | 4 hours   | Per-type             |
-| Conversation depth  | 15 min    | Per-type cooldown    |
+
+**Per-type cooldowns and daily quotas:**
+
+| Type               | Cooldown  | Daily Quota | Notes                          |
+|--------------------|-----------|-------------|--------------------------------|
+| `evolve`           | 24 hours  | 1/day       | Existing limit, kept           |
+| `self_debug`       | 6 hours   | 2/day       | Exempt from global cooldown    |
+| `research`         | 2 hours   | 3/day       | Prevents research spam         |
+| `compose`          | 4 hours   | 2/day       | Low frequency is fine          |
+| `conversation`     | 15 min    | 4/day       | Bounded to prevent budget drain|
+
+`self_debug` is **exempt from the global 30-min cooldown** because it is a health
+action — if reflection is failing, SPARK needs to diagnose immediately, not wait
+30 minutes. It still respects its own 6-hour per-type cooldown and 2/day quota.
+
+Per-type daily quotas prevent any single session type from consuming the entire
+budget. The global cap (8/day) is still enforced — if per-type quotas sum to
+more than 8, the global cap wins.
 
 Day boundary: midnight Hobart time (`Australia/Hobart`), consistent with all
 other time-of-day logic in the codebase.
@@ -99,7 +114,7 @@ non-Claude actions.
 - `PX_CLAUDE_COOLDOWN_S=1800`
 - `PX_CLAUDE_BUDGET_DISABLED=1` — bypass all limits (testing)
 
-#### Session Log Format
+#### Session Log Format & Durability
 
 `state/claude_sessions.jsonl` — one JSON object per line:
 
@@ -115,17 +130,28 @@ non-Claude actions.
 }
 ```
 
+**Durability**: Session log writes use `FileLock` from `state.py` (same lock
+pattern as `session.json`) to prevent corruption from concurrent mind/voice
+processes. Appends use `atomic_write` with read-append-write pattern. On read,
+malformed lines are skipped (graceful degradation) — a single corrupted line
+does not block the rate limiter. Missing file is treated as empty (cold start).
+
 ### 2. Fixed Evolution Pipeline (`bin/px-evolve`)
 
 #### Changes from Current Implementation
 
 1. **Remove patch approach** — delete `patch_prompt` construction (lines 200-217),
    patch extraction regex, `git apply`/`patch -p1` fallback logic (lines 249-298)
-2. **Give Claude real tools** — `--allowedTools "Read,Write,Edit,Bash,Glob,Grep"`
-   with `--dangerously-skip-permissions`
-3. **Simplified prompt** — tell Claude to edit files directly, then commit
-4. **Detect changes via git log** — check `git log HEAD --not master --oneline`
-   for commits rather than checking unstaged diffs
+2. **Give Claude real tools (no Bash)** — `--allowedTools "Read,Write,Edit,Glob,Grep"`
+   with `--dangerously-skip-permissions`. **Bash is intentionally excluded** to prevent
+   arbitrary command execution, `pip install`, resource exhaustion, or data exfiltration.
+   Claude can read files (Read/Glob/Grep), edit files (Edit/Write), and the existing
+   `pytest` step in px-evolve runs tests after Claude exits — Claude does not need Bash.
+3. **Simplified prompt** — tell Claude to edit files directly, then commit via
+   `git add -A && git commit` (run by px-evolve after Claude exits, not by Claude)
+4. **Detect changes via git diff against master** — check
+   `git diff --name-only master...HEAD` for changed files (not `HEAD` vs `HEAD`
+   which would be empty after commit, and not unstaged diffs)
 5. **Route through session manager** — `run_claude_session(type="evolve", ...)`
    for unified rate limiting and logging
 6. **Timeout**: 1800s (30 min), configurable via `PX_EVOLVE_TIMEOUT`
@@ -153,10 +179,16 @@ All `mind.py` changes still require PR approval (option C safety model).
 
 #### Post-Claude Whitelist Enforcement
 
-After Claude finishes, `px-evolve` validates `git diff --name-only` against the
-whitelist. Any changes to files outside the whitelist cause the entry to fail
-with `failed:whitelist_violation`. This is a hard gate — the prompt whitelist is
-advisory (Claude may ignore it), but the post-validation is enforced.
+After Claude finishes, `px-evolve` runs `git diff --name-only master...HEAD` to
+get the list of files changed across all commits on the branch. This list is
+validated against the whitelist. Any changes to files outside the whitelist cause
+the entry to fail with `failed:whitelist_violation` and the branch is abandoned
+(no push, no PR). This is a hard gate — the prompt whitelist is advisory (Claude
+may ignore it), but the post-validation is enforced.
+
+Note: Claude does NOT run `git commit` itself. After Claude exits, `px-evolve`
+stages and commits any modifications, then runs the whitelist check. This
+ensures the diff is always against `master`, not an empty self-comparison.
 
 #### Feedback Loop
 
@@ -214,9 +246,11 @@ Five new session types, triggered from `px-mind` expression layer or voice loop.
   automatic detection can be added later with real usage data.
 - **Model**: Sonnet, `--allowedTools ""`, 3-min timeout
 - **Prompt**: conversation history + the complex question + awareness context
-- **Response**: spoken via tool-voice, replacing the quick LLM backend response.
-  The voice loop's existing `CODEX_CHAT_CMD` pipeline is bypassed for this
-  single response — the Sonnet answer is injected directly as the tool output.
+- **Response**: spoken via `execute_tool("voice", ...)` — the same path as all
+  other speech output. This preserves persona voice env vars, token logging,
+  voice locks, and watchdog handling. The voice loop detects the "think deeper"
+  trigger phrase, calls `run_claude_session(type="conversation")`, then feeds
+  the result text through the normal `execute_tool` pipeline.
 - **Cooldown**: 15 min post-session cooldown (between conversation-depth sessions)
 - **No new tool** — enhancement to voice_loop.py response handling
 
@@ -273,25 +307,46 @@ documentation for the session manager and new capabilities.
 
 | File | Changes |
 |------|---------|
-| `bin/px-evolve` | Remove patch hack, use session manager, broader whitelist |
+| `bin/px-evolve` | Remove patch hack, use session manager, broader whitelist, no Bash |
 | `src/pxh/mind.py` | New actions (research, self_debug, compose), expression routing, debug trigger |
-| `src/pxh/voice_loop.py` | Add new tools to ALLOWED_TOOLS/TOOL_COMMANDS, conversation depth |
-| `bin/tool-introspect` | Claude session stats, evolve outcome feedback |
-| `bin/px-statusline` | Claude budget display |
+| `src/pxh/voice_loop.py` | Add new tools to ALLOWED_TOOLS/TOOL_COMMANDS, `validate_action` branches for research/compose, conversation depth trigger detection |
+| `bin/tool-introspect` | Claude session stats, evolve outcome feedback via `gh pr list` |
+| `bin/px-statusline` | Claude budget display (`🧠3/8`) |
 | `src/pxh/api.py` | Claude budget fields in /public/status |
-| `docs/prompts/claude-voice-system.md` | Document "think deeper" trigger |
+| `docs/prompts/claude-voice-system.md` | Document "think deeper" trigger phrases |
+| `docs/prompts/codex-voice-system.md` | Same trigger phrases for Codex backend |
 
 ### 7. Testing Strategy
 
-- Unit tests for `claude_session.py`: rate limiting, model routing, budget enforcement,
-  cooldown math, day boundary rollover, priority gating
-- Unit tests for evolve pipeline: prompt construction, change detection,
-  whitelist enforcement (post-Claude validation), blacklist rejection
-- Integration test: mock `claude -p` subprocess, verify end-to-end flow for each session type
-- Existing test suite must continue to pass
-- New tools (`tool-research`, `tool-compose`): dry-run tests via `isolated_project` fixture
-- Whitelist enforcement test: verify `failed:whitelist_violation` when Claude
-  touches a blacklisted file
+**claude_session.py unit tests:**
+- Rate limiting: global cooldown, per-type cooldown, daily cap, per-type quota
+- Model routing: each session type resolves to correct model
+- Budget enforcement: priority gating at ≤2 remaining, `SessionBudgetExhausted`
+- Day boundary rollover: Hobart midnight, DST transitions
+- `self_debug` exempt from global cooldown
+- `PX_CLAUDE_BUDGET_DISABLED=1` bypass
+- Cold start: missing session log file
+- Corrupt session log: malformed lines skipped gracefully
+- Concurrent access: FileLock serialization (mock-based)
+
+**Evolve pipeline tests:**
+- Prompt construction with introspection payload
+- Change detection via `git diff --name-only master...HEAD`
+- Whitelist enforcement: `failed:whitelist_violation` when Claude touches blacklisted file
+- Blacklist rejection for persona files, api.py, px-evolve
+- Commit/push/PR flow with mocked git and gh subprocesses
+
+**New tools:**
+- `tool-research` and `tool-compose`: dry-run tests via `isolated_project` fixture
+- `validate_action` branches: verify param sanitization for new tools
+
+**Integration:**
+- Mock `claude -p` subprocess, verify end-to-end flow for each session type
+- Conversation depth: trigger phrase detection, routing through `execute_tool`
+- px-statusline: Claude budget field format
+- api.py: `/public/status` schema includes new fields
+
+**Regression:** existing test suite must continue to pass
 
 ### 8. Operational Notes
 
