@@ -474,6 +474,8 @@ Every tool must: emit a single JSON object to stdout, support `PX_DRY=1`, handle
 | `PX_VOICE_LOCK_TIMEOUT` | Voice output lock timeout in seconds (default: 30) |
 | `PX_TTS_GREMLIN` | GREMLIN TTS server URL (default: `http://localhost:7861`) — GLaDOS TTS on Pi |
 | `PX_TTS_VIXEN` | VIXEN TTS server URL (default: `http://M1.local:7860`) — Qwen3-TTS voice clone on M1 |
+| `PX_TTS_SPARK` | SPARK TTS server URL (default: `http://M1.local:7860`) — Qwen3-TTS "data" voice on M1 |
+| `PX_TTS_SPARK_VOICE` | Voice name on SPARK TTS server (default: `data`) |
 | `PX_HA_HOST` | Home Assistant host (default: `http://homeassistant.local:8123`) |
 | `PX_HA_TOKEN` | Home Assistant long-lived access token |
 | `PX_BSKY_HANDLE` | Bluesky handle for social posting |
