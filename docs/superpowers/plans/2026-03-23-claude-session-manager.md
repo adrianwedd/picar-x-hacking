@@ -16,7 +16,7 @@
 
 | File | Action | Responsibility |
 |------|--------|----------------|
-| `src/pxh/claude_session.py` | Create | Session manager: model routing, rate limiting, execution, logging |
+| `src/pxh/claude_session.py` | Create | Session manager: model routing, rate limiting, execution, logging, whitelist enforcement |
 | `bin/tool-research` | Create | Research session tool (Haiku, text-only) |
 | `bin/tool-compose` | Create | Creative writing tool (Haiku, text-only) |
 | `bin/px-evolve` | Modify | Replace patch approach with real tool access via session manager |
@@ -173,11 +173,78 @@ The `run_claude_session` function:
 Run: `source .venv/bin/activate && python -m pytest tests/test_claude_session.py -v`
 Expected: All passed
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 12: Add whitelist enforcement functions**
+
+Add to `src/pxh/claude_session.py` (used by px-evolve, must be importable):
+
+```python
+WHITELIST_PATTERNS = [
+    "src/pxh/spark_config.py",
+    "src/pxh/mind.py",
+    "src/pxh/voice_loop.py",
+    "bin/tool-",
+    "tests/",
+    "docs/prompts/",
+]
+
+BLACKLIST_FILES = {
+    "src/pxh/api.py",
+    "bin/tool-chat",
+    "bin/tool-chat-vixen",
+    "bin/px-evolve",
+    ".env",
+}
+
+
+def file_in_whitelist(path: str) -> bool:
+    if path in BLACKLIST_FILES:
+        return False
+    return any(path.startswith(p) or path == p for p in WHITELIST_PATTERNS)
+```
+
+Add whitelist tests to `tests/test_claude_session.py`:
+
+```python
+class TestWhitelist:
+    def test_spark_config_allowed(self):
+        from pxh.claude_session import file_in_whitelist
+        assert file_in_whitelist("src/pxh/spark_config.py")
+
+    def test_mind_allowed(self):
+        from pxh.claude_session import file_in_whitelist
+        assert file_in_whitelist("src/pxh/mind.py")
+
+    def test_api_blacklisted(self):
+        from pxh.claude_session import file_in_whitelist
+        assert not file_in_whitelist("src/pxh/api.py")
+
+    def test_px_evolve_blacklisted(self):
+        from pxh.claude_session import file_in_whitelist
+        assert not file_in_whitelist("bin/px-evolve")
+
+    def test_new_tool_allowed(self):
+        from pxh.claude_session import file_in_whitelist
+        assert file_in_whitelist("bin/tool-newfeature")
+
+    def test_test_file_allowed(self):
+        from pxh.claude_session import file_in_whitelist
+        assert file_in_whitelist("tests/test_new.py")
+
+    def test_env_blacklisted(self):
+        from pxh.claude_session import file_in_whitelist
+        assert not file_in_whitelist(".env")
+```
+
+- [ ] **Step 13: Run all tests**
+
+Run: `source .venv/bin/activate && python -m pytest tests/test_claude_session.py -v`
+Expected: All passed (model routing + rate limiting + execution + whitelist)
+
+- [ ] **Step 14: Commit**
 
 ```
 git add src/pxh/claude_session.py tests/test_claude_session.py
-git commit -m "feat: add Claude session manager with model routing, rate limiting, and execution"
+git commit -m "feat: add Claude session manager with model routing, rate limiting, execution, and whitelist"
 ```
 
 ---
@@ -188,28 +255,17 @@ git commit -m "feat: add Claude session manager with model routing, rate limitin
 - Modify: `bin/px-evolve` (replace build_prompt lines ~125-158, replace _run_in_worktree lines ~190-370)
 - Create: `tests/test_evolve_v2.py`
 
-- [ ] **Step 1: Write tests for whitelist enforcement**
+- [ ] **Step 1: Write tests for evolve prompt and flow**
 
-Create `tests/test_evolve_v2.py` with:
-- `TestWhitelistEnforcement` class testing `file_in_whitelist()` function:
-  - `spark_config.py` allowed
-  - `mind.py` allowed
-  - `api.py` rejected (blacklist)
-  - `px-evolve` rejected (blacklist)
-  - `.env` rejected
-  - New `bin/tool-foo` allowed (prefix match)
-  - `tests/test_new.py` allowed
+Create `tests/test_evolve_v2.py`. Note: whitelist tests are already in Task 1
+(`tests/test_claude_session.py::TestWhitelist`). This file tests the evolve-specific
+flow via subprocess (since px-evolve is a bash heredoc, not importable).
 
-- [ ] **Step 2: Run tests to verify they fail**
-
-Run: `source .venv/bin/activate && python -m pytest tests/test_evolve_v2.py -v`
-
-- [ ] **Step 3: Rewrite build_prompt in px-evolve**
+- [ ] **Step 2: Rewrite build_prompt in px-evolve**
 
 Replace `build_prompt` function. New version:
-- Defines `WHITELIST_PATTERNS` list and `BLACKLIST_FILES` set
-- `file_in_whitelist(path: str) -> bool` — checks blacklist first, then whitelist prefix match
-- `build_prompt(intent, introspection) -> str` — clean prompt telling Claude to use Edit/Write tools directly (no patch/diff instructions). Lists whitelist and blacklist. Max files constraint.
+- Imports `file_in_whitelist` from `pxh.claude_session` (not local — the function lives in the importable module)
+- `build_prompt(intent, introspection) -> str` — clean prompt telling Claude to use Edit/Write tools directly. **Do NOT tell Claude to run `git commit`** — px-evolve commits after Claude exits. Lists whitelist and blacklist. Max files constraint.
 
 - [ ] **Step 4: Rewrite _run_in_worktree**
 
@@ -325,16 +381,26 @@ git commit -m "feat: add tool-compose for SPARK creative writing sessions"
 - Modify: `src/pxh/mind.py` (VALID_ACTIONS ~line 357, expression() ~line 2847, reflection failure ~line 3046)
 - Add test in: `tests/test_claude_session.py`
 
-- [ ] **Step 1: Write test for self_debug threshold constant**
+- [ ] **Step 1: Write test for self_debug in action sets**
 
 Add `TestSelfDebugTrigger` class:
-- Verify `REFLECTION_FAIL_WARN_THRESHOLD == 3`
 - Verify `"self_debug"` is in `VALID_ACTIONS`
 - Verify `"self_debug"` is NOT in `ABSENT_GATED_ACTIONS`
+- Verify `"self_debug"` is NOT in `CHARGING_GATED_ACTIONS`
 
-- [ ] **Step 2: Add self_debug to VALID_ACTIONS**
+Note: `REFLECTION_FAIL_WARN_THRESHOLD` is a local variable inside `main_loop()` at
+line 2949, not a module-level constant. Do not try to import it. The threshold
+value (3) is tested implicitly by the integration test.
+
+- [ ] **Step 2: Add self_debug to VALID_ACTIONS and update reflection prompts**
 
 At `src/pxh/mind.py:357`, add `"self_debug"` to the set.
+
+**CRITICAL**: Also update the reflection prompt strings that list valid actions.
+Search for the action list in `REFLECTION_SYSTEM_SPARK` (and GREMLIN/VIXEN variants)
+in `src/pxh/spark_config.py` — these are the prompts the LLM sees. If `research`,
+`self_debug`, and `compose` are not listed there, the LLM will **never output them**.
+Add all three new actions with brief descriptions to the prompt's action list.
 
 - [ ] **Step 3: Add self_debug branch in expression()**
 
@@ -407,11 +473,20 @@ git commit -m "feat: add conversation depth trigger for Sonnet deep-dive respons
 - Add `"research"`, `"compose"` to `ABSENT_GATED_ACTIONS` (~line 364) — NOT `self_debug`
 - Do NOT add any of these to `CHARGING_GATED_ACTIONS` (no GPIO)
 
-- [ ] **Step 2: Update _daytime_action_hint()**
+- [ ] **Step 2: Update _daytime_action_hint() and reflection prompts**
 
 At ~line 144, add nudges for quiet daytime:
 - Compose/research suggested during calm periods
 - Never suggest self_debug via hints (it's failure-triggered only)
+
+**CRITICAL**: Update the SPARK reflection prompt in `src/pxh/spark_config.py` to list
+the new actions (`research`, `compose`, `self_debug`) with descriptions. Without this,
+the LLM will never output these actions. Look for the action list in the prompt string
+(search for `"action":` or the list of valid actions like `wait`, `greet`, `comment`).
+Add:
+- `research` — "pursue a curiosity deep-dive on a topic you find fascinating"
+- `compose` — "write a creative journal entry, letter, or observation"
+- `self_debug` — "diagnose why your reflection layer is failing (only when errors persist)"
 
 - [ ] **Step 3: Add research and compose branches in expression()**
 
@@ -466,14 +541,27 @@ git commit -m "feat: add Claude session budget to statusline, API, and introspec
 
 ---
 
-## Task 9: Update CLAUDE.md and Voice Prompts
+## Task 9: Update Documentation, Prompts, and .gitignore
 
 **Files:**
 - Modify: `CLAUDE.md`
 - Modify: `docs/prompts/claude-voice-system.md`
 - Modify: `docs/prompts/codex-voice-system.md`
+- Modify: `docs/prompts/persona-gremlin.md`
+- Modify: `docs/prompts/persona-vixen.md`
+- Modify: `.gitignore`
 
-- [ ] **Step 1: Update CLAUDE.md**
+- [ ] **Step 1: Add new state files to .gitignore**
+
+Add these entries to `.gitignore` (in the state files section):
+
+```
+state/claude_sessions.jsonl
+state/debug_reports.jsonl
+state/compositions-spark.jsonl
+```
+
+- [ ] **Step 2: Update CLAUDE.md**
 
 Update the Self-Evolution section to document:
 - Session manager (`src/pxh/claude_session.py`) and its responsibilities
@@ -483,16 +571,25 @@ Update the Self-Evolution section to document:
 - New capabilities: research, compose, self_debug, conversation depth
 - New env vars: `PX_CLAUDE_MODEL_*`, `PX_CLAUDE_DAILY_CAP`, `PX_CLAUDE_COOLDOWN_S`, `PX_CLAUDE_BUDGET_DISABLED`
 - New state files: `claude_sessions.jsonl`, `debug_reports.jsonl`, `compositions-spark.jsonl`
+- Update `PX_EVOLVE_TIMEOUT` default from 300s to 1800s
 
-- [ ] **Step 2: Update voice system prompts**
+- [ ] **Step 3: Update voice system prompts**
 
-Add "think deeper", "go deeper", "explain that properly" as recognised trigger phrases that invoke a Sonnet deep-dive session.
+Add "think deeper", "go deeper", "explain that properly" as recognised trigger
+phrases that invoke a Sonnet deep-dive session.
 
-- [ ] **Step 3: Commit**
+Per CLAUDE.md "Adding a New Tool" checklist (steps 4-5), also add `tool-research`
+and `tool-compose` to:
+- `docs/prompts/claude-voice-system.md`
+- `docs/prompts/codex-voice-system.md`
+- `docs/prompts/persona-gremlin.md`
+- `docs/prompts/persona-vixen.md`
+
+- [ ] **Step 4: Commit**
 
 ```
-git add CLAUDE.md docs/prompts/claude-voice-system.md docs/prompts/codex-voice-system.md
-git commit -m "docs: update CLAUDE.md and voice prompts for session manager and new capabilities"
+git add CLAUDE.md .gitignore docs/prompts/claude-voice-system.md docs/prompts/codex-voice-system.md docs/prompts/persona-gremlin.md docs/prompts/persona-vixen.md
+git commit -m "docs: update CLAUDE.md, prompts, and gitignore for session manager"
 ```
 
 ---
