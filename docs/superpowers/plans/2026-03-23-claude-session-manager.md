@@ -122,6 +122,11 @@ Add `TestRateLimiting` class to `tests/test_claude_session.py` with tests for:
 - Per-type quota blocks when exceeded
 - Corrupt log lines are skipped gracefully
 - Priority gating: low-priority blocked when <=2 sessions remain
+- Cold start: missing session log file returns None (allowed)
+- `PX_CLAUDE_BUDGET_DISABLED=1` bypasses all checks
+- DST day-boundary rollover: session logged at 23:30 AEDT is "today" in AEDT
+  but must not become "tomorrow" after DST switch
+- Concurrent FileLock serialization (mock-based: verify lock acquire/release calls)
 
 Each test creates a tmp_path session dir, writes test entries to a mock session log, and patches `SESSION_LOG` to point at it.
 
@@ -155,7 +160,7 @@ Add `TestRunSession` class with tests for:
 Add to `src/pxh/claude_session.py`:
 - `SessionBudgetExhausted(Exception)` class
 - `RunResult` dataclass: stdout, stderr, returncode, duration_s, model_used
-- `_log_session(session_type, model, duration_s, returncode, outcome)` — appends to session log with FileLock
+- `_log_session(session_type, model, duration_s, returncode, outcome)` — generates a `session_id` (format: `sess-YYYYMMDD-HHMMSS-NNN`), appends to session log using `atomic_write` from `state.py` with `FileLock` protection (read-append-write pattern, not bare file append)
 - `run_claude_session(session_type, prompt, timeout, allowed_tools, skip_permissions, cwd) -> RunResult` — budget check, model routing, subprocess execution, logging
 
 The `run_claude_session` function:
@@ -195,9 +200,17 @@ BLACKLIST_FILES = {
     ".env",
 }
 
+# Blacklist patterns (prefix match)
+BLACKLIST_PATTERNS = [
+    "docs/prompts/persona-",   # jailbreak prompts — never allow editing
+    "systemd/",
+]
+
 
 def file_in_whitelist(path: str) -> bool:
     if path in BLACKLIST_FILES:
+        return False
+    if any(path.startswith(p) for p in BLACKLIST_PATTERNS):
         return False
     return any(path.startswith(p) or path == p for p in WHITELIST_PATTERNS)
 ```
@@ -233,6 +246,11 @@ class TestWhitelist:
     def test_env_blacklisted(self):
         from pxh.claude_session import file_in_whitelist
         assert not file_in_whitelist(".env")
+
+    def test_persona_prompt_blacklisted(self):
+        from pxh.claude_session import file_in_whitelist
+        assert not file_in_whitelist("docs/prompts/persona-gremlin.md")
+        assert not file_in_whitelist("docs/prompts/persona-vixen.md")
 ```
 
 - [ ] **Step 13: Run all tests**
@@ -270,7 +288,7 @@ Replace `build_prompt` function. New version:
 - [ ] **Step 4: Rewrite _run_in_worktree**
 
 Replace `_run_in_worktree` function. New flow:
-1. Call `run_claude_session(type="evolve", allowed_tools="Read,Write,Edit,Glob,Grep", skip_permissions=True, cwd=workdir)`
+1. Call `run_claude_session(type="evolve", allowed_tools="Read,Write,Edit,Glob,Grep", skip_permissions=True, cwd=workdir, timeout=EVOLVE_TIMEOUT)` where `EVOLVE_TIMEOUT` is updated from 600 to **1800** (30 min, per spec). Wire via `PX_EVOLVE_TIMEOUT` env var.
 2. After Claude exits: `git add -A`, check `git diff --cached --name-only` for staged changes
 3. If changes: `git commit -m "[SPARK] {intent[:60]}"`
 4. Whitelist enforcement: `git diff --name-only master...HEAD`, validate each file via `file_in_whitelist()`
@@ -313,7 +331,7 @@ Add `test_tool_research_dry_run` to `tests/test_tools.py`:
 Bash + Python heredoc pattern. Main function:
 - Reads `PX_RESEARCH_QUERY` from env
 - Dry mode: logs and returns `{"status": "ok", "dry": true}`
-- Live mode: calls `run_claude_session(type="research", prompt=..., timeout=300)` with Haiku
+- Live mode: calls `run_claude_session(type="research", prompt=..., timeout=300, allowed_tools="")` — explicitly no tool access (Haiku text-only, per spec)
 - Saves result to `notes_file_for_persona("spark")` as JSONL entry with type=research
 - Returns `{"status": "ok", "query": ...}`
 
@@ -354,7 +372,7 @@ Add `test_tool_compose_dry_run` to `tests/test_tools.py`:
 
 Same pattern as tool-research but:
 - Reads `PX_COMPOSE_TOPIC` env var
-- Session type: `"compose"`
+- Session type: `"compose"`, `allowed_tools=""` (text-only, no tool access per spec)
 - Prompt: creative writing in SPARK's voice (journal entry / letter / observation)
 - Output saved to `state/compositions-spark.jsonl`
 
@@ -529,7 +547,7 @@ In `public_status()` function, add `claude_sessions_today` (int) and `claude_bud
 
 In `main()`, before writing introspection payload:
 - `claude_sessions`: today's count, by_type breakdown, total_duration_s
-- `evolve_outcomes`: query recent PRs via `gh pr list --state all --head spark/evolve- --json number,state,title --limit 5`
+- `evolve_outcomes`: query recent PRs via `gh pr list --state all --head spark/evolve- --json number,state,title,mergedAt,reviews --limit 5`. For each PR, also fetch comments via `gh pr view {number} --json comments` to surface reviewer feedback — this is the learning loop that lets SPARK iterate on rejected proposals.
 
 - [ ] **Step 4: Run tests and commit**
 
