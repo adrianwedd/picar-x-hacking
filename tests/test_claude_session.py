@@ -369,3 +369,35 @@ class TestConversationDepthTrigger:
     def test_case_insensitive(self):
         from pxh.voice_loop import is_depth_trigger
         assert is_depth_trigger("THINK ABOUT THAT MORE")
+
+
+# ---------------------------------------------------------------------------
+# Blog Session Type (Task 1)
+# ---------------------------------------------------------------------------
+
+class TestBlogSessionType:
+    def test_blog_uses_haiku(self):
+        from pxh.claude_session import _model_for_type
+        assert "haiku" in _model_for_type("blog")
+
+    def test_blog_env_override(self):
+        from pxh.claude_session import _ENV_OVERRIDES
+        assert "blog" in _ENV_OVERRIDES
+        assert _ENV_OVERRIDES["blog"] == "PX_CLAUDE_MODEL_BLOG"
+
+    def test_blog_cooldown(self):
+        from pxh.claude_session import _TYPE_COOLDOWNS
+        assert _TYPE_COOLDOWNS["blog"] == 1800
+
+    def test_blog_quota(self):
+        from pxh.claude_session import _TYPE_QUOTAS
+        assert _TYPE_QUOTAS["blog"] == 3
+
+    def test_blog_priority(self):
+        from pxh.claude_session import _PRIORITY
+        assert "blog" in _PRIORITY
+        assert _PRIORITY["blog"] == 2
+
+    def test_blog_exempt_from_global_cooldown(self):
+        from pxh.claude_session import _GLOBAL_COOLDOWN_EXEMPT
+        assert "blog" in _GLOBAL_COOLDOWN_EXEMPT
