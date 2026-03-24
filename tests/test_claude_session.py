@@ -137,8 +137,8 @@ class TestRateLimiting:
 
     def test_per_type_quota_blocks(self, tmp_path):
         sd = _make_state_dir(tmp_path)
-        # 4 conversation sessions within last hour = at quota (4/day)
-        entries = [{"ts": _ts_ago(i * 60 + 1000), "type": "conversation"} for i in range(4)]
+        # 4 conversation sessions within last 10 min = at quota (4/day)
+        entries = [{"ts": _ts_ago(i * 60 + 60), "type": "conversation"} for i in range(4)]
         _write_session_log(sd, entries)
         import pxh.claude_session as cs
         with patch.object(cs, "SESSION_LOG", sd / "claude_sessions.jsonl"), \
@@ -165,7 +165,7 @@ class TestRateLimiting:
     def test_priority_gating_blocks_low_priority(self, tmp_path):
         sd = _make_state_dir(tmp_path)
         # 6 sessions today with cap=8 → 2 remaining → low priority blocked
-        entries = [{"ts": _ts_ago(i * 100 + 2000), "type": "conversation"} for i in range(6)]
+        entries = [{"ts": _ts_ago(i * 30 + 60), "type": "conversation"} for i in range(6)]
         _write_session_log(sd, entries)
         import pxh.claude_session as cs
         with patch.object(cs, "SESSION_LOG", sd / "claude_sessions.jsonl"), \
@@ -180,7 +180,7 @@ class TestRateLimiting:
     def test_priority_gating_allows_high_priority(self, tmp_path):
         sd = _make_state_dir(tmp_path)
         # 6 sessions today with cap=8 → 2 remaining
-        entries = [{"ts": _ts_ago(i * 100 + 2000), "type": "conversation"} for i in range(6)]
+        entries = [{"ts": _ts_ago(i * 30 + 60), "type": "conversation"} for i in range(6)]
         _write_session_log(sd, entries)
         import pxh.claude_session as cs
         with patch.object(cs, "SESSION_LOG", sd / "claude_sessions.jsonl"), \
