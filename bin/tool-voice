@@ -113,20 +113,26 @@ def main() -> int:
     }
 
     def _try_network_tts(text: str, persona: str) -> bytes | None:
-        """Try network TTS for persona. Returns WAV bytes or None on failure."""
+        """Try network TTS for persona. Returns WAV bytes or None on failure.
+
+        Uses subprocess curl instead of urllib because Qwen3-TTS streams
+        slowly and urllib's socket timeout fires between chunks.
+        """
         host = _TTS_HOSTS.get(persona)
         if not host:
             return None
         voice = _TTS_VOICES.get(persona, persona)
-        import urllib.request
         import urllib.parse
-        import urllib.error
         url = f"{host}/synthesize?text={urllib.parse.quote(text)}&voice={voice}"
         try:
-            with urllib.request.urlopen(url, timeout=60) as resp:
-                if resp.status == 200:
-                    return resp.read()
-        except (OSError, urllib.error.URLError):
+            result = subprocess.run(
+                ["curl", "-s", "--connect-timeout", "5", "--max-time", "120",
+                 "-o", "-", url],
+                capture_output=True, timeout=130,
+            )
+            if result.returncode == 0 and len(result.stdout) > 100:
+                return result.stdout
+        except (OSError, subprocess.TimeoutExpired):
             pass  # fall through to espeak
         return None
 
