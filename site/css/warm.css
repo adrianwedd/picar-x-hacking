@@ -745,9 +745,12 @@ details > *:not(summary) { margin-top: 0.75rem; }
   position: relative;
   margin-top: 2.5rem;
   padding-bottom: 4.5rem;
-  overflow: clip;
+  overflow: hidden;
   transition: height 0.3s ease;
+  scrollbar-width: none;           /* Firefox */
+  -ms-overflow-style: none;        /* IE/Edge */
 }
+.thought-carousel::-webkit-scrollbar { display: none; } /* Chrome/Safari */
 
 /* Thought bubble container */
 .carousel-slide {
