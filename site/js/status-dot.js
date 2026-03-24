@@ -17,7 +17,7 @@
       .then(function (r) { clearTimeout(timer); return r.json(); })
       .then(function (data) {
         var mood = (data.mood || '').toLowerCase();
-        var color = (mood ? _moodColor(mood) : null) || '#4ade80';
+        var color = (mood ? _moodColor(mood) : null) || '#c48b6e';
         dot.style.background = color;
         dot.title = mood ? ('SPARK is feeling ' + mood) : 'SPARK is online';
       })

@@ -62,7 +62,7 @@ body {
   background: #ef4444; /* red — initial state */
   transition: background var(--transition);
 }
-#status-dot.green { background: #4ade80; }
+#status-dot.green { background: var(--dark-accent, #c48b6e); }
 #status-dot.amber { background: #f59e0b; }
 #status-dot.red   { background: #ef4444; }
 

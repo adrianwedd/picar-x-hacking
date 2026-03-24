@@ -99,7 +99,7 @@ body {
 }
 
 .feed-card:hover {
-  box-shadow: 0 6px 28px rgba(0,0,0,0.12);
+  box-shadow: 0 6px 28px rgba(232, 135, 90, 0.1);
   transform: translateY(-2px);
 }
 

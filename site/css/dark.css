@@ -121,7 +121,7 @@
   border-radius: 8px;
 }
 [data-theme="dark"] .time-period-badge { background: var(--dark-surface); border: 1px solid var(--dark-border); }
-[data-theme="dark"] .period-night { background: #1e1b4b; color: #a5b4fc; }
+[data-theme="dark"] .period-night { background: #2e2a34; color: var(--dark-accent); }
 [data-theme="dark"] .section-eyebrow,
 [data-theme="dark"] .services-strip-label,
 [data-theme="dark"] .wx-metric-label,

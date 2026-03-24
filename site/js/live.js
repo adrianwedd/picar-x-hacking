@@ -181,7 +181,7 @@
     if (age > 300_000) { dot.style.background = '#ef4444'; dot.title = 'SPARK is offline'; return; }
     // Use mood colour from latest status
     var mood = (window._sparkMood || '').toLowerCase();
-    dot.style.background = (mood ? _moodColor(mood) : null) || '#4ade80';
+    dot.style.background = (mood ? _moodColor(mood) : null) || '#c48b6e';
     dot.title = mood ? ('SPARK is feeling ' + mood) : 'SPARK is online';
   }
 
