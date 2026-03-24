@@ -420,7 +420,7 @@ Keep it under 2000 words."""
 # Post generation
 # ---------------------------------------------------------------------------
 
-def generate_post(post_type: str, target_date: dt.datetime, blog_data: dict) -> dict | None:
+def generate_post(post_type: str, target_date: dt.datetime, blog_data: dict, *, dry: bool = False) -> dict | None:
     """Generate a blog post. Returns post dict or None if skipped."""
     if post_type == "daily":
         thoughts = gather_thoughts(target_date)
@@ -438,6 +438,10 @@ def generate_post(post_type: str, target_date: dt.datetime, blog_data: dict) -> 
         thoughts_raw = []
 
     prompt = build_prompt(post_type, source, target_date)
+
+    if dry:
+        log(f"DRY RUN — skipping Claude call for {post_type}")
+        return None
 
     # Call Claude via session manager
     try:
@@ -468,6 +472,10 @@ def generate_post(post_type: str, target_date: dt.datetime, blog_data: dict) -> 
     lines = raw_text.split("\n", 1)
     title = lines[0].strip().strip("#").strip()
     body = lines[1].strip() if len(lines) > 1 else ""
+
+    if not body:
+        log(f"empty body for {post_type} — LLM returned title only")
+        return None
 
     if not title:
         title = f"SPARK {post_type.title()} — {target_date.astimezone(HOBART_TZ).strftime('%d %b %Y')}"
@@ -501,7 +509,7 @@ def generate_post(post_type: str, target_date: dt.datetime, blog_data: dict) -> 
 # Main loop
 # ---------------------------------------------------------------------------
 
-def run_once() -> int:
+def run_once(*, dry: bool = False) -> int:
     """Check schedule, generate due posts. Returns count generated."""
     blog_data = load_blog()
     generated = 0
@@ -516,7 +524,7 @@ def run_once() -> int:
             continue
 
         log(f"generating {post_type} post: {pid}")
-        post = generate_post(post_type, target_date, blog_data)
+        post = generate_post(post_type, target_date, blog_data, dry=dry)
         if post is None:
             continue
 
@@ -574,7 +582,7 @@ def main(argv: list[str]) -> int:
     log(f"starting pid={my_pid} dry={dry} once={args.once}")
 
     if args.once:
-        count = run_once()
+        count = run_once(dry=dry)
         log(f"generated {count} posts")
         _safe_unlink_pid()
         return 0
@@ -591,7 +599,7 @@ def main(argv: list[str]) -> int:
     try:
         while not _shutdown.is_set():
             try:
-                count = run_once()
+                count = run_once(dry=dry)
                 if count:
                     log(f"poll: generated {count} posts")
             except Exception as exc:

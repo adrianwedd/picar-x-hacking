@@ -17,8 +17,8 @@ const API_BASE = 'https://spark-api.wedd.au/api/v1/public';
 // Validate ts looks like an ISO timestamp (prevent XSS injection into HTML attributes)
 const TS_PATTERN = /^[\d\-T:+.Z]+$/;
 
-// Validate blog id: e.g. blog-2026-03-25-daily, blog-2026-03-25-essay-2
-const BLOG_ID_PATTERN = /^blog-[\d\-]+-[a-z_]+(-\d+)?$/;
+// Validate blog id: e.g. blog-20260325-daily, blog-2026w13-weekly, blog-202603-monthly
+const BLOG_ID_PATTERN = /^blog-[\dw\-]+-[a-z_]+(-\d+)?$/;
 
 function escapeHtmlAttr(s) {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
