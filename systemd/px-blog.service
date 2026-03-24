@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 User=pi
 WorkingDirectory=/home/pi/picar-x-hacking
+Environment=PATH=/home/pi/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/home/pi/picar-x-hacking/bin/px-blog
 Restart=on-failure
 RestartSec=30
