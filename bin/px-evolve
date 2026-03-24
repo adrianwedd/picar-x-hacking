@@ -303,13 +303,21 @@ def _run_in_worktree(
         return "failed:pr_create"
 
     try:
+        # Try with label first, fall back without if label doesn't exist
+        pr_cmd = ["gh", "pr", "create",
+                   "--title", f"[SPARK] {intent_summary}",
+                   "--body", body]
         pr_result = subprocess.run(
-            ["gh", "pr", "create",
-             "--title", f"[SPARK] {intent_summary}",
-             "--body", body,
-             "--label", "spark-evolve"],
-            cwd=workdir, check=True, capture_output=True, text=True, timeout=60,
+            pr_cmd + ["--label", "spark-evolve"],
+            cwd=workdir, capture_output=True, text=True, timeout=60,
         )
+        if pr_result.returncode != 0:
+            # Retry without label (label may not exist)
+            log(f"[{entry_id}] PR with label failed, retrying without label")
+            pr_result = subprocess.run(
+                pr_cmd, cwd=workdir, check=True,
+                capture_output=True, text=True, timeout=60,
+            )
         pr_url = pr_result.stdout.strip()
         log(f"[{entry_id}] PR created: {pr_url}")
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
