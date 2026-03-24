@@ -73,10 +73,36 @@
     return a;
   }
 
+  var _lastDateLabel = '';
+
+  function dateLabel(isoStr) {
+    try {
+      var d = new Date(isoStr);
+      var now = new Date();
+      var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      var postDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      var diff = Math.round((today - postDay) / 86400000);
+      if (diff === 0) return 'Today';
+      if (diff === 1) return 'Yesterday';
+      return d.toLocaleDateString('en-AU', {
+        timeZone: 'Australia/Hobart',
+        day: 'numeric', month: 'long', year: 'numeric'
+      });
+    } catch (e) { return ''; }
+  }
+
   function renderPage() {
     var list = document.getElementById('feed-list');
     var batch = _allPosts.slice(_displayedCount, _displayedCount + PAGE_SIZE);
     batch.forEach(function (post) {
+      var label = dateLabel(post.ts);
+      if (label && label !== _lastDateLabel) {
+        var div = document.createElement('div');
+        div.className = 'feed-date-label';
+        div.textContent = label;
+        list.appendChild(div);
+        _lastDateLabel = label;
+      }
       list.appendChild(renderCard(post));
     });
     _displayedCount += batch.length;
@@ -104,6 +130,7 @@
     // Newest first
     _allPosts = posts.slice().reverse();
     _displayedCount = 0;
+    _lastDateLabel = '';
 
     // Clear existing children
     while (list.firstChild) list.removeChild(list.firstChild);

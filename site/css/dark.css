@@ -4,7 +4,7 @@
 }
 
 [data-theme="dark"] h2 {
-  font-family: 'Courier New', monospace;
+  font-family: 'Courier Prime', 'Courier New', monospace;
   font-size: 1.5rem;
   color: var(--dark-accent);
   margin-bottom: 1.5rem;
@@ -13,7 +13,7 @@
 }
 
 [data-theme="dark"] h3 {
-  font-family: 'Courier New', monospace;
+  font-family: 'Courier Prime', 'Courier New', monospace;
   font-size: 1rem;
   color: var(--dark-muted);
   text-transform: uppercase;

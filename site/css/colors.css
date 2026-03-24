@@ -18,7 +18,7 @@
 
   /* ── Mid arousal ──────────────────────────────────────────────────────── */
   --mood-curious:        #c48a3f;  /* amber — warm interest */
-  --mood-mischievous:    #b5c431;  /* acid chartreuse — cheeky, impish */
+  --mood-mischievous:    #7a8a00;  /* olive chartreuse — cheeky, impish (WCAG AA on #f5f5e0) */
   --mood-grumpy:         #c44040;  /* red — hot, irritable */
   --mood-anxious:        #d4883a;  /* nervous orange — warm tension */
 

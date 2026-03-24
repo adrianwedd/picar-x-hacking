@@ -282,6 +282,22 @@ body {
 
 }
 
+/* Date grouping labels */
+.feed-date-label {
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.8rem;
+  color: var(--warm-muted, #8a7060);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1.5rem 0 0.5rem;
+  margin-top: 0.5rem;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.feed-date-label:first-child {
+  padding-top: 0;
+  margin-top: 0;
+}
+
 /* Load more button */
 .feed-load-more-btn {
   display: block;

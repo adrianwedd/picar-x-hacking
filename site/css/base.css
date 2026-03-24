@@ -193,11 +193,21 @@ section:first-of-type { padding-top: calc(var(--nav-height) + 5rem); }
 
 /* Section transition — gradient divider between warm and dark */
 .section-divider {
-  height: 1px;
-  background: linear-gradient(to right, transparent, var(--dark-border, #3d3844) 25%,
-              var(--dark-accent-muted, #9a6d52) 50%, var(--dark-border, #3d3844) 75%, transparent);
-  opacity: 0.4;
+  height: 2px;
+  background: linear-gradient(to right, transparent 5%, var(--dark-accent-muted, #9a6d52) 50%, transparent 95%);
+  opacity: 0.6;
   margin: 0;
+  position: relative;
+}
+.section-divider::after {
+  content: '';
+  position: absolute;
+  top: -20px;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to bottom, transparent, rgba(26, 24, 28, 0.04));
+  pointer-events: none;
 }
 
 /* Accessibility: respect reduced-motion preference */

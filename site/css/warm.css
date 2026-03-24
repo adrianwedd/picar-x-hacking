@@ -53,6 +53,18 @@ details summary {
 }
 details summary::after { content: "+"; font-size: 1.2rem; opacity: 0.5; }
 details[open] summary::after { content: "−"; }
+
+/* World band collapsible */
+.world-details { margin-bottom: 0.5rem; border-bottom: none; padding: 0; }
+.world-toggle {
+  color: var(--warm-muted);
+  font-family: 'Courier Prime', monospace;
+  font-size: 0.85rem;
+  letter-spacing: 0.03em;
+  padding: 0.5rem 0;
+}
+.world-toggle::after { content: none !important; }
+.world-details[open] .world-toggle { color: var(--warm-accent); }
 details > *:not(summary) { margin-top: 0.75rem; }
 
 /* Offline banner */
