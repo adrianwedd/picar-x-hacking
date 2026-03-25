@@ -518,7 +518,7 @@ def generate_post(post_type: str, target_date: dt.datetime, blog_data: dict, *, 
         return None
     except SessionBudgetExhausted as exc:
         log(f"budget exhausted for {post_type}: {exc}")
-        return None
+        raise  # propagate to main loop so it can sleep until budget resets
     except Exception as exc:
         log(f"generation failed for {post_type}: {exc}")
         return None
@@ -764,15 +764,30 @@ def main(argv: list[str]) -> int:
     signal.signal(signal.SIGINT, _on_signal)
 
     try:
+        from pxh.claude_session import SessionBudgetExhausted as _BudgetError
+    except ImportError:
+        _BudgetError = None
+
+    try:
         while not _shutdown.is_set():
             try:
                 count = run_once(dry=dry)
                 if count:
                     log(f"poll: generated {count} posts")
+                _shutdown.wait(timeout=args.poll_interval)
             except Exception as exc:
-                log(f"poll: CRASHED: {exc}")
-
-            _shutdown.wait(timeout=args.poll_interval)
+                if _BudgetError and isinstance(exc, _BudgetError):
+                    # Budget exhausted — sleep until 5 min past midnight (next reset window)
+                    now = dt.datetime.now(HOBART_TZ)
+                    midnight = (now + dt.timedelta(days=1)).replace(
+                        hour=0, minute=5, second=0, microsecond=0
+                    )
+                    sleep_s = max(60.0, (midnight - now).total_seconds())
+                    log(f"poll: budget exhausted — sleeping {sleep_s / 3600:.1f}h until budget resets")
+                    _shutdown.wait(timeout=sleep_s)
+                else:
+                    log(f"poll: CRASHED: {exc}")
+                    _shutdown.wait(timeout=args.poll_interval)
     finally:
         _safe_unlink_pid()
         log("shutting down")

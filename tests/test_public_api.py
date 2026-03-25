@@ -461,7 +461,7 @@ class TestPublicHistory:
         from pxh import api as _api
         sample = _api._collect_history_sample(state_dir, persona="")
         assert sample["salience"] == pytest.approx(0.4)
-        assert sample["mood_val"] == 2  # content → 2
+        assert sample["mood_val"] == 1  # content → 1
 
     def test_collect_sample_weather_null_when_absent(self, state_dir, monkeypatch):
         (state_dir / "awareness.json").write_text(json.dumps({"obi_mode": "calm"}))

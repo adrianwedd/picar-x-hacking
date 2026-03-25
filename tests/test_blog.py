@@ -226,8 +226,8 @@ class TestBlogSchedule:
         assert "Day 1 Adventures" in prompt
         assert "Day 7 Adventures" in prompt
 
-    def test_budget_exhausted_retries(self, blog_mod):
-        """Mock budget block, verify logged and not fatal."""
+    def test_budget_exhausted_raises(self, blog_mod):
+        """Budget exhaustion propagates out of generate_post so the main loop can back off."""
         ns, state_dir, _ = blog_mod
         today = dt.datetime.now(HOBART_TZ)
         _write_thoughts(state_dir, today, count=5)
@@ -236,9 +236,8 @@ class TestBlogSchedule:
 
         with patch("pxh.claude_session.run_claude_session",
                     side_effect=SessionBudgetExhausted("daily cap reached")):
-            post = ns["generate_post"]("daily", today, {"posts": []})
-
-        assert post is None, "Should return None on budget exhaustion"
+            with pytest.raises(SessionBudgetExhausted):
+                ns["generate_post"]("daily", today, {"posts": []})
 
     def test_blog_limit_trims(self, blog_mod):
         """501 posts in blog.json, verify trimmed to 500 after save."""
