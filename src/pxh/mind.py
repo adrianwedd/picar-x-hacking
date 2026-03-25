@@ -2890,6 +2890,7 @@ def expression(thought: dict, dry: bool, awareness: dict | None = None) -> None:
                     prompt=f"SPARK's reflection layer is failing. Diagnose:\n\n{diag_context}",
                     timeout=600,
                     allowed_tools="Read,Glob,Grep",
+                    skip_permissions=True,
                 )
                 # Save diagnostic report
                 report = {

@@ -53,6 +53,10 @@ def main():
         print(json.dumps({"status": "error", "error": str(exc)}))
         return
 
+    if result.returncode != 0:
+        print(json.dumps({"status": "error", "error": f"claude exited {result.returncode}"}))
+        return
+
     # Save to notes
     import datetime as dt
     entry = {

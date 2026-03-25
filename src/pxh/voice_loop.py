@@ -128,8 +128,9 @@ _DEPTH_TRIGGERS = {
 
 def is_depth_trigger(text: str) -> bool:
     """Check if user text contains a conversation depth trigger phrase."""
+    import re as _re
     lower = text.lower()
-    return any(trigger in lower for trigger in _DEPTH_TRIGGERS)
+    return any(_re.search(r'\b' + _re.escape(trigger) + r'\b', lower) for trigger in _DEPTH_TRIGGERS)
 
 
 # Persona voice settings — injected into tool env when persona is active

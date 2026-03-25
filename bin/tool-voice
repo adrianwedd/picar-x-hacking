@@ -263,6 +263,11 @@ def main() -> int:
             log_event("voice", payload)
             print(json.dumps(payload))
             return 1
+        except Exception as exc:
+            payload = {"status": "error", "error": f"playback error: {exc}", "dry": dry_mode, "text": text}
+            log_event("voice", payload)
+            print(json.dumps(payload))
+            return 1
 
     update_session(
         fields={"last_action": "tool_voice"},
