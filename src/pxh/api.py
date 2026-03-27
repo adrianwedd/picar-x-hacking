@@ -97,9 +97,16 @@ _TRUSTED_PROXIES = {"127.0.0.1", "::1"}
 
 
 def _get_client_ip(request: "Request") -> str:
-    """Extract client IP, only trusting X-Forwarded-For from known proxies."""
+    """Extract client IP, only trusting proxy headers from known proxies.
+
+    Prefer CF-Connecting-IP (set by Cloudflare Tunnel — always exactly one IP)
+    over X-Forwarded-For (comma-separated, may include intermediate hops).
+    """
     peer = request.client.host if request.client else "unknown"
     if peer in _TRUSTED_PROXIES:
+        cf_ip = request.headers.get("cf-connecting-ip")
+        if cf_ip:
+            return cf_ip.strip()
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
             return forwarded.split(",")[0].strip()

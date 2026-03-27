@@ -480,7 +480,7 @@
   GET /api/v1/public/awareness    obi_mode, Frigate, ambient, weather, time
   GET /api/v1/public/vitals       cpu, ram, disk, temp, battery, tokens
   GET /api/v1/public/sonar        latest sonar distance + age
-  GET /api/v1/public/history      ring buffer — 60 samples × 30s ≈ 30 min
+  GET /api/v1/public/history      ring buffer — 2880 samples × 30s ≈ 24 h
   GET /api/v1/public/services     systemd unit status for all ten services
   GET /api/v1/public/feed         social posting feed (JSON)
   GET /api/v1/public/race         race telemetry, calibration, live lap data

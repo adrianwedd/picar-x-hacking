@@ -146,26 +146,34 @@ window.SparkDashboard = (function () {
     if (haList) {
       const ha = state.ha_presence;
       while (haList.firstChild) haList.removeChild(haList.firstChild);
-      const home = (ha && Array.isArray(ha.people)) ? ha.people.filter(p => p.home) : [];
-      if (home.length === 0) {
+      if (ha == null) {
+        // API withholds presence for privacy — don't claim "No one home"
         const li = document.createElement('li');
         li.className = 'ha-person-item ha-person-unknown';
-        li.textContent = 'No one home';
+        li.textContent = 'Presence offline';
         haList.appendChild(li);
       } else {
-        home.forEach(p => {
+        const home = (ha && Array.isArray(ha.people)) ? ha.people.filter(p => p.home) : [];
+        if (home.length === 0) {
           const li = document.createElement('li');
-          li.className = 'ha-person-item';
-          const dot = document.createElement('span');
-          dot.className = 'ha-dot ha-dot-home';
-          dot.textContent = '●';
-          const name = document.createElement('span');
-          name.className = 'ha-person-name';
-          name.textContent = p.name;
-          li.appendChild(dot);
-          li.appendChild(name);
+          li.className = 'ha-person-item ha-person-unknown';
+          li.textContent = 'No one home';
           haList.appendChild(li);
-        });
+        } else {
+          home.forEach(p => {
+            const li = document.createElement('li');
+            li.className = 'ha-person-item';
+            const dot = document.createElement('span');
+            dot.className = 'ha-dot ha-dot-home';
+            dot.textContent = '●';
+            const name = document.createElement('span');
+            name.className = 'ha-person-name';
+            name.textContent = p.name;
+            li.appendChild(dot);
+            li.appendChild(name);
+            haList.appendChild(li);
+          });
+        }
       }
     }
 
@@ -299,7 +307,7 @@ window.SparkDashboard = (function () {
     const valBattery = $('val-battery');
     if (valBattery) {
       const pct = state.battery_pct != null ? (state.battery_pct + '%') : '—';
-      valBattery.textContent = pct + (state.charging ? ' ⚡' : '');
+      valBattery.textContent = pct + (state.battery_charging ? ' ⚡' : '');
     }
 
     const valTokens = $('val-tokens');
@@ -431,7 +439,7 @@ window.SparkDashboard = (function () {
     if (profile) {
       if (race.profile) {
         const p = race.profile;
-        const segs = p.segments_count || '?';
+        const segs = p.segments != null ? p.segments : '?';
         const laps = p.laps_completed || 0;
         const best = p.best_lap_s ? p.best_lap_s.toFixed(1) + 's' : '—';
         profile.textContent = segs + ' seg · ' + laps + ' laps · best ' + best;

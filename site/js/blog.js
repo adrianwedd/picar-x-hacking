@@ -317,46 +317,51 @@
   // ── Single post mode ───────────────────────────────────────────────────────
 
   function initSinglePost(id) {
+    function findAndRender(data, bannerSource) {
+      var posts = (data && data.posts) || [];
+      for (var i = 0; i < posts.length; i++) {
+        if ((posts[i].id && String(posts[i].id) === id) ||
+            (posts[i].ts && posts[i].ts === id)) {
+          renderSinglePost(posts[i]);
+          if (posts[i].title) {
+            document.title = posts[i].title + ' — SPARK Blog';
+            var ogTitle = document.querySelector('meta[property="og:title"]');
+            if (ogTitle) ogTitle.content = posts[i].title;
+          }
+          // Update canonical to the actual permalink
+          var canonical = document.querySelector('link[rel="canonical"]');
+          if (canonical) canonical.href = 'https://spark.wedd.au/blog/?id=' + encodeURIComponent(id);
+          var empty = document.getElementById('feed-empty');
+          if (empty) empty.hidden = true;
+          if (bannerSource) showOfflineBanner(bannerSource);
+          return true;
+        }
+      }
+      return false;
+    }
+
     fetchJSON(API + '/blog')
       .then(function (data) {
         cacheBlog(data);
-        var posts = (data && data.posts) || [];
-        var post = null;
-        for (var i = 0; i < posts.length; i++) {
-          if ((posts[i].id && String(posts[i].id) === id) ||
-              (posts[i].ts && posts[i].ts === id)) {
-            post = posts[i];
-            break;
-          }
-        }
-        if (post) {
-          renderSinglePost(post);
-          // Update page title and OG
-          if (post.title) {
-            document.title = post.title + ' — SPARK Blog';
-            var ogTitle = document.querySelector('meta[property="og:title"]');
-            if (ogTitle) ogTitle.content = post.title;
-          }
-          var empty = document.getElementById('feed-empty');
-          if (empty) empty.hidden = true;
-        } else {
-          showError();
-        }
+        if (!findAndRender(data)) showError();
       })
       .catch(function () {
+        // 1. localStorage cache (instant)
         var cached = loadCachedBlog();
-        if (cached && cached.posts) {
-          var posts = cached.posts;
-          for (var i = 0; i < posts.length; i++) {
-            if ((posts[i].id && String(posts[i].id) === id) ||
-                (posts[i].ts && posts[i].ts === id)) {
-              renderSinglePost(posts[i]);
-              showOfflineBanner('cached');
-              return;
-            }
-          }
-        }
-        showError();
+        if (cached && findAndRender(cached, 'cached')) return;
+        // 2. Static snapshot on Cloudflare Pages
+        fetchJSON(FALLBACK_LOCAL + '/blog.json')
+          .then(function (data) {
+            if (!findAndRender(data, 'snapshot')) showError();
+          })
+          .catch(function () {
+            // 3. GitHub raw mirror
+            fetchJSON(FALLBACK_GITHUB + '/blog.json')
+              .then(function (data) {
+                if (!findAndRender(data, 'snapshot')) showError();
+              })
+              .catch(showError);
+          });
       });
   }
 

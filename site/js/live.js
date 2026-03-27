@@ -127,7 +127,7 @@
         mood_val:        state.mood ? (MOOD_VAL[(state.mood || '').toLowerCase()] || null) : null,
         mood:            state.mood ? state.mood.toLowerCase() : null,
         wifi_dbm:        state.wifi_dbm      != null ? state.wifi_dbm      : null,
-        rain_24h_mm:     state.weather?.rain_24h_mm != null ? state.weather.rain_24h_mm : null,
+        rain_24h_mm:     (function(v) { var n = parseFloat(v); return isNaN(n) ? null : n; })(state.weather?.rain_24h_mm),
       });
       try {
         localStorage.setItem(CACHE_KEY, JSON.stringify(
@@ -210,7 +210,19 @@
   async function prefetchHistory() {
     try {
       const remote = await fetchWithTimeout(API + '/history');
-      if (Array.isArray(remote)) remote.forEach(accumulate);
+      if (Array.isArray(remote) && remote.length) {
+        // Batch merge: load once, insert new entries, save once.
+        // Calling accumulate() per sample would parse+serialise the entire
+        // localStorage array for each of up to 2880 entries — O(n²) on first load.
+        let hist = loadHistory();
+        const existing = new Set(hist.map(e => e.ts));
+        for (const r of remote) {
+          if (!existing.has(r.ts)) hist.push(r);
+        }
+        if (hist.length > HISTORY_MAX) hist = hist.slice(-HISTORY_MAX);
+        saveHistory(hist);
+        SparkDashboard.renderSparklines(hist);
+      }
     } catch (_) {}
   }
 

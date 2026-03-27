@@ -71,7 +71,10 @@
     time.textContent = formatTime(post.ts);
 
     // Update page metadata
-    document.title = (post.thought.substring(0, 60)) + '... \u2014 SPARK';
+    var titleText = post.thought.length > 60
+      ? post.thought.substring(0, 60) + '\u2026'
+      : post.thought;
+    document.title = titleText + ' \u2014 SPARK';
     var ogTitle = document.querySelector('meta[property="og:title"]');
     if (ogTitle) ogTitle.content = 'SPARK: ' + post.thought.substring(0, 80);
     var ogDesc = document.querySelector('meta[property="og:description"]');
@@ -80,6 +83,9 @@
     if (ogImg) ogImg.content = API + '/thought-image?ts=' + encodeURIComponent(post.ts);
     var metaDesc = document.querySelector('meta[name="description"]');
     if (metaDesc) metaDesc.content = post.thought.substring(0, 160);
+    // Update canonical to the actual permalink (static HTML has /thought/ without ?ts=)
+    var canonical = document.querySelector('link[rel="canonical"]');
+    if (canonical && post.ts) canonical.href = 'https://spark.wedd.au/thought/?ts=' + encodeURIComponent(post.ts);
   }
 
   function showNotFound() {
