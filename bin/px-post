@@ -464,6 +464,7 @@ def write_feed(thought: dict) -> bool:
         "ts": thought.get("ts", ""),
         "thought": thought["thought"],
         "mood": thought.get("mood", ""),
+        "salience": thought.get("salience", 0),
         "posted_ts": dt.datetime.now(dt.timezone.utc).isoformat(),
     }
     existing["posts"].append(post)
