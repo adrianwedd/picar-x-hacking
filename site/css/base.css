@@ -2,43 +2,49 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* ── Warm theme (legacy — phasing out in phases 3-5) ─────────────────── */
+  /* ── Warm theme (legacy — Brain, FAQ sections only) ─────────── */
   --warm-bg: #fdf6ec;
   --warm-accent: #e8875a;
   --warm-text: #2d2d2d;
   --warm-muted: #8a7060;
 
-  /* ── Dark theme — primary palette (matches adrianwedd.com) ───────────── */
-  --dark-bg:            #1a181c;  /* near-black charcoal, slight warm undertone */
-  --dark-surface:       #24212a;  /* elevated surface (cards, panels) */
-  --dark-surface-raised:#2d2a36;  /* double-elevated (nested cards, tooltips) */
-  --dark-border:        #3d3844;  /* standard border */
-  --dark-border-subtle: rgba(255, 255, 255, 0.04); /* very soft dividers */
-  --dark-bg-glow-overlay: rgba(26, 24, 28, 0.04); /* dark-bg at 4% — for section-divider gradient */
-  --dark-text:          #e2ddd8;  /* off-white body text */
-  --dark-muted:         #968e96;  /* secondary text, labels */
+  /* ── Dark theme — primary palette ───────────────────────────── */
+  --dark-bg:            #1a181c;
+  --dark-surface:       #24212a;
+  --dark-surface-raised:#2d2a36;
+  --dark-border:        #3d3844;
+  --dark-border-subtle: rgba(255, 255, 255, 0.04);
+  --dark-bg-glow-overlay: rgba(26, 24, 28, 0.04);
+  --dark-text:          #e2ddd8;
+  --dark-muted:         #968e96;
   --dark-code-bg:       #24212a;
 
-  /* ── Copper accent (primary interactive — adrianwedd.com signature) ───── */
+  /* ── Copper accent ──────────────────────────────────────────── */
   --dark-accent:        #c48b6e;
   --dark-accent-hover:  #d49e82;
   --dark-accent-muted:  #9a6d52;
   --dark-glow:          rgba(196, 139, 110, 0.08);
 
-  /* ── Supporting accents (adrianwedd.com secondary/tertiary) ──────────── */
-  --slate:              #6e8ec4;  /* slate blue — secondary, data/systems feel */
+  /* ── Supporting accents ─────────────────────────────────────── */
+  --slate:              #6e8ec4;
   --slate-muted:        #4d6a9a;
-  --sage:               #8eaa7e;  /* sage green — tertiary, quiet/considered */
+  --sage:               #8eaa7e;
   --sage-muted:         #6a8060;
 
-  /* ── Dynamic mood accent — JS sets this to current --mood-* value ──────
-     All "active accent" elements reference --spark-accent, not --dark-accent
-     directly, so the whole UI shifts with SPARK's mood in real time.       */
+  /* ── Dynamic mood accent ────────────────────────────────────── */
   --spark-accent:       var(--dark-accent);
   --spark-glow:         var(--dark-glow);
-  --chat-bubble-color:  var(--dark-accent); /* chat panel accent — dark theme default; JS overrides per mood */
+  --chat-bubble-color:  var(--dark-accent);
 
-  /* ── Layout & motion ─────────────────────────────────────────────────── */
+  /* ── Type scale (custom editorial) ──────────────────────────── */
+  --text-display:   clamp(2.5rem, 6vw, 3.5rem);
+  --text-title:     1.75rem;
+  --text-subtitle:  1.25rem;
+  --text-body:      1rem;
+  --text-small:     0.875rem;
+  --text-xs:        0.75rem;
+
+  /* ── Layout ─────────────────────────────────────────────────── */
   --nav-height:   56px;
   --radius-sm:     8px;
   --radius:       12px;
@@ -48,8 +54,10 @@
 
 html { scroll-behavior: smooth; }
 body {
-  font-family: system-ui, -apple-system, sans-serif;
-  line-height: 1.6;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-weight: 300;
+  line-height: 1.7;
+  font-variant-numeric: tabular-nums;
   overflow-x: hidden;
   background: var(--dark-bg);
   color: var(--dark-text);
@@ -70,7 +78,7 @@ body {
 }
 
 #main-nav .logo {
-  font-family: monospace;
+  font-family: 'Courier Prime', 'Courier New', monospace;
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--dark-text);
@@ -101,7 +109,9 @@ body {
 #main-nav .links a {
   color: var(--dark-muted);
   text-decoration: none;
-  font-size: 0.875rem;
+  font-size: var(--text-small);
+  font-weight: 500;
+  letter-spacing: 0.01em;
   transition: color var(--transition);
 }
 #main-nav .links a:hover,
@@ -166,13 +176,15 @@ body {
 
 /* ── Sections ── */
 section {
-  padding: calc(var(--nav-height) + 4rem) 2rem 4rem;
-  min-height: 100vh;
+  padding: 4rem 2rem;
   overflow-x: hidden;
 }
-section:first-of-type { padding-top: calc(var(--nav-height) + 5rem); min-height: auto; }
+section:first-of-type { padding-top: calc(var(--nav-height) + 5rem); }
+@media (max-width: 600px) {
+  section { padding: 2.5rem 1rem; }
+}
 @media (max-width: 480px) {
-  section { padding-left: 0.75rem; padding-right: 0.75rem; }
+  section { padding: 2.5rem 0.75rem; }
 }
 
 /* ── Accessibility ── */
@@ -183,7 +195,11 @@ section:first-of-type { padding-top: calc(var(--nav-height) + 5rem); min-height:
 [data-theme="warm"] :focus-visible { outline-color: var(--dark-accent-muted); } /* #9a6d52 — ~4.3:1 on cream, passes WCAG 1.4.11 */
 
 /* ── Utility ── */
-.container { max-width: 900px; margin: 0 auto; padding: 0 1rem; overflow-x: hidden; }
+
+/* ── Containers ── */
+.container-hero { max-width: 1100px; margin: 0 auto; padding: 0 1.25rem; }
+.container      { max-width: 900px;  margin: 0 auto; padding: 0 1.25rem; overflow-x: hidden; }
+.container-narrow { max-width: 680px; margin: 0 auto; padding: 0 1.25rem; }
 .null-value::after { content: "—"; opacity: 0.4; }
 .hidden { display: none; }
 
