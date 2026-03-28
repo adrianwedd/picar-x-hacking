@@ -61,13 +61,12 @@
   // ── Poll cycle ────────────────────────────────────────────────────────────
 
   async function poll() {
-    const [statusR, vitalsR, sonarR, awarenessR, servicesR, raceR] = await Promise.allSettled([
+    const [statusR, vitalsR, sonarR, awarenessR, servicesR] = await Promise.allSettled([
       fetchWithTimeout(API + '/status'),
       fetchWithTimeout(API + '/vitals'),
       fetchWithTimeout(API + '/sonar'),
       fetchWithTimeout(API + '/awareness'),
       fetchWithTimeout(API + '/services'),
-      fetchWithTimeout(API + '/race'),
     ]);
 
     let anySuccess = false;
@@ -101,9 +100,6 @@
     if (servicesR.status === 'fulfilled') {
       state.services = servicesR.value;
       anySuccess = true;
-    }
-    if (raceR.status === 'fulfilled') {
-      state.race = raceR.value;
     }
 
     if (anySuccess) {
@@ -160,7 +156,6 @@
     SparkDashboard.renderPresence(state);
     SparkDashboard.renderWorld(state);
     SparkDashboard.renderMachine(state);
-    SparkDashboard.renderRace(state);
     SparkDashboard.renderSparklines(loadHistory());
   }
 
