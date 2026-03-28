@@ -64,3 +64,6 @@ diag_summary.json
 .worktrees/
 .venv
 state/state
+
+# Afterwords TTS voice override
+.afterwords

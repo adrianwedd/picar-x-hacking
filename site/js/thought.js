@@ -105,14 +105,15 @@
         } catch (e) {}
       }
       if (idx >= 0) {
-        if (idx > 0) {
-          prevLink.href = '/thought/?ts=' + encodeURIComponent(_allPosts[idx - 1].ts);
+        // _allPosts is newest-first: higher index = older (earlier)
+        if (idx < _allPosts.length - 1) {
+          prevLink.href = '/thought/?ts=' + encodeURIComponent(_allPosts[idx + 1].ts);
           prevLink.hidden = false;
         } else {
           prevLink.hidden = true;
         }
-        if (idx < _allPosts.length - 1) {
-          nextLink.href = '/thought/?ts=' + encodeURIComponent(_allPosts[idx + 1].ts);
+        if (idx > 0) {
+          nextLink.href = '/thought/?ts=' + encodeURIComponent(_allPosts[idx - 1].ts);
           nextLink.hidden = false;
         } else {
           nextLink.hidden = true;
