@@ -274,12 +274,79 @@ body {
 
 /* Blog card title */
 .blog-card-title {
-  font-family: 'Courier Prime', monospace;
-  font-size: 1.05rem;
-  font-weight: 700;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: var(--text-body);
+  font-weight: 600;
   margin-bottom: 0.5rem;
   color: var(--dark-text);
-  letter-spacing: -0.01em;
+}
+
+/* Blog tier: essay (essay, monthly, yearly) */
+.feed-card--essay {
+  border-top: 3px solid var(--dark-accent);
+  padding: 2.25rem;
+}
+.feed-card--essay .blog-card-title {
+  font-size: var(--text-subtitle);
+  color: var(--dark-accent);
+}
+.feed-card--essay .feed-card-quote {
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Blog tier: weekly */
+.feed-card--weekly .blog-card-title {
+  font-size: var(--text-body);
+  color: var(--dark-text);
+}
+.feed-card--weekly .feed-card-quote {
+  font-size: var(--text-small);
+  -webkit-line-clamp: 1;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Blog tier: daily */
+.feed-card--daily {
+  border-top: 1px solid var(--dark-border);
+  padding: 1rem 1.5rem;
+}
+.feed-card--daily .blog-card-title {
+  font-size: var(--text-body);
+  color: var(--dark-text);
+  margin-bottom: 0;
+}
+
+/* Blog article (single post — no card) */
+.blog-article {
+  max-width: 680px;
+  margin: 0 auto;
+}
+.blog-article .blog-post-title {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
+  font-weight: 700;
+  color: var(--dark-accent);
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+}
+.blog-article .blog-post-body {
+  font-family: 'Courier Prime', monospace;
+  font-size: var(--text-body);
+  line-height: 1.8;
+  color: var(--dark-text);
+}
+.blog-article .blog-post-body p { margin-bottom: 1.25rem; }
+.blog-article .feed-card-meta { margin-bottom: 1.5rem; }
+.blog-article .blog-divider {
+  border: none;
+  border-top: 1px solid var(--dark-border);
+  margin: 1.5rem 0;
 }
 
 /* Blog type badge */
@@ -307,7 +374,8 @@ body {
   display: inline-block;
   color: var(--dark-accent);
   text-decoration: none;
-  font-size: 0.85rem;
+  font-size: var(--text-small);
+  font-weight: 500;
   margin-bottom: 1.5rem;
 }
 .blog-back-link:hover {
@@ -321,7 +389,7 @@ body {
 }
 
 .blog-post-title {
-  font-family: 'Courier Prime', monospace;
+  font-family: 'Inter', system-ui, sans-serif;
   font-size: clamp(1.4rem, 4vw, 2rem);
   font-weight: 700;
   line-height: 1.2;
@@ -332,12 +400,12 @@ body {
 
 .blog-post-body {
   font-family: 'Courier Prime', monospace;
-  font-size: 1rem;
-  line-height: 1.75;
+  font-size: var(--text-body);
+  line-height: 1.8;
   color: var(--dark-text);
 }
 .blog-post-body p {
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 /* Offline / cache banner */
@@ -370,3 +438,4 @@ body {
   border-color: var(--dark-accent);
   color: var(--dark-accent);
 }
+

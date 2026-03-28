@@ -67,7 +67,7 @@
     while (list.firstChild) list.removeChild(list.firstChild);
 
     var article = document.createElement('article');
-    article.className = 'feed-card blog-post-full';
+    article.className = 'blog-article';
 
     // Breadcrumb back link
     var back = document.createElement('a');
@@ -107,6 +107,10 @@
 
     article.appendChild(meta);
 
+    var hr = document.createElement('hr');
+    hr.className = 'blog-divider';
+    article.appendChild(hr);
+
     // Full body
     var body = document.createElement('div');
     body.className = 'blog-post-body';
@@ -126,10 +130,43 @@
 
   function renderCard(post) {
     var a = document.createElement('a');
-    a.className = 'feed-card';
+    var type = post.type || 'daily';
+    var tier = (type === 'essay' || type === 'monthly' || type === 'yearly') ? 'essay'
+             : (type === 'weekly') ? 'weekly' : 'daily';
+    a.className = 'feed-card feed-card--' + tier;
     a.href = postURL(post);
 
-    // Title (bold) if present
+    // Mood-coloured top border
+    var mood = (post.mood || post.mood_summary || '').split(',')[0].replace(/\([^)]*\)/g, '').trim().toLowerCase();
+    var moodColor = mood ? getComputedStyle(document.documentElement)
+      .getPropertyValue('--mood-' + mood).trim() : '';
+    if (moodColor && tier !== 'daily') a.style.borderTopColor = moodColor;
+
+    // Daily tier: compact — title + type badge + time only, no excerpt
+    if (tier === 'daily') {
+      if (post.title) {
+        var title = document.createElement('p');
+        title.className = 'blog-card-title';
+        title.textContent = post.title;
+        a.appendChild(title);
+      }
+      var meta = document.createElement('div');
+      meta.className = 'feed-card-meta';
+      if (post.type) {
+        var typeBadge = document.createElement('span');
+        typeBadge.className = 'blog-type-badge blog-type-' + type;
+        typeBadge.textContent = typeLabel(post.type);
+        meta.appendChild(typeBadge);
+      }
+      var time = document.createElement('time');
+      time.dateTime = post.ts || '';
+      time.textContent = formatTime(post.ts || '');
+      meta.appendChild(time);
+      a.appendChild(meta);
+      return a;
+    }
+
+    // Essay / weekly tiers: title + excerpt + full meta
     if (post.title) {
       var title = document.createElement('p');
       title.className = 'blog-card-title';
