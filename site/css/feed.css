@@ -122,7 +122,7 @@ body {
 .mood-alert         { color: var(--mood-alert);         background: var(--mood-alert-surface); }
 .mood-playful       { color: var(--mood-playful);       background: var(--mood-playful-surface); }
 .mood-mischievous   { color: var(--mood-mischievous);   background: var(--mood-mischievous-surface); }
-.mood-bored         { color: var(--mood-bored);         background: var(--mood-bored-surface); }
+.mood-bored         { color: #a3a3a3;                    background: var(--mood-bored-surface); } /* brightened from --mood-bored #8a8a8a for WCAG 4.5:1 on dark surface */
 .mood-lonely        { color: var(--mood-lonely);        background: var(--mood-lonely-surface); }
 .mood-grumpy        { color: var(--mood-grumpy);        background: var(--mood-grumpy-surface); }
 .mood-anxious       { color: var(--mood-anxious);       background: var(--mood-anxious-surface); }
@@ -272,14 +272,14 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   background: var(--dark-surface-raised, #2d2a36);
-  color: var(--dark-muted);
+  color: var(--dark-text);
   border: 1px solid var(--dark-border);
 }
-.blog-type-daily   { border-color: var(--mood-content);       color: var(--mood-content); }
-.blog-type-weekly  { border-color: var(--mood-curious);       color: var(--mood-curious); }
-.blog-type-monthly { border-color: var(--mood-contemplative); color: var(--mood-contemplative); }
-.blog-type-yearly  { border-color: var(--mood-excited);       color: var(--mood-excited); }
-.blog-type-essay   { border-color: var(--mood-playful);       color: var(--mood-playful); }
+.blog-type-daily   { border-color: var(--mood-content); }
+.blog-type-weekly  { border-color: var(--mood-curious); }
+.blog-type-monthly { border-color: var(--mood-contemplative); }
+.blog-type-yearly  { border-color: var(--mood-excited); }
+.blog-type-essay   { border-color: var(--mood-playful); }
 
 /* Blog single-post view */
 .blog-back-link {

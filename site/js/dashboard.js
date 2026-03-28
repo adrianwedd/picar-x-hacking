@@ -23,7 +23,7 @@ window.SparkDashboard = (function () {
 
   function renderPresence(state) {
     const mood = (state.mood || '').toLowerCase();
-    const moodColor = _moodColor(mood) || '#e8875a';
+    const moodColor = _moodColor(mood) || '#c48b6e';
     const pulse = $('mood-pulse');
     if (pulse) {
       pulse.classList.remove('pulse-slow', 'pulse-mid', 'pulse-fast', 'pulse-offline');

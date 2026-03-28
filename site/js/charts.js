@@ -24,7 +24,7 @@ window.SparkCharts = (function () {
 
     const amplitude = Math.min(1, Math.max(0, (rms || 0) / 1500));
     ctx.fillStyle = getComputedStyle(document.documentElement)
-      .getPropertyValue('--warm-accent').trim() || '#e8875a';
+      .getPropertyValue('--spark-accent').trim() || '#c48b6e';
 
     for (let i = 0; i < BAR_COUNT; i++) {
       const barH = BASE_H + Math.round(rand() * MAX_H * amplitude);
@@ -51,7 +51,7 @@ window.SparkCharts = (function () {
 
     ctx.beginPath();
     ctx.strokeStyle = getComputedStyle(document.documentElement)
-      .getPropertyValue('--warm-accent').trim() || '#e8875a';
+      .getPropertyValue('--spark-accent').trim() || '#c48b6e';
     ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
 

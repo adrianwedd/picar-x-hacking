@@ -54,6 +54,7 @@
 
 [data-theme="dark"] .carousel-mood-badge {
   background: var(--spark-accent, var(--dark-accent)); /* fallback: copper */
+  color: var(--dark-bg); /* dark text on mood bg — passes WCAG AA at all moods */
 }
 
 [data-theme="dark"] h2 {
@@ -190,10 +191,7 @@
 [data-theme="dark"] .wx-metric-row { border-bottom-color: var(--dark-border); }
 [data-theme="dark"] .weather-headline { border-bottom-color: var(--dark-border); }
 [data-theme="dark"] .proximity-bar-track { background: rgba(255,255,255,0.08); }
-[data-theme="dark"] .carousel-quote { color: var(--dark-text); }
-[data-theme="dark"] .carousel-meta  { color: var(--dark-muted); }
-[data-theme="dark"] .carousel-dot   { background: var(--dark-accent-muted); opacity: 0.4; }
-[data-theme="dark"] .carousel-dot.active { opacity: 1; }
+/* carousel-quote, carousel-meta, carousel-dot — moved to top of file (Phase 5 block) */
 
 /* ── Site footer (dark theme) ─────────────────── */
 .site-footer {
