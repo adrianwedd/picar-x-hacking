@@ -207,7 +207,24 @@ Replace the single `.container` rule (around line 186):
 .container-narrow { max-width: 680px; margin: 0 auto; padding: 0 1.25rem; }
 ```
 
-- [ ] **Step 5: Update nav link styling to Inter**
+- [ ] **Step 5: Update nav logo to Courier Prime (not generic monospace)**
+
+In base.css, update `#main-nav .logo` (around line 72-81):
+
+```css
+#main-nav .logo {
+  font-family: 'Courier Prime', 'Courier New', monospace;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--dark-text);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+```
+
+- [ ] **Step 6: Update nav link styling to Inter (while in base.css)**
 
 In the nav `.links a` rule (around line 101-106):
 
@@ -229,8 +246,8 @@ git add site/css/base.css
 git commit -m "site: design system foundation — type scale, Inter font, containers
 
 Add --text-* scale tokens, Inter font stack on body, three container
-classes (.container-hero/container/container-narrow), remove
-min-height: 100vh from sections."
+classes (.container-hero/container/container-narrow), Courier Prime
+on nav logo, remove min-height: 100vh from sections."
 ```
 
 ---
@@ -376,7 +393,7 @@ Apply the same 5-item nav to `site/feed/index.html`, `site/blog/index.html`, and
 
 - [ ] **Step 3: Add nav backdrop CSS to base.css**
 
-After the mobile nav rules in base.css (around line 165), add:
+After the mobile nav `@media (max-width: 700px)` block in base.css (ends around line 165), add:
 
 ```css
 /* Mobile nav backdrop */
@@ -553,8 +570,11 @@ Replace `#home` section in index.html (around lines 79-96):
       </div>
       <div class="hero-photo">
         <picture>
-          <source srcset="img/spark-hero.webp" type="image/webp">
+          <source srcset="img/spark-hero-600w.webp 600w, img/spark-hero-900w.webp 900w, img/spark-hero.webp 1200w"
+                  sizes="(max-width: 700px) 280px, 40vw" type="image/webp">
           <img src="img/spark-hero.jpg"
+               srcset="img/spark-hero-600w.jpg 600w, img/spark-hero-900w.jpg 900w, img/spark-hero.jpg 1200w"
+               sizes="(max-width: 700px) 280px, 40vw"
                alt="SPARK — a PiCar-X robot with ultrasonic sensors and a camera, sitting on a desk"
                loading="eager" class="hero-img">
         </picture>
@@ -640,6 +660,15 @@ Add after the existing `[data-theme="dark"]#home h1` rule:
   border-radius: var(--radius-lg);
   box-shadow: 0 0 60px var(--spark-glow);
   filter: contrast(1.05) brightness(1.02);
+}
+
+/* Fallback when hero photo not yet provided */
+.hero-img[src="img/spark-hero.jpg"]:not([complete]),
+.hero-photo picture:empty {
+  display: block;
+  min-height: 200px;
+  background: var(--dark-surface);
+  border-radius: var(--radius-lg);
 }
 
 .hero-status {
@@ -728,9 +757,20 @@ Delete the entire `#racing` section (around lines 560-574) and its preceding sec
 
 Find the `renderRace` function in dashboard.js and remove it. Also remove `renderRace` from the returned module object at the bottom of the file.
 
-- [ ] **Step 3: Remove race fetch from live.js**
+- [ ] **Step 3: Remove race from live.js**
 
-Find the race endpoint fetch in live.js (look for `/public/race` or `renderRace`) and remove the fetch call and its handler.
+In `site/js/live.js`, remove the `SparkDashboard.renderRace(state);` call from the `renderAll()` function (line 163). Also search for any `/public/race` fetch and remove it. The `renderAll()` function should become:
+
+```javascript
+  function renderAll() {
+    SparkDashboard.renderPresence(state);
+    SparkDashboard.renderWorld(state);
+    SparkDashboard.renderMachine(state);
+    SparkDashboard.renderSparklines(loadHistory());
+  }
+```
+
+Also remove the race HTML block from `site/index.html` (the race status widget inside the dashboard, around lines 329-333 — search for `race-strip` or `race-status`).
 
 - [ ] **Step 4: Commit**
 
@@ -746,44 +786,89 @@ git commit -m "site: remove racing section and race widget from public site"
 **Files:**
 - Modify: `site/js/live.js`, `site/css/dark.css`
 
-- [ ] **Step 1: Update carousel timing from 10s to 8s**
+- [ ] **Step 1: Update carousel timing and add pause — live.js**
 
-In live.js, find the carousel interval (search for `10000` or `10_000`) and change to `8000`.
-
-- [ ] **Step 2: Add pause-on-hover and pause-on-focus**
-
-In live.js, find the carousel auto-advance logic and wrap it with pause detection:
+In `site/js/live.js`, replace the `_startCarousel` function (lines 409-417) with:
 
 ```javascript
-    // Carousel pause on hover/focus
-    var carouselEl = document.getElementById('thought-carousel');
-    var carouselPaused = false;
-    var pauseBtn = document.getElementById('carousel-pause');
+  var _carouselPaused = false;
 
-    if (carouselEl) {
-      carouselEl.addEventListener('mouseenter', function () { carouselPaused = true; });
-      carouselEl.addEventListener('mouseleave', function () { carouselPaused = false; });
-      carouselEl.addEventListener('focusin', function () { carouselPaused = true; });
-      carouselEl.addEventListener('focusout', function () { carouselPaused = false; });
+  function _startCarousel(count) {
+    if (_carouselTimer) clearInterval(_carouselTimer);
+    if (count > 1) {
+      _carouselTimer = setInterval(() => {
+        if (_carouselPaused) return;
+        _carouselIdx = (_carouselIdx + 1) % count;
+        _showSlide(_carouselIdx);
+      }, 8_000);
     }
-    if (pauseBtn) {
-      pauseBtn.addEventListener('click', function () {
-        carouselPaused = !carouselPaused;
-        pauseBtn.textContent = carouselPaused ? 'Resume' : 'Pause';
-        pauseBtn.setAttribute('aria-label', carouselPaused ? 'Resume thought carousel' : 'Pause thought carousel');
-      });
-    }
+  }
 ```
 
-Then in the interval callback, add at the top: `if (carouselPaused) return;`
+Note: Only change the `10_000` in `_startCarousel` to `8_000`. Do NOT change the `10_000` values on lines 427 and 447 — those are status dot update timers, not carousel timers.
 
-- [ ] **Step 3: Update dark carousel CSS**
+- [ ] **Step 2: Add pause event listeners after the carousel init**
 
-The carousel dark overrides in dark.css should already have: dark surface background, no bubble tails, `--spark-accent` left border. Verify these are in place from the earlier Phase 1 work. If the `padding-bottom` reduction for no-tails is present, keep it. Remove any duplicate carousel-dot rules if they still exist.
+In live.js, after the `fetchThoughts()` call (around line 424), add:
+
+```javascript
+  // Carousel pause on hover/focus (WCAG 2.2.2)
+  var _carouselEl = document.getElementById('thought-carousel');
+  var _pauseBtn = document.getElementById('carousel-pause');
+  if (_carouselEl) {
+    _carouselEl.addEventListener('mouseenter', function () { _carouselPaused = true; });
+    _carouselEl.addEventListener('mouseleave', function () { _carouselPaused = false; });
+    _carouselEl.addEventListener('focusin', function () { _carouselPaused = true; });
+    _carouselEl.addEventListener('focusout', function () { _carouselPaused = false; });
+  }
+  if (_pauseBtn) {
+    _pauseBtn.addEventListener('click', function () {
+      _carouselPaused = !_carouselPaused;
+      _pauseBtn.textContent = _carouselPaused ? 'Resume' : 'Pause';
+      _pauseBtn.setAttribute('aria-label', _carouselPaused ? 'Resume thought carousel' : 'Pause thought carousel');
+    });
+  }
+```
+
+These are inside the same IIFE as `_carouselPaused` and `_startCarousel`, so they share scope.
+
+- [ ] **Step 2b: Add localStorage fallback to carousel thought fetching**
+
+In live.js, find the `fetchThoughts` function. After the API fetch fails, add a localStorage cache check:
+
+```javascript
+      .catch(function () {
+        // Offline — try localStorage cache
+        try {
+          var cached = JSON.parse(localStorage.getItem('spark_feed_cache'));
+          if (cached && cached.posts && cached.posts.length) {
+            _renderThoughts(cached.posts.slice(-5).reverse());
+          }
+        } catch (e) {}
+      });
+```
+
+This ensures the carousel shows cached thoughts when the Pi is offline.
+
+- [ ] **Step 3: Update dark carousel CSS — pull-quote style, no card**
+
+In `site/css/dark.css`, replace the existing `[data-theme="dark"] .carousel-slide` rule with a pull-quote style (no card background, no border):
+
+```css
+[data-theme="dark"] .carousel-slide {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 1rem 0;
+}
+```
+
+This makes the carousel a bare pull-quote on dark backgrounds. The warm.css carousel-slide retains its bubble styling for any warm sections that still use it.
 
 - [ ] **Step 4: Add visually-hidden utility class to base.css**
 
-In base.css, add:
+In base.css, add after the `.hidden { display: none; }` rule (around line 188):
 
 ```css
 .visually-hidden {
@@ -858,6 +943,8 @@ Replace the `.feed-card, .thought-bubble` rule block with top-border cards. The 
   line-height: 1.65;
   margin: 0 0 0.75rem;
   color: var(--dark-text);
+  text-indent: -0.4em; /* hanging punctuation for opening quotes */
+  padding-left: 0.4em;
 }
 
 .feed-card-meta {
@@ -966,21 +1053,24 @@ For the mood summary, add to the `render` function after clearing the list:
     }
 ```
 
-- [ ] **Step 7: Add count display below load-more button**
+- [ ] **Step 7: Add count display below feed list**
 
-In the `updateLoadMore` function in feed.js, after creating the button, add:
+In feed.js, add a new function and call it from both `renderPage` and `updateLoadMore`:
 
 ```javascript
-    // Count display
+  function updateCount() {
     var countEl = document.getElementById('feed-count');
     if (!countEl) {
       countEl = document.createElement('p');
       countEl.id = 'feed-count';
       countEl.style.cssText = 'text-align:center;font-size:var(--text-xs);color:var(--dark-muted);margin-top:0.5rem;';
+      document.getElementById('feed-list').after(countEl);
     }
     countEl.textContent = 'Showing ' + _displayedCount + ' of ' + _allPosts.length + ' thoughts';
-    btn.after(countEl);
+  }
 ```
+
+Call `updateCount()` at the end of `renderPage()` (after `updateLoadMore()`), and also at the end of `updateLoadMore()` (before the function returns, including the early-return path when all posts are shown).
 
 - [ ] **Step 8: Commit**
 
@@ -1271,68 +1361,258 @@ Replace the `<main>` content:
 .thought-share-link:hover { color: var(--dark-accent); }
 ```
 
-- [ ] **Step 3: Update thought.js — prev/next, share, mood wash, static-first**
+- [ ] **Step 3: Rewrite thought.js completely**
 
-This is the most complex JS change. In thought.js, update the `showThought` function to:
+Replace the entire contents of `site/js/thought.js` with:
 
-1. Set mood-colored rule: `document.querySelector('.thought-mood-rule').style.borderTopColor = moodColor;`
-2. Set mood wash background on the page container:
 ```javascript
-    // Mood wash
+/* Individual thought permalink page — fetches by ?ts= parameter.
+   Fallback chain: static snapshot → live API → GitHub raw → localStorage */
+(function () {
+  'use strict';
+
+  var API = window.SPARK_CONFIG.API_BASE;
+  var FALLBACK_LOCAL = window.SPARK_CONFIG.FALLBACK_LOCAL;
+  var FALLBACK_GITHUB = window.SPARK_CONFIG.FALLBACK_GITHUB;
+  var TIMEOUT_MS = 8000;
+
+  var VALID_MOODS = ['peaceful','content','contemplative','curious','active','excited',
+    'alert','playful','mischievous','bored','lonely','grumpy','anxious'];
+
+  // Store full feed for prev/next navigation
+  var _allPosts = [];
+
+  function fetchJSON(url) {
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
+    return fetch(url, { signal: ctrl.signal })
+      .then(function (r) { clearTimeout(timer); return r.json(); })
+      .catch(function (e) { clearTimeout(timer); throw e; });
+  }
+
+  function formatTime(isoStr) {
+    try {
+      var d = new Date(isoStr);
+      return d.toLocaleString('en-AU', {
+        timeZone: 'Australia/Hobart',
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true
+      });
+    } catch (e) { return ''; }
+  }
+
+  function moodClass(mood) {
+    var m = (mood || '').toLowerCase();
+    return VALID_MOODS.indexOf(m) >= 0 ? 'mood-' + m : 'mood-content';
+  }
+
+  function _moodCSSColor(mood) {
+    if (!mood) return '';
+    return getComputedStyle(document.documentElement)
+      .getPropertyValue('--mood-' + mood.toLowerCase()).trim() || '';
+  }
+
+  function findByTs(posts, targetTs) {
+    for (var i = 0; i < posts.length; i++) {
+      if (posts[i].ts === targetTs) return posts[i];
+    }
+    try {
+      var target = new Date(targetTs).getTime();
+      for (var j = 0; j < posts.length; j++) {
+        if (Math.abs(new Date(posts[j].ts).getTime() - target) < 2000) return posts[j];
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function showThought(post) {
+    document.getElementById('thought-loading').hidden = true;
+    document.getElementById('thought-not-found').hidden = true;
+
+    var card = document.getElementById('thought-card');
+    card.hidden = false;
+
+    document.getElementById('thought-text').textContent = post.thought;
+
+    var badge = document.getElementById('thought-mood');
+    badge.className = 'mood-badge ' + moodClass(post.mood);
+    badge.textContent = post.mood || 'thinking';
+
+    var time = document.getElementById('thought-time');
+    time.dateTime = post.ts;
+    time.textContent = formatTime(post.ts);
+
+    // Mood-colored rule
+    var moodColor = _moodCSSColor(post.mood);
+    var rule = document.querySelector('.thought-mood-rule');
+    if (rule && moodColor) rule.style.borderTopColor = moodColor;
+
+    // Mood wash background
     var page = document.querySelector('.thought-page');
-    if (page && moodColor) {
+    if (page && moodColor && /^#[0-9a-fA-F]{6}$/.test(moodColor)) {
       var r = parseInt(moodColor.slice(1,3),16);
       var g = parseInt(moodColor.slice(3,5),16);
       var b = parseInt(moodColor.slice(5,7),16);
       page.style.background = 'radial-gradient(ellipse at 50% 0%, rgba(' + r + ',' + g + ',' + b + ',0.25) 0%, transparent 50%)';
     }
-```
 
-3. Set up prev/next navigation:
-```javascript
-    // Prev/next
+    // Prev/next navigation
     var navEl = document.getElementById('thought-nav');
     var prevLink = document.getElementById('thought-prev');
     var nextLink = document.getElementById('thought-next');
-    if (navEl && allPosts && allPosts.length > 1) {
-      var idx = allPosts.findIndex(function (p) { return p.ts === post.ts; });
-      if (idx > 0) {
-        prevLink.href = '/thought/?ts=' + encodeURIComponent(allPosts[idx - 1].ts);
-        prevLink.hidden = false;
-      } else {
-        prevLink.hidden = true;
+    if (navEl && _allPosts.length > 1) {
+      var idx = -1;
+      for (var i = 0; i < _allPosts.length; i++) {
+        if (_allPosts[i].ts === post.ts) { idx = i; break; }
       }
-      if (idx < allPosts.length - 1) {
-        nextLink.href = '/thought/?ts=' + encodeURIComponent(allPosts[idx + 1].ts);
-        nextLink.hidden = false;
-      } else {
-        nextLink.hidden = true;
+      if (idx < 0) {
+        // Fuzzy match
+        try {
+          var target = new Date(post.ts).getTime();
+          for (var j = 0; j < _allPosts.length; j++) {
+            if (Math.abs(new Date(_allPosts[j].ts).getTime() - target) < 2000) { idx = j; break; }
+          }
+        } catch (e) {}
       }
-      navEl.hidden = false;
+      if (idx >= 0) {
+        if (idx > 0) {
+          prevLink.href = '/thought/?ts=' + encodeURIComponent(_allPosts[idx - 1].ts);
+          prevLink.hidden = false;
+        } else {
+          prevLink.hidden = true;
+        }
+        if (idx < _allPosts.length - 1) {
+          nextLink.href = '/thought/?ts=' + encodeURIComponent(_allPosts[idx + 1].ts);
+          nextLink.hidden = false;
+        } else {
+          nextLink.hidden = true;
+        }
+        navEl.hidden = false;
+      }
     }
-```
 
-4. Set up share links:
-```javascript
-    // Share
+    // Share links
     var shareEl = document.getElementById('thought-share');
     var bskyLink = document.getElementById('thought-share-bsky');
     var copyBtn = document.getElementById('thought-copy-link');
     if (shareEl) {
       var permalink = 'https://spark.wedd.au/thought/?ts=' + encodeURIComponent(post.ts);
-      var shareText = '"' + (post.thought || '').substring(0, 200) + '" — SPARK ' + permalink;
-      bskyLink.href = 'https://bsky.app/intent/compose?text=' + encodeURIComponent(shareText);
-      copyBtn.onclick = function () {
-        navigator.clipboard.writeText(permalink).then(function () {
-          copyBtn.textContent = 'Copied!';
-          setTimeout(function () { copyBtn.textContent = 'Copy link'; }, 2000);
-        });
-      };
+      var shareText = '"' + (post.thought || '').substring(0, 200) + '" \u2014 SPARK ' + permalink;
+      if (bskyLink) bskyLink.href = 'https://bsky.app/intent/compose?text=' + encodeURIComponent(shareText);
+      if (copyBtn) {
+        copyBtn.onclick = function () {
+          navigator.clipboard.writeText(permalink).then(function () {
+            copyBtn.textContent = 'Copied!';
+            setTimeout(function () { copyBtn.textContent = 'Copy link'; }, 2000);
+          });
+        };
+      }
       shareEl.hidden = false;
     }
-```
 
-5. Change fallback order to static-first: swap the fetch chain so `/data/feed.json` is tried before the live API.
+    // Update page metadata
+    var titleText = post.thought.length > 60 ? post.thought.substring(0, 60) + '\u2026' : post.thought;
+    document.title = titleText + ' \u2014 SPARK';
+    var ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle) ogTitle.content = 'SPARK: ' + post.thought.substring(0, 80);
+    var ogDesc = document.querySelector('meta[property="og:description"]');
+    if (ogDesc) ogDesc.content = post.thought.substring(0, 160);
+    var canonical = document.querySelector('link[rel="canonical"]');
+    if (canonical && post.ts) canonical.href = 'https://spark.wedd.au/thought/?ts=' + encodeURIComponent(post.ts);
+  }
+
+  function showNotFound() {
+    document.getElementById('thought-loading').hidden = true;
+    document.getElementById('thought-not-found').hidden = false;
+  }
+
+  function showOfflineBanner() {
+    var existing = document.getElementById('thought-offline-banner');
+    if (existing) return;
+    var banner = document.createElement('div');
+    banner.id = 'thought-offline-banner';
+    banner.className = 'feed-offline-banner';
+    banner.textContent = 'Showing snapshot data \u2014 SPARK\'s Pi is currently offline.';
+    var card = document.getElementById('thought-card');
+    card.parentNode.insertBefore(banner, card);
+  }
+
+  function handleFeedData(data, ts, isOffline) {
+    var posts = (data && data.posts) || [];
+    _allPosts = posts.slice().reverse(); // newest first, matching feed.js order
+    var post = findByTs(posts, ts);
+    if (post) {
+      showThought(post);
+      if (isOffline) showOfflineBanner();
+      return true;
+    }
+    return false;
+  }
+
+  // Static-first fallback chain
+  function init() {
+    var params = new URLSearchParams(window.location.search);
+    var ts = params.get('ts');
+    if (!ts) { showNotFound(); return; }
+
+    // 1. Try static snapshot first (always available on Cloudflare Pages)
+    fetchJSON(FALLBACK_LOCAL + '/feed.json')
+      .then(function (data) {
+        if (handleFeedData(data, ts, false)) {
+          // Got it from static — also try live API to refresh prev/next data
+          fetchJSON(API + '/feed')
+            .then(function (liveData) { handleFeedData(liveData, ts, false); })
+            .catch(function () {}); // silently fail — we already have the thought
+        } else {
+          // Not in static snapshot — try live API
+          return tryLiveAPI(ts);
+        }
+      })
+      .catch(function () {
+        // Static snapshot failed — try live API
+        tryLiveAPI(ts);
+      });
+  }
+
+  function tryLiveAPI(ts) {
+    fetchJSON(API + '/feed')
+      .then(function (data) {
+        if (!handleFeedData(data, ts, false)) {
+          // Try thoughts endpoint as last resort
+          fetchJSON(API + '/thoughts?limit=50')
+            .then(function (thoughts) {
+              var found = findByTs(thoughts, ts);
+              if (found) showThought(found);
+              else tryGithub(ts);
+            })
+            .catch(function () { tryGithub(ts); });
+        }
+      })
+      .catch(function () { tryGithub(ts); });
+  }
+
+  function tryGithub(ts) {
+    fetchJSON(FALLBACK_GITHUB + '/feed.json')
+      .then(function (data) {
+        if (!handleFeedData(data, ts, true)) showNotFound();
+      })
+      .catch(function () {
+        // Last resort: localStorage cache
+        try {
+          var cached = JSON.parse(localStorage.getItem('spark_feed_cache'));
+          if (cached && !handleFeedData(cached, ts, true)) showNotFound();
+          else if (!cached) showNotFound();
+        } catch (e) { showNotFound(); }
+      });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+```
 
 - [ ] **Step 4: Commit**
 
@@ -1367,8 +1647,12 @@ git commit -m "site: thought permalink — centrepiece layout, mood wash, prev/n
   }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
 
   function init() {
-    document.querySelectorAll('.feed-card, .thought-centrepiece, .warm-card, .band, section > .container, section > .container-hero, section > .container-narrow').forEach(function (el) {
+    document.querySelectorAll('.feed-card, .thought-centrepiece, .warm-card, .band, section > .container, section > .container-hero, section > .container-narrow').forEach(function (el, i) {
       el.classList.add('animate-ready');
+      // Stagger feed cards within visible batch: 50ms * index, capped at 250ms
+      if (el.classList.contains('feed-card')) {
+        el.style.transitionDelay = Math.min(i * 50, 250) + 'ms';
+      }
       observer.observe(el);
     });
   }
@@ -1381,7 +1665,7 @@ git commit -m "site: thought permalink — centrepiece layout, mood wash, prev/n
 })();
 ```
 
-- [ ] **Step 2: Add animation CSS to base.css**
+- [ ] **Step 2: Add animation CSS to base.css (before the existing `@media (prefers-reduced-motion)` block, around line 243)**
 
 ```css
 /* ── Scroll entrance animations ── */
@@ -1487,20 +1771,51 @@ Replace the bar drawing loop in `drawWaveform`:
     var BASE_H = 2;
 ```
 
-And update the drawing to use rounded caps:
+And update the drawing to use rounded rectangles:
 
 ```javascript
-    ctx.lineCap = 'round';
     for (var i = 0; i < BAR_COUNT; i++) {
       var barH = BASE_H + Math.round(rand() * MAX_H * amplitude);
       var x = i * (BAR_W + GAP);
-      ctx.fillRect(x, H - barH, BAR_W, barH);
+      var y = H - barH;
+      // Rounded top caps (2px radius)
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, BAR_W, barH, [2, 2, 0, 0]);
+        ctx.fill();
+      } else {
+        ctx.fillRect(x, y, BAR_W, barH);
+      }
     }
 ```
 
+Note: `ctx.roundRect()` is supported in all modern browsers. The fallback `fillRect` is for older browsers that lack it.
+
 Set opacity: `ctx.globalAlpha = 0.6;` before drawing, `ctx.globalAlpha = 1.0;` after.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Add threshold-colored metric bars**
+
+In `site/js/dashboard.js`, find the metric bar rendering (search for `metric-bar` or `style.width`). When setting the bar fill color, apply threshold logic:
+
+```javascript
+    // Threshold coloring for metric bars
+    function _barColor(pct, inverted) {
+      if (inverted) {
+        // Battery: red < 20%, amber < 30%
+        if (pct < 20) return '#ef4444';
+        if (pct < 30) return '#f59e0b';
+      } else {
+        // CPU/RAM/Disk: amber > 80%, red > 95%
+        if (pct > 95) return '#ef4444';
+        if (pct > 80) return '#f59e0b';
+      }
+      return ''; // default to CSS --spark-accent
+    }
+```
+
+Apply this when setting bar element styles. If the bar element already has its color set via CSS (`--spark-accent`), use `el.style.background = _barColor(pct, isBattery) || ''` (empty string falls back to CSS).
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add site/js/charts.js
@@ -1601,7 +1916,24 @@ Replace the site-footer rules:
 
 - [ ] **Step 3: Update footers on feed, blog, thought pages**
 
-These pages have a simpler footer. Update each to include at minimum: Home, Feed, Blog, Bluesky, GitHub links and the credit line. Use the same `.site-footer` class and `.footer-links` (horizontal for sub-pages).
+Replace the footer in each of `site/feed/index.html`, `site/blog/index.html`, and `site/thought/index.html` with:
+
+```html
+<footer class="site-footer" data-theme="dark">
+  <div class="container-narrow">
+    <nav class="site-footer-links" aria-label="Footer navigation">
+      <a href="/">Home</a>
+      <a href="/feed/">Feed</a>
+      <a href="/blog/">Blog</a>
+      <a href="https://bsky.app/profile/spark.wedd.au" target="_blank" rel="noopener noreferrer">Bluesky</a>
+      <a href="https://github.com/adrianwedd/spark" target="_blank" rel="noopener noreferrer">GitHub</a>
+    </nav>
+    <p class="site-footer-credit">SPARK — built by Adrian and Obi together.</p>
+  </div>
+</footer>
+```
+
+These sub-pages use a horizontal link row (the existing `.site-footer-links` flexbox from dark.css) rather than the two-column grid.
 
 - [ ] **Step 4: Commit**
 
@@ -1619,16 +1951,18 @@ git commit -m "site: footer — two-column link grid, Inter typography, all navi
 
 - [ ] **Step 1: Replace all warm references in chat.css**
 
-Apply these replacements throughout chat.css:
+Apply these replacements throughout chat.css (use the exact hex fallbacks from the file):
 
-| Find | Replace |
-|------|---------|
-| `var(--warm-accent, #e8875a)` | `var(--dark-accent, #c48b6e)` |
-| `var(--warm-accent)` | `var(--dark-accent)` |
-| `var(--warm-bg, #fdf8f0)` | `var(--dark-surface, #24212a)` |
-| `var(--warm-bg)` | `var(--dark-surface)` |
-| `var(--warm-text)` | `var(--dark-text)` |
-| `var(--warm-muted)` | `var(--dark-muted)` |
+| Find (exact string) | Replace | Lines |
+|------|---------|-------|
+| `var(--chat-bubble-color, var(--warm-accent, #e8875a))` | `var(--chat-bubble-color, var(--dark-accent, #c48b6e))` | 18, 112, 173 |
+| `var(--warm-accent, #e8875a)` | `var(--dark-accent, #c48b6e)` | 25, 88, 167, 189 |
+| `var(--warm-bg, #faf6f1)` | `var(--dark-surface, #24212a)` | 47, 160 |
+| `var(--warm-text, #2c2015)` | `var(--dark-text, #e2ddd8)` | 69, 86, 113, 118, 161 |
+| `var(--warm-muted, #a08060)` | `var(--dark-muted, #968e96)` | 73, 83, 131 |
+| `var(--warm-card, #f2ece3)` | `var(--dark-surface, #24212a)` | 111 |
+
+Note: The hex fallbacks in the file use `#faf6f1` (not `#fdf8f0`), `#2c2015` (not `#2d2d2d`), and `#a08060`. Match exactly.
 
 - [ ] **Step 2: Commit**
 
