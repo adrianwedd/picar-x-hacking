@@ -28,12 +28,12 @@ body {
 }
 
 .feed-header h1 {
-  font-family: 'Courier Prime', 'Courier New', monospace;
-  font-size: clamp(1.6rem, 5vw, 2.25rem);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: var(--text-title);
   font-weight: 700;
   margin: 0 0 0.5rem;
   color: var(--dark-accent);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
 }
 
 .feed-subtitle {
@@ -58,36 +58,49 @@ body {
   position: relative;
   background: var(--dark-surface);
   border: 1px solid var(--dark-border);
-  border-left: 3px solid var(--spark-accent, var(--dark-accent));
+  border-top: 2px solid var(--spark-accent, var(--dark-accent));
   border-radius: var(--radius);
-  padding: 1.5rem 1.75rem;
+  padding: 1.75rem 2rem;
   text-decoration: none;
   color: inherit;
   display: block;
-  transition: border-color var(--transition), box-shadow var(--transition), transform var(--transition);
+  transition: transform 0.25s cubic-bezier(0.25, 0.1, 0.25, 1), box-shadow 0.25s cubic-bezier(0.25, 0.1, 0.25, 1);
   margin-bottom: 0;
 }
 
 .feed-card:hover {
-  border-left-color: var(--dark-accent-hover);
+  transform: translateY(-2px);
   box-shadow: 0 4px 20px var(--dark-glow);
-  transform: translateY(-1px);
+}
+
+/* Featured card — high salience */
+.feed-card--featured {
+  border-top-width: 3px;
+  padding: 2rem 2.25rem;
+}
+.feed-card--featured .feed-card-quote {
+  font-size: var(--text-subtitle);
 }
 
 .feed-card-quote {
   font-family: 'Courier Prime', monospace;
   font-style: italic;
-  font-size: clamp(0.95rem, 2.5vw, 1.15rem);
+  font-size: var(--text-body);
   line-height: 1.65;
-  margin: 0 0 1rem;
+  margin: 0 0 0.75rem;
   color: var(--dark-text);
+  text-indent: -0.4em;
+  padding-left: 0.4em;
 }
 
 .feed-card-meta {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
-  font-size: 0.8rem;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: var(--text-small);
+  font-weight: 500;
   color: var(--dark-muted);
 }
 
@@ -132,7 +145,7 @@ body {
 .thought-bubble {
   padding: 2rem 2.25rem;
   margin-bottom: 3rem;
-  border-left-width: 4px;
+  border-top-width: 4px;
 }
 
 .thought-quote-full {
@@ -237,14 +250,22 @@ body {
 
 /* Date grouping labels */
 .feed-date-label {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
   font-family: 'Courier Prime', monospace;
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
   color: var(--dark-muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 1.5rem 0 0.5rem;
   margin-top: 0.5rem;
-  border-bottom: 1px solid var(--dark-border-subtle, rgba(255,255,255,0.04));
+}
+.feed-date-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--dark-accent-muted);
 }
 .feed-date-label:first-child {
   padding-top: 0;

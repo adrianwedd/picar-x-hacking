@@ -46,10 +46,21 @@
     return VALID_MOODS.indexOf(m) >= 0 ? 'mood-' + m : 'mood-content';
   }
 
+  function _moodCSSColor(mood) {
+    if (!mood) return '';
+    return getComputedStyle(document.documentElement)
+      .getPropertyValue('--mood-' + mood.toLowerCase()).trim() || '';
+  }
+
   function renderCard(post) {
     var a = document.createElement('a');
-    a.className = 'feed-card';
+    var salience = post.salience || 0;
+    a.className = salience >= 0.85 ? 'feed-card feed-card--featured' : 'feed-card';
     a.href = thoughtURL(post);
+
+    // Mood-colored top border
+    var moodColor = _moodCSSColor(post.mood);
+    if (moodColor) a.style.borderTopColor = moodColor;
 
     var quote = document.createElement('p');
     quote.className = 'feed-card-quote';
@@ -107,9 +118,22 @@
     });
     _displayedCount += batch.length;
     updateLoadMore();
+    updateCount();
+  }
+
+  function updateCount() {
+    var countEl = document.getElementById('feed-count');
+    if (!countEl) {
+      countEl = document.createElement('p');
+      countEl.id = 'feed-count';
+      countEl.style.cssText = 'text-align:center;font-size:var(--text-xs);color:var(--dark-muted);margin-top:0.5rem;';
+      document.getElementById('feed-list').after(countEl);
+    }
+    countEl.textContent = 'Showing ' + _displayedCount + ' of ' + _allPosts.length + ' thoughts';
   }
 
   function updateLoadMore() {
+    updateCount();
     var existing = document.getElementById('feed-load-more');
     if (existing) existing.remove();
     if (_displayedCount >= _allPosts.length) return;
@@ -141,6 +165,20 @@
     }
 
     empty.hidden = true;
+
+    // Mood summary
+    var summaryEl = document.getElementById('feed-mood-summary');
+    if (summaryEl && _allPosts.length > 0) {
+      var counts = {};
+      _allPosts.forEach(function (p) {
+        var m = (p.mood || 'unknown').toLowerCase();
+        counts[m] = (counts[m] || 0) + 1;
+      });
+      var sorted = Object.entries(counts).sort(function (a, b) { return b[1] - a[1]; });
+      var top3 = sorted.slice(0, 3).map(function (e) { return e[1] + ' ' + e[0]; }).join(', ');
+      summaryEl.textContent = _allPosts.length + ' thoughts \u2014 ' + top3 + (sorted.length > 3 ? ', \u2026' : '');
+    }
+
     renderPage();
 
     // Update OG description with latest thought
