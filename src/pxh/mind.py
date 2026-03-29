@@ -565,37 +565,23 @@ def classify_time_period(hour: int) -> str:
 def read_sonar(dry: bool) -> float | None:
     """Get sonar distance in cm, or None if sensor is unavailable/broken.
 
-    Prefers px-alive's live sonar file (updated every 5s, no servo movement).
-    Falls back to tool-sonar subprocess only if the file is stale/missing.
+    Reads px-alive's live sonar file (updated every 5s, no servo movement).
+    Returns None if stale/missing — no fallback to tool-sonar, which would
+    kill px-alive via yield_alive and make the staleness worse.
     """
     if dry:
         return None
-    # Read px-alive's shared sonar file — avoids killing px-alive for a distance reading
     state_dir = Path(os.environ.get("PX_STATE_DIR", PROJECT_ROOT / "state"))
     sonar_live = state_dir / "sonar_live.json"
     try:
         data = json.loads(sonar_live.read_text())
         age = time.time() - float(data.get("ts", 0))
-        if age < 25:  # 25s: covers 10s systemd RestartSec + ~5s Picarx acquisition
+        if age < 35:  # 35s: covers 10s RestartSec + ~6s Picarx acquisition + margin
             val = data.get("distance_cm")
             return float(val) if val is not None else None
-        log(f"sonar_live.json stale ({age:.0f}s) — falling back to tool-sonar")
+        log(f"sonar_live.json stale ({age:.0f}s) — skipping (px-alive will recover)")
     except Exception as exc:
-        log(f"sonar_live.json read failed ({exc}) — falling back to tool-sonar")
-    # Fallback: px-alive is dead/stale — use tool-sonar (will not cause a yield_alive conflict)
-    try:
-        env = os.environ.copy()
-        env["PX_DRY"] = "0"
-        result = subprocess.run(
-            [str(BIN_DIR / "tool-sonar")],
-            capture_output=True, text=True, check=False, env=env, timeout=10,
-        )
-        if result.returncode == 0:
-            payload = json.loads(result.stdout.strip().splitlines()[-1])
-            val = payload.get("closest_cm")
-            return float(val) if val is not None else None
-    except Exception as exc:
-        log(f"tool-sonar fallback failed: {exc}")
+        log(f"sonar_live.json read failed ({exc}) — skipping")
     return None
 
 

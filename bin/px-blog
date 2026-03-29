@@ -586,10 +586,17 @@ def generate_post(post_type: str, target_date: dt.datetime, blog_data: dict, *, 
 # Main loop
 # ---------------------------------------------------------------------------
 
-def run_once(*, dry: bool = False) -> int:
-    """Check schedule, generate due posts. Returns count generated."""
+def run_once(*, dry: bool = False) -> tuple[int, bool]:
+    """Check schedule, generate due posts.
+
+    Returns (count_generated, had_skips) where *had_skips* is True when at
+    least one due post was skipped because its source material was missing
+    (e.g. no child posts for monthly/yearly, not enough thoughts for daily).
+    The caller uses *had_skips* to sleep longer and avoid a tight retry loop.
+    """
     blog_data = load_blog()
     generated = 0
+    had_skips = False
 
     for post_type in ("daily", "weekly", "monthly", "yearly"):
         due, target_date = is_due(post_type, blog_data)
@@ -603,6 +610,7 @@ def run_once(*, dry: bool = False) -> int:
         log(f"generating {post_type} post: {pid}")
         post = generate_post(post_type, target_date, blog_data, dry=dry)
         if post is None:
+            had_skips = True
             continue
 
         blog_data.setdefault("posts", []).append(post)
@@ -621,7 +629,7 @@ def run_once(*, dry: bool = False) -> int:
         log(f"generated {post_type}: {post['title'][:60]}")
         generated += 1
 
-    return generated
+    return generated, had_skips
 
 
 def run_backfill(*, dry: bool = False) -> int:
@@ -751,7 +759,7 @@ def main(argv: list[str]) -> int:
         return 0
 
     if args.once:
-        count = run_once(dry=dry)
+        count, _skips = run_once(dry=dry)
         log(f"generated {count} posts")
         _safe_unlink_pid()
         return 0
@@ -770,13 +778,22 @@ def main(argv: list[str]) -> int:
     except ImportError:
         _BudgetError = None
 
+    SKIP_BACKOFF_S = 3600  # 1 hour backoff when due posts lack source material
+
     try:
         while not _shutdown.is_set():
             try:
-                count = run_once(dry=dry)
+                count, had_skips = run_once(dry=dry)
                 if count:
                     log(f"poll: generated {count} posts")
-                _shutdown.wait(timeout=args.poll_interval)
+                if had_skips and count == 0:
+                    # All due posts were skipped (missing children / insufficient
+                    # thoughts).  Back off for 1 hour instead of retrying every
+                    # poll interval — the source material won't appear in 60 s.
+                    log(f"poll: all due posts skipped (missing source material) — backing off {SKIP_BACKOFF_S}s")
+                    _shutdown.wait(timeout=SKIP_BACKOFF_S)
+                else:
+                    _shutdown.wait(timeout=args.poll_interval)
             except Exception as exc:
                 if _BudgetError and isinstance(exc, _BudgetError):
                     # Budget exhausted — sleep until 5 min past midnight (next reset window)

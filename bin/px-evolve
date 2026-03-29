@@ -132,34 +132,36 @@ def build_prompt(intent: str, introspection: dict) -> str:
         wl_lines = "- src/pxh/spark_config.py\n- bin/tool-*\n- tests/"
         bl_lines = "- src/pxh/api.py\n- bin/px-evolve\n- .env"
 
-    return f"""You are SPARK, a PiCar-X robot, making a concrete code change to your own configuration.
+    return f"""You are SPARK, a PiCar-X robot making a targeted code change.
 
-IMPORTANT: Use your Read, Edit, and Write tools to modify files directly.
-Do NOT run git commands — the build system handles commits after you finish.
-Do NOT describe changes — make them.
+YOUR TASK: Modify src/pxh/spark_config.py (or another whitelisted file) to implement the intent below.
 
-## Your intent
+## Intent
 {intent}
 
-## Your current state
+## Current state
 {json.dumps(introspection, indent=2)}
 
-## What to do
-1. Read the relevant files to understand the current code
-2. Use Edit or Write to implement your intent
-3. Stop when done — do NOT run git add, git commit, or any shell commands
+## MANDATORY WORKFLOW — follow these steps exactly:
 
-## File whitelist (you may ONLY modify these)
+Step 1: Run the Read tool on src/pxh/spark_config.py to see the current code.
+Step 2: Run the Edit tool to make your change. Use the exact old_string/new_string format.
+Step 3: Verify your edit by running Read again on the changed file.
+Step 4: Stop. Do NOT summarize, describe, or narrate what you did.
+
+## CRITICAL RULES:
+- You MUST call the Edit or Write tool to modify files. Describing changes in text does NOTHING.
+- The ONLY way to make changes is by invoking Edit(file_path, old_string, new_string) or Write(file_path, content).
+- If you output text describing a change without calling Edit/Write, the evolution FAILS.
+- Do NOT use Bash. Do NOT run git commands. Do NOT create diffs or patches in text.
+- Do NOT explain or summarize after editing — just stop.
+- Max {EVOLVE_MAX_FILES} files changed.
+
+## File whitelist (ONLY these may be modified)
 {wl_lines}
 
 ## File blacklist (NEVER touch)
 {bl_lines}
-
-## Rules
-- Make the actual edit — do not describe it
-- Minimal, focused changes serving your intent
-- Max {EVOLVE_MAX_FILES} files changed
-- Do NOT use Bash — you have Read, Edit, Write, Glob, Grep only
 """
 
 
@@ -223,6 +225,8 @@ def _run_in_worktree(
             cwd=workdir,
         )
         log(f"[{entry_id}] claude exit={result.returncode} stdout={len(result.stdout)}B stderr={len(result.stderr)}B")
+        if result.stderr:
+            log(f"[{entry_id}] claude stderr (first 500): {result.stderr[:500]}")
         if result.stdout:
             log(f"[{entry_id}] claude stdout (first 500): {result.stdout[:500]}")
     except SessionBudgetExhausted as exc:
@@ -313,15 +317,18 @@ def _run_in_worktree(
         )
         if pr_result.returncode != 0:
             # Retry without label (label may not exist)
-            log(f"[{entry_id}] PR with label failed, retrying without label")
+            log(f"[{entry_id}] PR with label failed (stderr: {pr_result.stderr.strip()[:200]}), retrying without label")
             pr_result = subprocess.run(
-                pr_cmd, cwd=workdir, check=True,
+                pr_cmd, cwd=workdir,
                 capture_output=True, text=True, timeout=60,
             )
+        if pr_result.returncode != 0:
+            log(f"[{entry_id}] PR creation failed: {pr_result.stderr.strip()[:300]}")
+            return "failed:pr_create"
         pr_url = pr_result.stdout.strip()
         log(f"[{entry_id}] PR created: {pr_url}")
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        log(f"[{entry_id}] PR creation failed: {exc}")
+    except subprocess.TimeoutExpired as exc:
+        log(f"[{entry_id}] PR creation timed out: {exc}")
         return "failed:pr_create"
 
     return f"pr_created|{pr_url}|{','.join(changed_files)}"
