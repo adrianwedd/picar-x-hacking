@@ -100,6 +100,7 @@ def default_state() -> Dict[str, Any]:
         "obi_step": 0,
         "obi_mood": None,
         "obi_streak": 0,
+        "obi_story_lines": [],
         "spark_quiet_mode": False,
         "history": [],
     }
