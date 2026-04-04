@@ -162,6 +162,10 @@ Step 4: Stop. Do NOT summarize, describe, or narrate what you did.
 
 ## File blacklist (NEVER touch)
 {bl_lines}
+
+CRITICAL: You may ONLY edit files matching the whitelist above.
+If you edit ANY other file, the entire evolution will be REJECTED and your work will be lost.
+Maximum {EVOLVE_MAX_FILES} files changed. Exceeding this limit will also cause rejection.
 """
 
 
@@ -236,7 +240,23 @@ def _run_in_worktree(
         log(f"[{entry_id}] claude timed out after {EVOLVE_TIMEOUT}s")
         return "failed:timeout"
 
-    # 3. Stage and commit any changes Claude made via Edit/Write tools
+    # 3. Pre-commit validation: check for empty changes or merge conflicts
+    status_result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=workdir, capture_output=True, text=True, timeout=10,
+    )
+    status_out = status_result.stdout.strip()
+
+    if not status_out:
+        log(f"[{entry_id}] Claude made no changes — marking skipped")
+        return "failed:no_changes"
+
+    conflict_markers = {"UU ", "AA ", "DD "}
+    if any(line[:3] in conflict_markers for line in status_out.splitlines()):
+        log(f"[{entry_id}] merge conflict detected in worktree — marking failed")
+        return "failed:merge_conflict"
+
+    # Stage and commit
     subprocess.run(
         ["git", "add", "-A"],
         cwd=workdir, capture_output=True, text=True, timeout=10,
