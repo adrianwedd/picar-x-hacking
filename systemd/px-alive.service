@@ -1,6 +1,6 @@
 [Unit]
 Description=PiCar-X Idle Alive Daemon (organic servo motion)
-After=network.target
+After=network.target px-mind.service px-api-server.service
 StartLimitIntervalSec=0
 
 [Service]
