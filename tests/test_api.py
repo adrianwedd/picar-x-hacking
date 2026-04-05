@@ -44,14 +44,24 @@ def auth_headers():
 # -- Health (unauthenticated) --
 
 class TestHealth:
-    def test_health_ok(self, api_client):
-        resp = api_client.get("/api/v1/health")
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+    def test_health_returns_details(self, api_client):
+        """Health endpoint returns system details, not just static ok."""
+        r = api_client.get("/api/v1/health")
+        assert r.status_code in (200, 503)
+        data = r.json()
+        assert "status" in data
+        assert "checks" in data
+        assert isinstance(data["checks"], dict)
+
+    def test_health_includes_thoughts_freshness(self, api_client):
+        """Health endpoint reports thoughts staleness."""
+        r = api_client.get("/api/v1/health")
+        data = r.json()
+        assert "thoughts" in data["checks"]
 
     def test_health_no_auth_required(self, api_client):
         resp = api_client.get("/api/v1/health")
-        assert resp.status_code == 200
+        assert resp.status_code in (200, 503)
 
 
 # -- Security Headers --
