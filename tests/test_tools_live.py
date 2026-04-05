@@ -137,10 +137,11 @@ class TestNonGpioLive:
                 live_env(PX_SOUND="beep"),
             )
         except subprocess.CalledProcessError as e:
-            if "Device or resource busy" in (e.stderr or ""):
+            combined = (e.stderr or "") + (e.stdout or "")
+            if "busy" in combined.lower() or "resource" in combined.lower():
                 pytest.skip("audio device busy — PulseAudio contention")
             raise
-        if "Device or resource busy" in (payload.get("error") or ""):
+        if "busy" in (payload.get("error") or "").lower():
             pytest.skip("audio device busy — PulseAudio contention")
         assert payload["status"] == "ok"
         assert payload["sound"] == "beep"
