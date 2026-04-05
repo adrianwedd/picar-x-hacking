@@ -513,8 +513,44 @@ def _public_state_dir() -> Path:
 # ---------------------------------------------------------------------------
 
 @app.get("/api/v1/health")
-async def health() -> Dict[str, str]:
-    return {"status": "ok"}
+async def health():
+    """Health check with system staleness detection."""
+    import time as _time
+    state_dir = _public_state_dir()
+    checks = {}
+    overall = "ok"
+
+    # Thoughts freshness
+    thoughts_file = state_dir / "thoughts-spark.jsonl"
+    if thoughts_file.exists():
+        age_s = _time.time() - thoughts_file.stat().st_mtime
+        if age_s > 3600:
+            checks["thoughts"] = {"status": "stale", "age_s": round(age_s)}
+            overall = "degraded"
+        else:
+            checks["thoughts"] = {"status": "ok", "age_s": round(age_s)}
+    else:
+        checks["thoughts"] = {"status": "missing"}
+        overall = "degraded"
+
+    # Awareness freshness
+    awareness_file = state_dir / "awareness.json"
+    if awareness_file.exists():
+        age_s = _time.time() - awareness_file.stat().st_mtime
+        if age_s > 300:
+            checks["awareness"] = {"status": "stale", "age_s": round(age_s)}
+            if overall == "ok":
+                overall = "degraded"
+        else:
+            checks["awareness"] = {"status": "ok", "age_s": round(age_s)}
+    else:
+        checks["awareness"] = {"status": "missing"}
+
+    status_code = 200 if overall == "ok" else 503
+    return JSONResponse(
+        content={"status": overall, "checks": checks},
+        status_code=status_code,
+    )
 
 
 # ---------------------------------------------------------------------------
