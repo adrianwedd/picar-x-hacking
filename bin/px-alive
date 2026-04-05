@@ -614,10 +614,16 @@ def main(argv) -> int:
         if exploring_file.exists():
             exploring = json.loads(exploring_file.read_text(encoding="utf-8"))
             if exploring.get("active"):
-                exp_pid = exploring.get("pid")
-                if exp_pid and Path(f"/proc/{exp_pid}").is_dir():
-                    log("exploration active (PID %d) — exiting cleanly" % exp_pid)
-                    sys.exit(0)
+                age = time.time() - exploring_file.stat().st_mtime
+                if age > 60:
+                    log(f"exploring.json stale ({age:.0f}s old) — ignoring")
+                else:
+                    exp_pid = exploring.get("pid")
+                    if exp_pid and Path(f"/proc/{exp_pid}").is_dir():
+                        log("exploration active (PID %d) — exiting cleanly" % exp_pid)
+                        sys.exit(0)
+                    else:
+                        log(f"exploring.json active but PID {exp_pid} dead — ignoring")
     except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
         pass  # expected on missing/corrupt exploring.json
 
