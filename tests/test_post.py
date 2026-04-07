@@ -321,6 +321,65 @@ def test_qa_response_whitespace():
         assert run_qa_gate("I wonder about the stars") == "pass"
 
 
+@pytest.fixture(autouse=False)
+def _reset_qa_breaker():
+    """Reset the circuit breaker state before and after each test."""
+    breaker = _POST["_qa_breaker"]
+    orig = dict(breaker)
+    breaker["failures"] = 0
+    breaker["open_until"] = 0.0
+    yield
+    breaker.update(orig)
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "1", "PX_CLAUDE_BIN": "/usr/bin/claude"})
+def test_qa_circuit_breaker_opens_after_consecutive_failures(_reset_qa_breaker):
+    """After 3 failures the breaker opens; 4th call skips subprocess entirely."""
+    breaker = _POST["_qa_breaker"]
+    with patch.object(_post_subprocess, "run", side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=15)) as mock_run:
+        # 3 failures to open the breaker
+        for _ in range(3):
+            assert run_qa_gate("thought") is None
+        assert breaker["failures"] == 3
+        assert breaker["open_until"] > 0
+
+        # 4th call — breaker is open, subprocess must NOT be called
+        call_count_before = mock_run.call_count
+        result = run_qa_gate("thought")
+        assert result is None
+        assert mock_run.call_count == call_count_before  # no new subprocess call
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "1", "PX_CLAUDE_BIN": "/usr/bin/claude"})
+def test_qa_circuit_breaker_resets_on_success(_reset_qa_breaker):
+    """A successful call resets the failure counter to 0."""
+    breaker = _POST["_qa_breaker"]
+    # Simulate 2 prior failures
+    breaker["failures"] = 2
+
+    with patch.object(_post_subprocess, "run", return_value=_mock_run_result("YES")):
+        result = run_qa_gate("a good thought")
+    assert result == "pass"
+    assert breaker["failures"] == 0
+
+
+@patch.dict(os.environ, {"PX_POST_QA": "1", "PX_CLAUDE_BIN": "/usr/bin/claude"})
+def test_qa_circuit_breaker_reopens_after_cooldown(_reset_qa_breaker):
+    """After the cooldown expires the breaker resets and subprocess is called again."""
+    import time as _time
+    breaker = _POST["_qa_breaker"]
+    # Set breaker to open state with an already-elapsed open_until
+    breaker["failures"] = 3
+    breaker["open_until"] = _time.monotonic() - 1.0  # expired
+
+    with patch.object(_post_subprocess, "run", return_value=_mock_run_result("YES")) as mock_run:
+        result = run_qa_gate("thought after cooldown")
+    # Failures should have been reset and subprocess called
+    assert mock_run.call_count == 1
+    assert result == "pass"
+    assert breaker["failures"] == 0
+
+
 # ---------------------------------------------------------------------------
 # write_feed() — feed.json writer
 # ---------------------------------------------------------------------------

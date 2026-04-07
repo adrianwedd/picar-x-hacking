@@ -320,9 +320,22 @@ def run_qa_gate(thought: str) -> str | None:
 
     Calls claude CLI with a binary YES/NO prompt. Response is stripped,
     lowercased, and prefix-matched.
+
+    A circuit breaker opens after 3 consecutive failures, skipping QA calls
+    for 5 minutes (returns None immediately). Resets on any success.
     """
     if os.environ.get("PX_POST_QA", "1") == "0":
         return "pass"  # QA disabled for testing
+
+    # Circuit breaker check
+    now = time.monotonic()
+    if _qa_breaker["failures"] >= _qa_breaker["threshold"]:
+        if now < _qa_breaker["open_until"]:
+            log("qa gate circuit breaker open — skipping")
+            return None
+        else:
+            # Cooldown elapsed — reset and retry
+            _qa_breaker["failures"] = 0
 
     claude_bin = (os.environ.get("PX_CLAUDE_BIN")
                   or shutil.which("claude")
@@ -348,20 +361,35 @@ def run_qa_gate(thought: str) -> str | None:
         )
         if result.returncode != 0:
             log(f"qa gate error: claude exit {result.returncode}: {result.stderr[:200]}")
+            _qa_breaker["failures"] += 1
+            if _qa_breaker["failures"] >= _qa_breaker["threshold"]:
+                _qa_breaker["open_until"] = time.monotonic() + _qa_breaker["cooldown"]
+                log(f"qa gate circuit breaker opened ({_qa_breaker['failures']} failures)")
             return None
         resp = result.stdout.strip().lower()
         if resp.startswith("yes"):
+            _qa_breaker["failures"] = 0
             return "pass"
         elif resp.startswith("no"):
+            _qa_breaker["failures"] = 0
             return "rejected"
         else:
             log(f"qa gate ambiguous response: {result.stdout.strip()[:100]}")
+            _qa_breaker["failures"] = 0
             return "ambiguous"
     except subprocess.TimeoutExpired:
         log("qa gate timeout (15s)")
+        _qa_breaker["failures"] += 1
+        if _qa_breaker["failures"] >= _qa_breaker["threshold"]:
+            _qa_breaker["open_until"] = time.monotonic() + _qa_breaker["cooldown"]
+            log(f"qa gate circuit breaker opened ({_qa_breaker['failures']} failures)")
         return None
     except Exception as exc:
         log(f"qa gate error: {exc}")
+        _qa_breaker["failures"] += 1
+        if _qa_breaker["failures"] >= _qa_breaker["threshold"]:
+            _qa_breaker["open_until"] = time.monotonic() + _qa_breaker["cooldown"]
+            log(f"qa gate circuit breaker opened ({_qa_breaker['failures']} failures)")
         return None
 
 
@@ -656,6 +684,8 @@ class BlueskyClient:
 
 QUEUE_FILE = STATE_DIR / "post_queue.jsonl"
 QUEUE_LIMIT = 200
+
+_qa_breaker = {"failures": 0, "open_until": 0.0, "threshold": 3, "cooldown": 300}
 
 
 def _generate_post_id() -> str:
