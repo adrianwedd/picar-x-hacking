@@ -291,3 +291,18 @@ def test_reflection_dry_thought_contains_dry_run_marker(mind_state):
     }
     result = reflection(awareness, dry=True)
     assert result["thought"].startswith("Dry-run thought:")
+
+
+@patch.dict(os.environ, {"PX_CLAUDE_BIN": "/usr/bin/claude"})
+def test_call_claude_logs_stdout_on_failure():
+    """When Claude exits non-zero with empty stderr, error includes stdout."""
+    from pxh.mind import call_claude_haiku
+
+    mock_result = MagicMock()
+    mock_result.returncode = 1
+    mock_result.stdout = "API rate limit exceeded"
+    mock_result.stderr = ""
+
+    with patch.object(pxh.mind.subprocess, "run", return_value=mock_result):
+        result = call_claude_haiku("test prompt", "test system")
+        assert "rate limit" in result.get("error", "").lower()

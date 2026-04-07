@@ -2069,7 +2069,9 @@ def call_claude_haiku(prompt: str, system: str) -> dict:
 
     if result.returncode != 0:
         stderr = (result.stderr or "")[-200:]
-        return {"error": f"claude exit {result.returncode}: {stderr}"}
+        stdout = (result.stdout or "")[-200:]
+        detail = stderr or stdout  # prefer stderr, fall back to stdout
+        return {"error": f"claude exit {result.returncode}: {detail}"}
 
     # Extract JSON from stdout (may contain preamble text before the JSON)
     stdout = result.stdout.strip()
