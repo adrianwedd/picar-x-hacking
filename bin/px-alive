@@ -201,34 +201,45 @@ def spark_greet(dry: bool) -> None:
         pass  # voice busy or timed out — greet silently skipped, px-alive keeps running
 
 
-def make_px():
-    # os.getlogin() patched globally via usercustomize.py for systemd
-    #
-    # NOTE (issue #44 — servo shudder on restart after yield_alive):
-    # Picarx.__init__() calls reset_mcu() which toggles GPIO5 LOW->HIGH,
-    # resetting the robot_hat MCU.  This causes all PCA9685 PWM channels to
-    # glitch briefly before the MCU re-initialises, producing a visible servo
-    # shudder (snap-to-center then drift to target).  There is no software
-    # workaround: reset_mcu is hard-coded in the upstream picarx library
-    # (system site-packages) and the PCA9685 registers are wiped by the MCU
-    # reset before we can read them.  The persistent-handle pattern (get_px /
-    # drop_px) already minimises how often this happens -- it only occurs on
-    # I2C error recovery or after yield_alive restart.  Closed as won't-fix:
-    # hardware limitation.
+def make_px(force_reset: bool = False):
+    """Create a Picarx instance, optionally skipping the MCU reset.
+
+    The upstream Picarx.__init__() unconditionally calls reset_mcu() which
+    pulses GPIO5 LOW→HIGH, wiping all MCU PWM registers and causing a
+    visible servo shudder.  On normal yield_alive restarts the MCU is
+    already running and doesn't need resetting — we monkey-patch reset_mcu
+    to a no-op.  On I2C error recovery (force_reset=True) we keep the real
+    reset to clear a potentially wedged MCU.
+    """
     from picarx import Picarx
-    return Picarx()
+    import robot_hat.utils
+
+    if force_reset:
+        return Picarx()
+
+    _orig = robot_hat.utils.reset_mcu
+    robot_hat.utils.reset_mcu = lambda: None
+    try:
+        return Picarx()
+    finally:
+        robot_hat.utils.reset_mcu = _orig
 
 
 def release_px(px) -> None:
-    """Release lgpio + I2C handles without resetting servo position.
+    """Release ultrasonic GPIO handles without moving servos.
 
-    The PCA9685 PWM chip is I2C-driven and holds its last commanded position
-    autonomously after close(), so the servo stays put while px-alive sleeps.
+    The MCU holds PWM state autonomously over I2C — servos stay at their
+    last commanded position after we release handles.  We intentionally
+    skip px.close() because it calls Picarx.reset() which snaps all
+    servos to calibration-center (the first half of the "shudder").
     """
     try:
-        px.close()
-    except Exception as exc:
-        log(f"GPIO release failed: {exc}")
+        px.ultrasonic.close()
+    except Exception:
+        pass
+    # Do NOT call px.close() — it centres servos via reset().
+    # Servo PWM channels and I2C bus handles are released when the
+    # process exits; the MCU keeps driving servos in the meantime.
 
 
 def safe_distance() -> float | None:
@@ -354,18 +365,22 @@ def idle_loop(args) -> None:
     # release it, causing "GPIO busy" on the next open).
     px = None
 
+    _force_next_reset = False
+
     def get_px():
-        nonlocal px
+        nonlocal px, _force_next_reset
         if px is None:
-            px = make_px()
-            log("acquired Picarx handle")
+            px = make_px(force_reset=_force_next_reset)
+            log(f"acquired Picarx handle (reset={'hard' if _force_next_reset else 'skipped'})")
+            _force_next_reset = False
         return px
 
-    def drop_px():
-        nonlocal px
+    def drop_px(force_reset_on_reacquire: bool = False):
+        nonlocal px, _force_next_reset
         if px is not None:
             release_px(px)
             px = None
+        _force_next_reset = force_reset_on_reacquire
 
     _yield_requested = False
 
@@ -561,7 +576,7 @@ def idle_loop(args) -> None:
 
             except OSError as exc:
                 log(f"I2C error (will retry in {I2C_BACKOFF_S}s): {exc}")
-                drop_px()  # release broken handle so get_px() recreates it
+                drop_px(force_reset_on_reacquire=True)  # hard reset MCU on next get_px()
                 i2c_ok_after = time.monotonic() + I2C_BACKOFF_S
                 next_gaze = i2c_ok_after + random.uniform(cur_mood_behavior.get("gaze_min", GAZE_MIN_S), cur_mood_behavior.get("gaze_max", GAZE_MAX_S))
                 next_scan = i2c_ok_after + random.uniform(SCAN_MIN_S, SCAN_MAX_S)
