@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import os
 import random
 import signal
@@ -48,7 +49,7 @@ OBI_DAY_START     = 7     # hour (Hobart) — Obi's waking hours
 OBI_DAY_END       = 20    # hour (Hobart)
 PAN_RANGE    = (-65, 65)
 TILT_RANGE   = (-15, 35)
-EASE_SPEED   = 15     # steps per second (lower = slower step rate, more servo settle time)
+EASE_SPEED   = 8      # steps per second (lower = fewer I2C writes, less servo jitter)
 
 # Face tracking
 FACE_TRACK_GAIN_PAN  = 0.15   # proportional gain for pan (higher = faster response)
@@ -142,7 +143,8 @@ def _pan_from_frigate(presence: dict | None) -> int:
 def ease(px, from_pan: int, from_tilt: int, to_pan: int, to_tilt: int, duration: float) -> None:
     steps = max(2, int(duration * EASE_SPEED))
     for i in range(steps + 1):
-        t = i / steps
+        # Sine ease-in-out: smooth acceleration/deceleration
+        t = 0.5 - 0.5 * math.cos(math.pi * i / steps)
         px.set_cam_pan_angle(int(round(from_pan  + (to_pan  - from_pan)  * t)))
         px.set_cam_tilt_angle(int(round(from_tilt + (to_tilt - from_tilt) * t)))
         if i < steps:
