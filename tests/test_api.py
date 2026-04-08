@@ -972,3 +972,174 @@ class TestPublicBudget:
         """Budget endpoint should not require authentication."""
         r = api_client.get("/api/v1/public/budget")
         assert r.status_code == 200
+
+
+# -- Race endpoint --
+
+class TestRaceEndpoint:
+    """Tests for POST /api/v1/race/{action} and related async job plumbing."""
+
+    def _mock_popen(self):
+        """Return a context manager that patches subprocess.Popen with a mock
+        that simulates a quickly-finishing process."""
+        from unittest.mock import patch, MagicMock
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+        mock_proc.poll.return_value = 0           # already finished
+        mock_proc.returncode = 0
+        mock_proc.communicate.return_value = (b"done\n", b"")
+        return patch("pxh.api.subprocess.Popen", return_value=mock_proc)
+
+    def test_race_requires_auth(self, api_client):
+        """POST /api/v1/race/map without auth returns 401."""
+        resp = api_client.post("/api/v1/race/map", json={})
+        assert resp.status_code == 401
+
+    def test_race_invalid_action(self, api_client, auth_headers):
+        """POST /api/v1/race/invalid returns 400."""
+        resp = api_client.post("/api/v1/race/invalid", headers=auth_headers, json={})
+        assert resp.status_code == 400
+        data = resp.json()
+        assert "invalid" in data.get("detail", "").lower()
+
+    def test_race_map_returns_202(self, api_client, auth_headers):
+        """POST /api/v1/race/map with auth returns 202 + job_id."""
+        with self._mock_popen():
+            resp = api_client.post("/api/v1/race/map", headers=auth_headers, json={})
+        assert resp.status_code == 202
+        data = resp.json()
+        assert data["status"] == "accepted"
+        assert "job_id" in data
+        assert "poll" in data
+        assert data["job_id"] in data["poll"]
+
+    def test_race_stop_when_not_running(self, api_client, auth_headers):
+        """POST /api/v1/race/stop when no race is active returns not_running."""
+        # Ensure no race is running by resetting module-level state
+        import pxh.api as api_mod
+        with api_mod._race_proc_lock:
+            api_mod._race_proc = None
+
+        resp = api_client.post("/api/v1/race/stop", headers=auth_headers, json={})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "not_running"
+
+    def test_race_status(self, api_client, auth_headers):
+        """POST /api/v1/race/status returns current state with expected fields."""
+        import pxh.api as api_mod
+        with api_mod._race_proc_lock:
+            api_mod._race_proc = None
+
+        resp = api_client.post("/api/v1/race/status", headers=auth_headers, json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "running" in data
+        assert "calibrated" in data
+        assert "has_profile" in data
+        assert data["running"] is False
+
+    def test_race_dry_field_honored(self, api_client, auth_headers):
+        """POST /api/v1/race/map with dry:true includes --dry-run in the command."""
+        from unittest.mock import patch, MagicMock, call
+        mock_proc = MagicMock()
+        mock_proc.pid = 99999
+        mock_proc.poll.return_value = 0
+        mock_proc.returncode = 0
+        mock_proc.communicate.return_value = (b"", b"")
+
+        captured_calls = []
+
+        def fake_popen(cmd, **kwargs):
+            captured_calls.append(cmd)
+            return mock_proc
+
+        # Ensure FORCE_DRY is off so the body dry field is respected
+        import pxh.api as api_mod
+        original_force_dry = api_mod.FORCE_DRY
+        api_mod.FORCE_DRY = False
+        try:
+            with patch("pxh.api.subprocess.Popen", side_effect=fake_popen):
+                resp = api_client.post(
+                    "/api/v1/race/map",
+                    headers=auth_headers,
+                    json={"dry": True},
+                )
+        finally:
+            api_mod.FORCE_DRY = original_force_dry
+
+        assert resp.status_code == 202
+        # Wait briefly for background thread to call Popen
+        import time
+        deadline = time.monotonic() + 5.0
+        while not captured_calls and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+        assert captured_calls, "Popen was never called by the background thread"
+        cmd = captured_calls[0]
+        assert "--dry-run" in cmd, f"Expected --dry-run in command: {cmd}"
+
+    def test_race_job_poll(self, api_client, auth_headers):
+        """After starting a race (mocked), GET /api/v1/jobs/{id} returns job status."""
+        import time
+        with self._mock_popen():
+            resp = api_client.post("/api/v1/race/map", headers=auth_headers, json={})
+        assert resp.status_code == 202
+        job_id = resp.json()["job_id"]
+
+        # Poll until the background thread settles (up to 10s)
+        deadline = time.monotonic() + 10.0
+        last_status = None
+        while time.monotonic() < deadline:
+            r = api_client.get(f"/api/v1/jobs/{job_id}", headers=auth_headers)
+            assert r.status_code == 200
+            last_status = r.json()["status"]
+            if last_status in ("complete", "error"):
+                break
+            time.sleep(0.1)
+
+        assert last_status in ("running", "complete", "error"), (
+            f"Unexpected job status: {last_status}"
+        )
+
+    def test_race_stop_terminates_running_process(self, api_client, auth_headers):
+        """POST /api/v1/race/stop when a race is running terminates it."""
+        import pxh.api as api_mod
+        from unittest.mock import MagicMock
+
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # still running
+        mock_proc.wait.return_value = 0
+
+        with api_mod._race_proc_lock:
+            api_mod._race_proc = mock_proc
+
+        try:
+            resp = api_client.post("/api/v1/race/stop", headers=auth_headers, json={})
+        finally:
+            # Clean up in case the endpoint didn't clear it
+            with api_mod._race_proc_lock:
+                api_mod._race_proc = None
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "stopped"
+        mock_proc.terminate.assert_called_once()
+
+    def test_race_conflict_when_already_running(self, api_client, auth_headers):
+        """POST /api/v1/race/map while a race is active returns 409."""
+        import pxh.api as api_mod
+        from unittest.mock import MagicMock
+
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None  # still running
+
+        with api_mod._race_proc_lock:
+            api_mod._race_proc = mock_proc
+
+        try:
+            resp = api_client.post("/api/v1/race/map", headers=auth_headers, json={})
+        finally:
+            with api_mod._race_proc_lock:
+                api_mod._race_proc = None
+
+        assert resp.status_code == 409
+        assert resp.json()["status"] == "already_running"
