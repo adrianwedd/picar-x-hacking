@@ -773,10 +773,10 @@ async def authenticated_awareness() -> Dict[str, Any]:
 
 
 @app.get("/api/v1/public/history")
-async def public_history() -> list:
-    """Ring buffer of up to 60 vitals readings (~30 min history). No auth."""
+async def public_history(limit: int = Query(default=60, ge=1, le=2880)) -> list:
+    """Ring buffer of up to 2880 vitals readings (24h). No auth. Default: last 60 (~30 min)."""
     with _history_lock:
-        return list(_history_buf)
+        return list(_history_buf)[-limit:]
 
 
 @app.get("/api/v1/public/thoughts")
@@ -943,10 +943,14 @@ _PUBLIC_CHAT_EXECUTOR = ThreadPoolExecutor(max_workers=2)
 _executor = ThreadPoolExecutor(max_workers=2)
 _public_chat_log = logging.getLogger("pxh.api.public_chat")
 
-# Strip Claude Code session vars but NOT CLAUDE_API_KEY (used with OAuth).
-# Narrower prefixes: "CLAUDE_CODE" covers CLAUDE_CODE_ENTRYPOINT,
-# CLAUDE_CODE_ENABLE_TELEMETRY, etc. "CLAUDECODE" catches the bare flag.
-_CLAUDE_ENV_STRIP_PREFIXES = ("CLAUDE_CODE", "CLAUDECODE", "DISABLE_CLAUDE_CODE_PROTECTIONS")
+# Strict allowlist for env vars passed to the public chat Claude subprocess.
+# Only safe, non-secret vars are forwarded — this prevents prompt injection
+# from exfiltrating PX_API_TOKEN, PX_ADMIN_PIN, PX_HA_TOKEN, PX_BSKY_APP_PASSWORD, etc.
+_PUBLIC_CHAT_ENV_ALLOWLIST = {
+    "HOME", "USER", "LANG", "LC_ALL", "PATH", "TERM",
+    "PYTHONPATH", "PROJECT_ROOT", "PX_STATE_DIR", "LOG_DIR",
+    "XDG_RUNTIME_DIR", "PULSE_SERVER",
+}
 
 
 def _get_claude_bin() -> str:
@@ -959,10 +963,7 @@ def _get_claude_bin() -> str:
 
 
 def _make_clean_env() -> dict:
-    return {
-        k: v for k, v in os.environ.items()
-        if not any(k.startswith(p) for p in _CLAUDE_ENV_STRIP_PREFIXES)
-    }
+    return {k: v for k, v in os.environ.items() if k in _PUBLIC_CHAT_ENV_ALLOWLIST}
 
 
 async def _call_claude_public(prompt: str) -> str:
@@ -1665,6 +1666,7 @@ _DEVICE_ACTIONS: dict[str, list[str]] = {
 
 # Two-step device action confirmation (Issue #93)
 _pending_device_actions: dict[str, tuple[str, float]] = {}  # nonce → (action, expiry_mono)
+_pending_device_lock = threading.Lock()
 _PENDING_DEVICE_MAX = 5
 _PENDING_DEVICE_TTL = 30  # seconds
 
@@ -1784,7 +1786,7 @@ class DeviceConfirmRequest(BaseModel):
 
 
 def _clean_pending_device_actions() -> None:
-    """Remove expired pending device action nonces."""
+    """Remove expired pending device action nonces. Caller must hold _pending_device_lock."""
     now = _time.monotonic()
     expired = [k for k, (_, exp) in _pending_device_actions.items() if now > exp]
     for k in expired:
@@ -1796,8 +1798,9 @@ def _clean_pending_device_actions() -> None:
 @app.post("/api/v1/device/confirm", dependencies=[Depends(_verify_token)])
 async def device_confirm(body: DeviceConfirmRequest) -> JSONResponse:
     """Confirm a pending device action using the nonce from step 1."""
-    _clean_pending_device_actions()
-    entry = _pending_device_actions.pop(body.nonce, None)
+    with _pending_device_lock:
+        _clean_pending_device_actions()
+        entry = _pending_device_actions.pop(body.nonce, None)
     if entry is None:
         return JSONResponse(status_code=400, content={
             "status": "error",
@@ -1830,16 +1833,17 @@ async def device_control(action: str, body: DeviceActionRequest = DeviceActionRe
     """
     if action not in _DEVICE_ACTIONS:
         raise HTTPException(status_code=400, detail=f"unknown action: {action}")
-    # Clean expired nonces
-    _clean_pending_device_actions()
-    # Cap pending actions
-    if len(_pending_device_actions) >= _PENDING_DEVICE_MAX:
-        return JSONResponse(status_code=429, content={
-            "status": "error",
-            "error": "too many pending device actions — wait for them to expire",
-        })
-    nonce = secrets.token_urlsafe(16)
-    _pending_device_actions[nonce] = (action, _time.monotonic() + _PENDING_DEVICE_TTL)
+    with _pending_device_lock:
+        # Clean expired nonces
+        _clean_pending_device_actions()
+        # Cap pending actions
+        if len(_pending_device_actions) >= _PENDING_DEVICE_MAX:
+            return JSONResponse(status_code=429, content={
+                "status": "error",
+                "error": "too many pending device actions — wait for them to expire",
+            })
+        nonce = secrets.token_urlsafe(16)
+        _pending_device_actions[nonce] = (action, _time.monotonic() + _PENDING_DEVICE_TTL)
     return JSONResponse(status_code=200, content={
         "status": "confirm_required",
         "nonce": nonce,

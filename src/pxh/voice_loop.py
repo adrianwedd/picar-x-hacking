@@ -764,8 +764,9 @@ def supervisor_loop(args: argparse.Namespace) -> None:
     ensure_session()
     system_prompt = read_prompt(Path(args.prompt))
 
-    heartbeat_q: queue.Queue = queue.Queue()
+    heartbeat_q: queue.Queue | None = None
     if args.input_mode != "text":
+        heartbeat_q = queue.Queue()
         watchdog = threading.Thread(
             target=watchdog_thread_func, args=(heartbeat_q, args.watchdog_timeout), daemon=True
         )
@@ -773,7 +774,8 @@ def supervisor_loop(args: argparse.Namespace) -> None:
 
     turn = 0
     while turn < args.max_turns:
-        heartbeat_q.put(time.monotonic())
+        if heartbeat_q is not None:
+            heartbeat_q.put(time.monotonic())
         session = load_session()
 
         listening_enabled = session.get("listening", False)
@@ -782,7 +784,8 @@ def supervisor_loop(args: argparse.Namespace) -> None:
             continue
 
         turn += 1
-        heartbeat_q.put(time.monotonic())
+        if heartbeat_q is not None:
+            heartbeat_q.put(time.monotonic())
         if args.input_mode == "text":
             user_text = capture_text_input()
         else:
@@ -792,7 +795,8 @@ def supervisor_loop(args: argparse.Namespace) -> None:
             print("[voice-loop] No input, exiting.")
             break
 
-        heartbeat_q.put(time.monotonic())
+        if heartbeat_q is not None:
+            heartbeat_q.put(time.monotonic())
         # Use persona prompt if one is active in session
         active_persona = (session.get("persona") or "").lower().strip()
         if active_persona and active_persona in PERSONA_PROMPTS:
@@ -806,9 +810,11 @@ def supervisor_loop(args: argparse.Namespace) -> None:
         prompt = build_model_prompt(current_prompt, session, user_text)
         prompt_excerpt = prompt[:800]
 
-        heartbeat_q.put(time.monotonic())
+        if heartbeat_q is not None:
+            heartbeat_q.put(time.monotonic())
         rc, stdout, stderr = run_codex(args.codex_cmd, prompt)
-        heartbeat_q.put(time.monotonic())
+        if heartbeat_q is not None:
+            heartbeat_q.put(time.monotonic())
         if rc == 0 and stdout.strip():
             try:
                 from .token_log import log_usage
@@ -842,13 +848,15 @@ def supervisor_loop(args: argparse.Namespace) -> None:
             print(f"[voice-loop] Invalid action: {exc}")
             continue
 
-        heartbeat_q.put(time.monotonic())
+        if heartbeat_q is not None:
+            heartbeat_q.put(time.monotonic())
         try:
             rc_tool, tool_stdout, tool_stderr = execute_tool(tool, env_overrides, args.dry_run)
         except VoiceLoopError as exc:
             print(f"[voice-loop] Execution error: {exc}")
             continue
-        heartbeat_q.put(time.monotonic())
+        if heartbeat_q is not None:
+            heartbeat_q.put(time.monotonic())
 
         tool_payload = parse_tool_payload(tool_stdout)
         session_update = {
@@ -895,7 +903,8 @@ def supervisor_loop(args: argparse.Namespace) -> None:
         if tool == "tool_weather":
             summary = tool_payload.get("summary") if isinstance(tool_payload, dict) else None
             if summary:
-                heartbeat_q.put(time.monotonic())
+                if heartbeat_q is not None:
+                    heartbeat_q.put(time.monotonic())
                 try:
                     rc_voice, voice_stdout, voice_stderr = execute_tool(
                         "tool_voice",
@@ -918,7 +927,8 @@ def supervisor_loop(args: argparse.Namespace) -> None:
                         "stdout": voice_stdout[-1000:],
                         "stderr": voice_stderr[-1000:],
                     }
-                heartbeat_q.put(time.monotonic())
+                if heartbeat_q is not None:
+                    heartbeat_q.put(time.monotonic())
 
         if voice_result is not None:
             transcript_entry["voice_result"] = voice_result
