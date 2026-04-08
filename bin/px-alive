@@ -49,7 +49,7 @@ OBI_DAY_START     = 7     # hour (Hobart) — Obi's waking hours
 OBI_DAY_END       = 20    # hour (Hobart)
 PAN_RANGE    = (-65, 65)
 TILT_RANGE   = (-15, 35)
-EASE_SPEED   = 8      # steps per second (lower = fewer I2C writes, less servo jitter)
+EASE_SPEED   = 5      # steps per second (lower = fewer I2C writes, less servo jitter)
 
 # Face tracking
 FACE_TRACK_GAIN_PAN  = 0.15   # proportional gain for pan (higher = faster response)
