@@ -203,46 +203,51 @@ def is_due(post_type: str, blog_data: dict) -> tuple[bool, dt.datetime | None]:
 
     elif post_type == "weekly":
         # Target: most recent Sunday at 22:30. Also catch-up previous Sunday.
+        # Aggregate posts only become due once at least one child exists, so we
+        # do not enter a tight skip/back-off loop when source material is empty.
+        posts = blog_data.get("posts", [])
         days_since_sunday = (now.weekday() + 1) % 7
         last_sunday = now - dt.timedelta(days=days_since_sunday)
         target = last_sunday.replace(hour=sched["hour"], minute=sched["minute"], second=0, microsecond=0)
         if now >= target:
             pid = id_for_post("weekly", last_sunday)
-            if not post_exists(blog_data.get("posts", []), pid):
+            if not post_exists(posts, pid) and gather_children("weekly", last_sunday, posts):
                 return True, last_sunday
         # Catch-up: previous Sunday
         prev_sunday = last_sunday - dt.timedelta(days=7)
         pid_prev = id_for_post("weekly", prev_sunday)
-        if not post_exists(blog_data.get("posts", []), pid_prev):
+        if not post_exists(posts, pid_prev) and gather_children("weekly", prev_sunday, posts):
             return True, prev_sunday
         return False, None
 
     elif post_type == "monthly":
         # Target: 1st of current month at 23:00. Also catch-up previous month.
+        posts = blog_data.get("posts", [])
         target = now.replace(day=1, hour=sched["hour"], minute=sched["minute"], second=0, microsecond=0)
         if now >= target:
             pid = id_for_post("monthly", now)
-            if not post_exists(blog_data.get("posts", []), pid):
+            if not post_exists(posts, pid) and gather_children("monthly", now, posts):
                 return True, now
         # Catch-up: previous month
         first_of_month = now.replace(day=1)
         prev_month = first_of_month - dt.timedelta(days=1)
         pid_prev = id_for_post("monthly", prev_month)
-        if not post_exists(blog_data.get("posts", []), pid_prev):
+        if not post_exists(posts, pid_prev) and gather_children("monthly", prev_month, posts):
             return True, prev_month
         return False, None
 
     elif post_type == "yearly":
         # Target: Jan 1 at 23:30. Also catch-up previous year.
+        posts = blog_data.get("posts", [])
         target = now.replace(month=1, day=1, hour=sched["hour"], minute=sched["minute"], second=0, microsecond=0)
         if now >= target:
             pid = id_for_post("yearly", now)
-            if not post_exists(blog_data.get("posts", []), pid):
+            if not post_exists(posts, pid) and gather_children("yearly", now, posts):
                 return True, now
         # Catch-up: previous year
         prev_year = now.replace(year=now.year - 1, month=1, day=1)
         pid_prev = id_for_post("yearly", prev_year)
-        if not post_exists(blog_data.get("posts", []), pid_prev):
+        if not post_exists(posts, pid_prev) and gather_children("yearly", prev_year, posts):
             return True, prev_year
         return False, None
 
