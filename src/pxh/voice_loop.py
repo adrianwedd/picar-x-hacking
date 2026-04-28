@@ -170,13 +170,17 @@ class VoiceLoopError(Exception):
 
 
 def watchdog_thread_func(heartbeat_q: queue.Queue, timeout: float) -> None:
-    """Monitors a queue for heartbeats and exits if they become stale."""
+    """Monitors a queue for heartbeats and exits if they become stale.
+    Drains the queue fully each iteration so producers (multiple per turn)
+    don't accumulate unbounded between watchdog wakeups."""
     last_heartbeat = time.monotonic()
     while True:
-        try:
-            last_heartbeat = heartbeat_q.get_nowait()
-        except queue.Empty:
-            pass
+        # Drain to empty — keep only the most recent heartbeat.
+        while True:
+            try:
+                last_heartbeat = heartbeat_q.get_nowait()
+            except queue.Empty:
+                break
 
         stale_time = time.monotonic() - last_heartbeat
         if stale_time > timeout:

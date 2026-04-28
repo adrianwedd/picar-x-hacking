@@ -56,16 +56,25 @@ def atomic_write(path: Path, content: str) -> None:
 
 
 def tail_lines(path: "Path", n: int = 10, chunk_size: int = 8192) -> list:
-    """Read the last n lines of a file efficiently by seeking from the end."""
+    """Read the last n lines of a file by seeking backward in chunks until
+    n+1 newlines are accumulated or BOF is reached. Handles lines longer than
+    chunk_size and n larger than fits in one chunk."""
+    if n <= 0:
+        return []
     try:
         with path.open("rb") as f:
             f.seek(0, 2)
-            size = f.tell()
-            read_size = min(size, chunk_size)
-            f.seek(size - read_size)
-            data = f.read().decode("utf-8", errors="replace")
-            lines = data.strip().splitlines()
-            return lines[-n:]
+            end = f.tell()
+            if end == 0:
+                return []
+            buf = b""
+            pos = end
+            while pos > 0 and buf.count(b"\n") <= n:
+                read_size = min(chunk_size, pos)
+                pos -= read_size
+                f.seek(pos)
+                buf = f.read(read_size) + buf
+            return buf.decode("utf-8", errors="replace").splitlines()[-n:]
     except (FileNotFoundError, OSError):
         return []
 

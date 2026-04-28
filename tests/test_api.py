@@ -958,20 +958,33 @@ class TestPublicChat:
 
 class TestPublicBudget:
     def test_public_budget_ok(self, api_client):
-        """GET /api/v1/public/budget returns session budget info."""
+        """GET /api/v1/public/budget returns aggregate budget — no per-session detail."""
         r = api_client.get("/api/v1/public/budget")
         assert r.status_code == 200
         data = r.json()
         assert "daily_cap" in data
         assert "used_today" in data
         assert "remaining" in data
-        assert "sessions" in data
-        assert isinstance(data["sessions"], list)
+        # Per-session detail must not leak on the public surface (issue #141).
+        assert "sessions" not in data
 
     def test_public_budget_no_auth_required(self, api_client):
         """Budget endpoint should not require authentication."""
         r = api_client.get("/api/v1/public/budget")
         assert r.status_code == 200
+
+    def test_authenticated_budget_includes_sessions(self, api_client, auth_headers):
+        """GET /api/v1/budget (authenticated) includes per-session detail."""
+        r = api_client.get("/api/v1/budget", headers=auth_headers)
+        assert r.status_code == 200
+        data = r.json()
+        assert "sessions" in data
+        assert isinstance(data["sessions"], list)
+
+    def test_authenticated_budget_requires_auth(self, api_client):
+        """GET /api/v1/budget without auth must be rejected."""
+        r = api_client.get("/api/v1/budget")
+        assert r.status_code in (401, 403)
 
 
 # -- Race endpoint --

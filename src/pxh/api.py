@@ -30,7 +30,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .state import load_session, load_session_readonly, update_session, tail_lines
+from .state import atomic_write, load_session, load_session_readonly, update_session, tail_lines
 from .time import utc_timestamp
 from .voice_loop import (
     ALLOWED_TOOLS,
@@ -421,8 +421,8 @@ def _history_worker() -> None:
     while True:
         _time.sleep(30)
         try:
-            _persona = (load_session_readonly().get("persona") or "").strip().lower()
-            sample = _collect_history_sample(_public_state_dir(), _persona)
+            # Always sample SPARK — public history must not reflect gremlin/vixen state.
+            sample = _collect_history_sample(_public_state_dir(), "spark")
             # Forward-fill fields that change slowly (weather, battery) so sparklines
             # don't go blank between BOM/battery poll cycles.
             with _history_lock:
@@ -559,9 +559,9 @@ async def health():
 
 @app.get("/api/v1/public/status")
 async def public_status() -> Dict[str, Any]:
-    """Live SPARK status: persona, mood, last thought. No auth required."""
+    """Live SPARK status: persona, mood, last thought. No auth required.
+    Public surface always reports SPARK — never leak gremlin/vixen state."""
     session = load_session_readonly()
-    persona = session.get("persona", "")
 
     state_dir = _public_state_dir()
     # Always use SPARK's thoughts on the public site — never expose gremlin/vixen thoughts.
@@ -600,7 +600,7 @@ async def public_status() -> Dict[str, Any]:
         pass
 
     return {
-        "persona": persona or None,
+        "persona": "spark",
         "mood": last.get("mood"),
         "last_thought": last.get("thought"),
         "last_spoken": last_spoken,
@@ -870,12 +870,29 @@ async def public_race():
 
 @app.get("/api/v1/public/budget")
 async def public_budget():
-    """Claude session budget status — unauthenticated."""
+    """Claude session budget aggregate — unauthenticated.
+    Per-session detail (timestamps, models, types, outcomes) is kept off the
+    public surface; use the authenticated /api/v1/budget for that."""
     try:
         from pxh.claude_session import DAILY_CAP, _load_session_log, _today_entries
 
-        log_entries = _load_session_log()
-        today = _today_entries(log_entries)
+        today = _today_entries(_load_session_log())
+        return {
+            "daily_cap": DAILY_CAP,
+            "used_today": len(today),
+            "remaining": max(0, DAILY_CAP - len(today)),
+        }
+    except Exception:
+        return {"daily_cap": 8, "used_today": 0, "remaining": 8}
+
+
+@app.get("/api/v1/budget", dependencies=[Depends(_verify_token)])
+async def budget():
+    """Claude session budget with per-session detail. Authenticated only."""
+    try:
+        from pxh.claude_session import DAILY_CAP, _load_session_log, _today_entries
+
+        today = _today_entries(_load_session_log())
         sessions = [
             {
                 "ts": e.get("ts"),
@@ -1751,7 +1768,6 @@ def _save_pin_state() -> None:
     Version 2 schema: per-IP attempts and lockout timestamps.
     """
     from datetime import datetime, timezone, timedelta
-    import tempfile
     now_mono = _time.monotonic()
     now_utc = datetime.now(timezone.utc)
     # Build per-IP data
@@ -1782,19 +1798,10 @@ def _save_pin_state() -> None:
     }
     path = _pin_state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     try:
-        with os.fdopen(tmp_fd, "w") as f:
-            json.dump(data, f)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, str(path))
+        atomic_write(path, json.dumps(data))
     except Exception as exc:
         logging.getLogger("pxh.api").warning("pin state write failed: %s", exc)
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
 
 
 class DeviceActionRequest(BaseModel):

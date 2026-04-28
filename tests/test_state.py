@@ -66,3 +66,62 @@ def test_default_state_contains_tracking_fields(tmp_path, monkeypatch):
     state.ensure_session()
     loaded = json.loads(session_file.read_text())
     assert all(key in loaded for key in expected_keys)
+
+
+# -- tail_lines (issue #140) --
+
+def test_tail_lines_returns_last_n(tmp_path):
+    from pxh.state import tail_lines
+    p = tmp_path / "log"
+    p.write_text("\n".join(f"line{i}" for i in range(100)) + "\n")
+    assert tail_lines(p, n=5) == ["line95", "line96", "line97", "line98", "line99"]
+
+
+def test_tail_lines_handles_lines_longer_than_chunk(tmp_path):
+    """Issue #140: lines exceeding chunk_size must not truncate the tail."""
+    from pxh.state import tail_lines
+    p = tmp_path / "log"
+    long = "x" * 5000
+    p.write_text(f"a\n{long}\nb\nc\n")
+    # Even with a tiny chunk, requesting 3 lines must yield 3 complete lines.
+    result = tail_lines(p, n=3, chunk_size=128)
+    assert result == [long, "b", "c"]
+
+
+def test_tail_lines_n_larger_than_one_chunk(tmp_path):
+    """Issue #140: n > lines-per-chunk must keep seeking backward."""
+    from pxh.state import tail_lines
+    p = tmp_path / "log"
+    p.write_text("\n".join(f"line{i}" for i in range(500)) + "\n")
+    result = tail_lines(p, n=200, chunk_size=512)
+    assert len(result) == 200
+    assert result[-1] == "line499"
+    assert result[0] == "line300"
+
+
+def test_tail_lines_empty_file(tmp_path):
+    from pxh.state import tail_lines
+    p = tmp_path / "log"
+    p.write_text("")
+    assert tail_lines(p, n=5) == []
+
+
+def test_tail_lines_missing_file(tmp_path):
+    from pxh.state import tail_lines
+    assert tail_lines(tmp_path / "nope", n=5) == []
+
+
+# -- _save_pin_state ownership (issue #138) --
+
+def test_pin_state_file_world_readable_mode(tmp_path, monkeypatch):
+    """Issue #138: pin_lockout.json must be written via atomic_write so its
+    mode is 0644 (cross-user safe), not 0600 from raw mkstemp."""
+    monkeypatch.setenv("PX_STATE_DIR", str(tmp_path))
+    from pxh import api
+    api._pin_attempts = {"1.2.3.4": 1}
+    api._pin_lockout_until = {}
+    api._save_pin_state()
+    p = tmp_path / "pin_lockout.json"
+    assert p.exists()
+    mode = p.stat().st_mode & 0o777
+    assert mode == 0o644, f"pin_lockout.json mode is {oct(mode)}, expected 0o644"

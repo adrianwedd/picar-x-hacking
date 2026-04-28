@@ -110,6 +110,13 @@ class TestPublicStatus:
         assert data["last_spoken"] == "Said hello"
         assert data["last_spoken_ts"] == "2026-03-13T01:00:00Z"
 
+    @pytest.mark.parametrize("persona", ["gremlin", "vixen"])
+    def test_persona_never_leaks_on_public_status(self, public_client, state_dir, persona):
+        """Issue #139: /public/status must never expose gremlin/vixen state."""
+        (state_dir / "session.json").write_text(json.dumps({"persona": persona}))
+        resp = public_client.get("/api/v1/public/status")
+        assert resp.json()["persona"] == "spark"
+
     def test_last_spoken_null_when_only_wait_thoughts(self, public_client, state_dir):
         thoughts = [
             {"ts": "2026-03-13T01:00:00Z", "thought": "Waiting…", "action": "wait"},

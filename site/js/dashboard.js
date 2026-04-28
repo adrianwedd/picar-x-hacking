@@ -430,12 +430,6 @@ window.SparkDashboard = (function () {
       else span.style.color = 'var(--mood-content)';
       span.textContent = used + '/' + cap;
       valBudget.appendChild(span);
-      if (state.budget.sessions && state.budget.sessions.length > 0) {
-        var last = state.budget.sessions[state.budget.sessions.length - 1];
-        var small = document.createElement('small');
-        small.textContent = ' (last: ' + (last.type || '?') + ')';
-        valBudget.appendChild(small);
-      }
     }
   }
 
