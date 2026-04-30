@@ -8,8 +8,9 @@
  * This worker intercepts matching requests and injects correct meta tags
  * into the HTML response before it reaches the crawler.
  *
- * NOTE: Both routes require zone-deployed Cloudflare routing to this Worker.
- * The /blog/* route must be added alongside the existing /thought/* route.
+ * Both routes are wired in wrangler.toml and deployed to the spark-og-rewrite
+ * Worker. Cloudflare prevents recursive invocation on the same zone, so
+ * fetch(request) hits the origin server, not this Worker again.
  */
 
 const API_BASE = 'https://spark-api.wedd.au/api/v1/public';
@@ -77,9 +78,9 @@ function rewriteOgText(html, title, description) {
 }
 
 export default {
-  // NOTE: This Worker relies on zone-deployed routing:
-  //   spark.wedd.au/thought/* → Worker  (existing)
-  //   spark.wedd.au/blog/*    → Worker  (add this route in Cloudflare dashboard)
+  // Routes (wrangler.toml):
+  //   spark.wedd.au/thought/* → Worker
+  //   spark.wedd.au/blog/*    → Worker
   // Cloudflare prevents recursive Worker invocation on the same zone, so fetch(request)
   // hits the origin server, not this Worker again.
   async fetch(request) {
